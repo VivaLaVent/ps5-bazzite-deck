@@ -187,12 +187,10 @@ and send `log.txt` from the small FAT32 partition in [Discord](https://discord.g
 - **120 Hz?** 1080p120 works if your TV/monitor offers it. 1440p120 is on by default from v1.1 if your TV/monitor offers it, and 1440p60 is offered too.
 - **HDR?** Not working yet. Keep it off (see First boot).
 - **"Your PS5 wasn't turned off properly" after using Linux?** Normal and harmless.
-- **One DualSense for both the PS5 and Linux?** Yes, with a controller that has several pairing profiles
-  (PS + a face button): keep the PS5 on its profile and pair Linux once on another one (e.g. PS + Square).
-  Linux gives the original PS5's Bluetooth chip its own address at boot (`ps5-bt-addr.service`), so the two
-  pairings no longer overwrite each other and you switch without a cable. `bluetoothctl` still shows the old
-  address; the controller sees the new one (`sudo ps5-bt-addr` prints it). Consoles with the MediaTek
-  Bluetooth chip are left unchanged.
+- **One DualSense for the PS5 and Linux?** Yes, if the DualSense has pairing profiles (PS + a face button).
+  Keep the PS5 pairing on one profile. Pair Linux on a different profile, for example PS + Square.
+  You do not need a USB cable when you change the system. Original PS5 only.
+  Refer to [docs/dualsense-profiles.md](docs/dualsense-profiles.md).
 - **Can I install apps?** Yes: use the Discover store / Flatpak. `dnf5 install` works for system packages;
   `rpm-ostree` and `ujust update` don't (this image isn't an ostree install).
 

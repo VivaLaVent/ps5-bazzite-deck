@@ -28,8 +28,10 @@ patches/ps5-hdmi-rearm-pr46.patch      HDMI: picture back when the same display 
 patches/ps5-hdmi-output-fixes.patch    HDMI: scrambling off below 340 MHz, no FLAVA3 event sequences, hotplug work queue, re-arm only for the same display, 8-bit colour cap
 patches/ps5-hdmi-modes.patch           HDMI: 1440p120, 1440p60, 1440p sync shape/polarity, skip 4:2:0-only modes
 files/                                 files baked into the image: NetworkManager stable MAC, MediaTek BT udev/modprobe,
-                                       boot ordering-cycle fix for ps5-stage-firmware.service
+                                       boot ordering-cycle fix for ps5-stage-firmware.service,
+                                       IW620 Linux-only Bluetooth address (ps5-bt-addr + its service)
 docs/game-mode-fix.md                  how the Game Mode problem was found and fixed
+docs/dualsense-profiles.md             one DualSense for the PS5 and Linux (ps5-bt-addr)
 docs/release-template.md               release notes of the current release
 CHANGELOG.md
 ```

@@ -1,23 +1,5 @@
 #!/bin/bash
-# Give the PS5's Bluetooth chip a Linux-only address, so one DualSense can stay
-# paired to both the PS5 system and Linux.
-#
-# The PS5 system and Linux share the same Bluetooth chip, so both show the same
-# address. A DualSense with several pairing profiles (PS + a face button) files
-# its pairings by host address: pairing Linux overwrites the PS5's key and the
-# other way round, so the controller has to be re-paired with a cable after
-# every switch. Setting the "locally administered" bit (80:.. -> 82:..) makes
-# Linux a separate host: one profile for the PS5, another one for Linux.
-#
-# How: power the adapter on, send the Marvell "set BD address" command (0xfc22)
-# straight to the chip and read the address back from the chip. The kernel only
-# programs a new address during the adapter's first setup, and it keeps showing
-# the old one afterwards (bluetoothctl too); the chip, and so the controller,
-# uses the new one. The change lives in the chip's RAM: rebooting into the PS5
-# system brings the original address back, so nothing changes on the PS5 side.
-#
-# Marvell IW620 only (original PS5, USB 1286:2059). On other chips, e.g. the
-# MediaTek one in some Slim consoles, 0xfc22 means something else: do nothing.
+# Gives the IW620 Bluetooth chip a Linux-only address. See docs/dualsense-profiles.md.
 set -u
 
 for _ in $(seq 30); do
@@ -41,15 +23,13 @@ import socket, struct, sys
 def open_hci():
     s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
     s.bind((0,))
-    # Only "command complete" (0x0e) and "command status" (0x0f) events.
-    # struct hci_ufilter is 14 bytes of fields padded to 16; the kernel rejects 14.
+    # struct hci_ufilter is 16 bytes with padding. The kernel rejects 14.
     s.setsockopt(socket.SOL_HCI, socket.HCI_FILTER,
                  struct.pack("<IIIHxx", 1 << 4, (1 << 0x0E) | (1 << 0x0F), 0, 0))
     s.settimeout(5)
     return s
 
 def command(s, opcode, params=b""):
-    """Send an HCI command, return (status, return parameters)."""
     s.send(bytes([0x01]) + struct.pack("<HB", opcode, len(params)) + params)
     while True:
         pkt = s.recv(260)
