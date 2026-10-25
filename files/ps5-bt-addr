@@ -1,0 +1,85 @@
+#!/bin/bash
+# Give the PS5's Bluetooth chip a Linux-only address, so one DualSense can stay
+# paired to both the PS5 system and Linux.
+#
+# The PS5 system and Linux share the same Bluetooth chip, so both show the same
+# address. A DualSense with several pairing profiles (PS + a face button) files
+# its pairings by host address: pairing Linux overwrites the PS5's key and the
+# other way round, so the controller has to be re-paired with a cable after
+# every switch. Setting the "locally administered" bit (80:.. -> 82:..) makes
+# Linux a separate host: one profile for the PS5, another one for Linux.
+#
+# How: power the adapter on, send the Marvell "set BD address" command (0xfc22)
+# straight to the chip and read the address back from the chip. The kernel only
+# programs a new address during the adapter's first setup, and it keeps showing
+# the old one afterwards (bluetoothctl too); the chip, and so the controller,
+# uses the new one. The change lives in the chip's RAM: rebooting into the PS5
+# system brings the original address back, so nothing changes on the PS5 side.
+#
+# Marvell IW620 only (original PS5, USB 1286:2059). On other chips, e.g. the
+# MediaTek one in some Slim consoles, 0xfc22 means something else: do nothing.
+set -u
+
+for _ in $(seq 30); do
+    [ -e /sys/class/bluetooth/hci0 ] && break
+    sleep 1
+done
+[ -e /sys/class/bluetooth/hci0 ] || { echo "no Bluetooth adapter found"; exit 0; }
+
+usb=$(readlink -f /sys/class/bluetooth/hci0/device/..)
+id="$(cat "$usb/idVendor" 2>/dev/null):$(cat "$usb/idProduct" 2>/dev/null)"
+if [ "$id" != "1286:2059" ]; then
+    echo "Bluetooth chip $id is not the PS5's Marvell IW620, nothing to do"
+    exit 0
+fi
+
+btmgmt --index 0 power on >/dev/null
+
+exec python3 -I - <<'PY'
+import socket, struct, sys
+
+def open_hci():
+    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
+    s.bind((0,))
+    # Only "command complete" (0x0e) and "command status" (0x0f) events.
+    # struct hci_ufilter is 14 bytes of fields padded to 16; the kernel rejects 14.
+    s.setsockopt(socket.SOL_HCI, socket.HCI_FILTER,
+                 struct.pack("<IIIHxx", 1 << 4, (1 << 0x0E) | (1 << 0x0F), 0, 0))
+    s.settimeout(5)
+    return s
+
+def command(s, opcode, params=b""):
+    """Send an HCI command, return (status, return parameters)."""
+    s.send(bytes([0x01]) + struct.pack("<HB", opcode, len(params)) + params)
+    while True:
+        pkt = s.recv(260)
+        if pkt[1] == 0x0E and struct.unpack("<H", pkt[4:6])[0] == opcode:
+            return pkt[6], pkt[7:]
+        if pkt[1] == 0x0F and struct.unpack("<H", pkt[5:7])[0] == opcode:
+            return pkt[3], b""
+
+def chip_address(s):
+    status, ret = command(s, 0x1009)  # Read BD_ADDR
+    if status != 0:
+        sys.exit(f"could not read the chip address (status 0x{status:02x})")
+    return ":".join(f"{b:02X}" for b in reversed(ret[:6]))
+
+s = open_hci()
+cur = chip_address(s)
+first = int(cur[:2], 16)
+if first & 0x02:
+    print(f"chip already uses the Linux address {cur}")
+    sys.exit(0)
+new = f"{first | 0x02:02X}" + cur[2:]
+print(f"changing Bluetooth address {cur} -> {new}")
+
+raw = bytes(int(x, 16) for x in reversed(new.split(":")))
+status, _ = command(s, 0xFC22, bytes([0xFE, 6]) + raw)  # Marvell: set BD address
+if status != 0:
+    sys.exit(f"chip refused the address change (status 0x{status:02x})")
+
+now = chip_address(s)
+if now != new:
+    sys.exit(f"address change failed, chip still uses {now}")
+print(f"chip address is now {now}")
+PY

@@ -1,0 +1,11 @@
+[Unit]
+Description=Linux-only Bluetooth address, so a DualSense keeps separate PS5 and Linux profiles
+Before=bluetooth.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ps5-bt-addr
+
+[Install]
+WantedBy=bluetooth.target

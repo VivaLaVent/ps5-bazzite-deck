@@ -3,6 +3,7 @@
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
 ## [Unreleased]
+- **One DualSense for both the PS5 and Linux, without a cable**: on consoles with the Marvell IW620 Bluetooth chip, `ps5-bt-addr.service` gives the chip a Linux-only address at boot (the locally administered bit set, `80:..` → `82:..`). A DualSense with several pairing profiles then keeps the PS5 pairing on one profile and the Linux pairing on another, instead of each system overwriting the other's key. The address lives in the chip's RAM: the PS5 system gets its own address back on reboot. MediaTek consoles are left unchanged. Also installed by the in-place update (`FILES` entries can now carry a file mode)
 
 ## [v1.2.0] – 2026-10-23
 - **Fix: rainbow / "disco" colours** (posterized contours in gradients, seen on Verde consoles with TVs that offer deep colour): the output is capped at 8 bits per colour in the DRM core on the PS5. The graphics driver defaulted "max bpc" to 16 and compositors may ask for 10; the HDMI bridges show deeper colour as contours. Also stops the TV re-announcing itself every few seconds on such setups

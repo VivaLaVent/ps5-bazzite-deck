@@ -22,13 +22,16 @@ for f in $(sudo ls /mnt/ps5boot); do case "$f" in bzImage|initrd*) sudo cp "/mnt
 sudo cp -a "/mnt/ps5root/usr/lib/modules/$K" "$OUT/modules/"
 sudo test -f /mnt/ps5root/etc/modprobe.d/ps5-iw620.conf && sudo cp /mnt/ps5root/etc/modprobe.d/ps5-iw620.conf "$OUT/files/ps5-iw620-modprobe.conf"
 sudo chown -R "$(id -u):$(id -g)" "$OUT"
-cp "$SRC/files/99-ps5-iw620.conf" "$SRC/files/99-ps5-bt-phantom.rules" "$SRC/files/btusb-ps5.conf" "$SRC/files/ps5-stage-firmware-no-default-deps.conf" "$OUT/files/"
+cp "$SRC/files/99-ps5-iw620.conf" "$SRC/files/99-ps5-bt-phantom.rules" "$SRC/files/btusb-ps5.conf" "$SRC/files/ps5-stage-firmware-no-default-deps.conf" "$SRC/files/ps5-bt-addr" "$SRC/files/ps5-bt-addr.service" "$OUT/files/"
+# FILES: source, destination, optional mode (default 644)
 cat > "$OUT/FILES" << 'L'
 99-ps5-iw620.conf /etc/NetworkManager/conf.d/99-ps5-iw620.conf
 99-ps5-bt-phantom.rules /etc/udev/rules.d/99-ps5-bt-phantom.rules
 btusb-ps5.conf /etc/modprobe.d/btusb-ps5.conf
 ps5-stage-firmware-no-default-deps.conf /etc/systemd/system/ps5-stage-firmware.service.d/10-no-default-deps.conf
 ps5-iw620-modprobe.conf /etc/modprobe.d/ps5-iw620.conf
+ps5-bt-addr /usr/local/sbin/ps5-bt-addr 755
+ps5-bt-addr.service /etc/systemd/system/ps5-bt-addr.service
 L
 echo "$REL" > "$OUT/VERSION"; echo "$K" > "$OUT/KERNEL"
 cp "$SRC/tools/update.sh" "$OUT/update.sh"

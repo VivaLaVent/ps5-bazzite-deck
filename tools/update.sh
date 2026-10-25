@@ -36,7 +36,12 @@ for f in efi/*; do sudo cp "$f" "$EFI/"; done
 sudo depmod -a "$K"
 
 echo "==> system settings"
-while read -r src dst; do [ -n "$src" ] && sudo install -Dm644 "files/$src" "$dst"; done < FILES
+while read -r src dst mode; do [ -n "$src" ] && sudo install -Dm"${mode:-644}" "files/$src" "$dst"; done < FILES
+# Linux-only Bluetooth address (DualSense keeps a PS5 profile and a Linux profile); takes effect at the next boot
+if [ -f /etc/systemd/system/ps5-bt-addr.service ]; then
+  sudo systemctl daemon-reload
+  sudo systemctl enable ps5-bt-addr.service 2>/dev/null
+fi
 sudo sed -i 's/ video=DP-1:1920x1080@60//' "$EFI/cmdline.txt"
 sudo grep -q "lsm=" "$EFI/cmdline.txt" || sudo sed -i 's/[[:space:]]*$/ lsm=landlock,lockdown,yama,integrity,apparmor,bpf/' "$EFI/cmdline.txt"
 # GPU compute units: 40 (amdgpu.ps5_cu_unlock=3) is opt-in again from v1.1.1 (silicon lottery: the extra 4
