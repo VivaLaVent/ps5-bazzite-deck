@@ -70,14 +70,14 @@ PS5 har 40 beräkningsenheter, men Sony aktiverar normalt 36. De övriga kan ge 
 
 Be om hjälp i [Discord](https://discord.gg/qGcuTgBBYU), kanalen `#bazzite-problems`, och bifoga rapporten från `ps5-report`. Rapporten läser bara systeminformation och relevanta loggar.
 
-- **Konsolen kör men visar ingen bild:** anslut med SSH eller TTY och följ [återställningsguiden](docs/display-recovery.md).
+- **Konsolen kör men visar ingen bild:** anslut med SSH eller TTY och följ [återställningsguiden](docs/sv/display-recovery.md).
 - **Vitt ljus men svart skärm:** kontrollera HDMI Device Link, HDMI-port, TV och HDCP. Som sista utväg, använd `amdgpu.force_1080p=1`.
 - **Återgår till PS5-menyn:** strömknappen trycktes troligen innan orange ljus slutat blinka eller USB-ström i viloläge är inte satt till `Always`.
 - **Artefakter eller krascher:** stäng av upplåsning av 40 GPU-enheter. För enskilda spel kan `RADV_DEBUG=nohiz %command%` hjälpa.
 - **VRR saknas:** VERDE, FreeSync-skärmar utan HDMI VRR eller avstängt VRR för TV-ingången stöds inte.
 - **SSD i USB-kabinett startar inte:** prova ett annat kabinett.
 
-För skärmproblem och logginsamling finns [engelska visningsguiden](docs/display-logs.md).
+För skärmproblem och logginsamling finns [den svenska visningsguiden](docs/sv/display-logs.md).
 
 ## Installera på PS5:ans interna M.2
 
