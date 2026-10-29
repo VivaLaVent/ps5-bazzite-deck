@@ -1,5 +1,7 @@
 # PS5 Bazzite Deck
 
+[English](README.md) | [Svenska](README.sv.md)
+
 Turn your PS5 into a Steam console: this is [Bazzite](https://bazzite.gg) in Steam Deck mode, adapted for the
 PlayStation 5. It boots straight into **Steam Gaming Mode** (the Steam Deck interface), and a full KDE
 desktop is one click away.
