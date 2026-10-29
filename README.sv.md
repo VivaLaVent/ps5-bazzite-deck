@@ -18,7 +18,7 @@ Samma avbildning används för alla PS5-modeller som stöds. HDMI-krets, Wi-Fi/B
 - **IW620** kan använda en separat Bluetooth-adress för Linux med `ps5-bt-address on`. Funktionen är ett aktivt val, eftersom omstarter då går via PS5-systemet. MediaTek använder separata parkopplingsprofiler automatiskt.
 - **PS5 Pro** stöds från v1.8.4. Starta laddaren en gång till efter första starten så används Pro-modellens GPU-firmware.
 
-Detaljer om DualSense-profiler finns i [den engelska guiden](docs/dualsense-profiles.md). Rapporter från PS5 Pro tas emot i `#bazzite-ps5-pro-tests`.
+Detaljer om DualSense-profiler finns i [den svenska guiden](docs/sv/dualsense-profiles.md). Rapporter från PS5 Pro tas emot i `#bazzite-ps5-pro-tests`.
 
 ## Förberedelser
 
