@@ -23,7 +23,7 @@ echo "free space: ${FREE}G"; [ "$FREE" -ge 60 ] || { echo "STOP: need at least 6
 
 if [ -n "${FRESH:-}" ]; then
   echo "==> FRESH: from-scratch build with build.sh (the previous build dir is kept as $B.prev)"
-  [ -d "$B" ] && { rm -rf "$B.prev"; mv "$B" "$B.prev"; }
+  [ -d "$B" ] && { sudo rm -rf "$B.prev"; mv "$B" "$B.prev"; }   # the old build dir holds root-owned files (chroot)
   OLD="$B.prev" SKIP_7Z=1 RELEASE="$V" bash "$SRC/build.sh"
   cd "$B"
   [ -f "output/ps5-bazzite-deck-$V-update.tar.xz" ] || { echo "STOP: build.sh produced no bundle"; exit 1; }
