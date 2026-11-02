@@ -28,7 +28,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 - VRR only for displays with HDMI VRR, as on the PS5 system; FreeSync-only monitors blanked (v1.8.6, Storm)
 - 100 Hz modes (1080p100, 1440p100, 4K100) offered where the display goes to 100 Hz; 1080p100 is the uncertain one (v1.8.7, test)
 - HDMI 2.x link settings told to the TV at every mode change, for TVs that dropped to HDMI 1.4 modes after boot (v1.8.8, Beyond TV, #11/#21). Not yet confirmed by the reporter, and a suspect for one monitor (ASUS MS27UC behind an HDMI switch) that lost 4K60 on v1.8.9; a display log from that setup is wanted
-- Tried and taken out again (kept under `patches/parked/`): ALLM, instant VRR switching, a one-step switch-over, 4K120 as YCbCr 4:2:2 (wrong colour range), a re-arm change
+- Tried and taken out again (kept in the `archive/research-2026-11` tag): ALLM, instant VRR switching, a one-step switch-over, 4K120 as YCbCr 4:2:2 (wrong colour range), a re-arm change
 
 **Cleanups and tooling**
 - **Patch cleanup:** release numbers and people's names moved out of code comments into the patch descriptions and this changelog; no code change
@@ -68,7 +68,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 > Stable release: everything since v1.7.2 for every model. Image and update bundle: the v1.8.0 build with the v1.8.4 kernel.
 - **VRR never below 48 Hz** (from v1.7.3): less flicker on OLEDs
 - **PS5 Pro support:** GPU (upstream #58 by Borchev, ported to 7.3), its GPU firmware added to the initrd at boot, internal Bluetooth (QuartConz), Wi-Fi; the PS5 CPU and GPU frequency drivers don't start on a Pro (they flooded the log with "mp1fw_sendmsg: busy" and frequency errors), its firmware keeps the clocks
-- **Display as in v1.7.3:** the v1.8.1–v1.8.3 display changes and ALLM are undone (kept in `patches/parked/1.8-reverted`)
+- **Display as in v1.7.3:** the v1.8.1–v1.8.3 display changes and ALLM are undone (kept in the `archive/research-2026-11` tag)
 - Bazzite's ostree-only `bootloader-update` and `greenboot` services, which failed at every boot, are masked
 - The update removes a leftover `hdmi.rearm=0` from `cmdline.txt` (it kept a TV dark after mode changes) and, on IW620 consoles, switches the Linux-only Bluetooth address off (it left Wi-Fi and Bluetooth hung after warm restarts)
 
@@ -102,7 +102,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 - **USB-C DisplayPort off by default** (from v1.6.1): add ` usbc_dp.enable=1` for a USB-C display or the PSVR2
 - **VRR only where it works:** on consoles with the VERDE HDMI chip VRR is never offered, so Steam's setting can't switch on a mode that doesn't work there
 - **README:** the PS5 Pro isn't supported yet; etaHEN and kstuff have to be off; `RADV_DEBUG=nohiz` for graphics glitches in a game; the Wi-Fi chips by ID in the hardware matrix
-- **Cleanup:** the VRR test code and switches of v1.5.1–v1.6.3 are gone (kept in `patches/parked/vrr-history`); the update removes ` hdmi.vrr_test=1` from `cmdline.txt`. For debugging: `hdmi.icc_trace=1`, `hdmi.vrr_measure=1`
+- **Cleanup:** the VRR test code and switches of v1.5.1–v1.6.3 are gone (kept in the `archive/research-2026-11` tag); the update removes ` hdmi.vrr_test=1` from `cmdline.txt`. For debugging: `hdmi.icc_trace=1`, `hdmi.vrr_measure=1`
 
 ## [v1.6.3] – 2026-10-<DD>
 > Kernel only, as a quick kernel package.
@@ -187,7 +187,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 - The Linux-only address also reaches the kernel and bluetoothd (the adapter is re-initialised with bluetoothd stopped), and is set again whenever the adapter re-appears, so pairings are always stored under the same address
 - **DualSense pairing that sticks** (lessons from the ps5-cachyos-setup project): BlueZ `JustWorksRepairing = always` (the pad re-pairs ~1.5 s after pairing; the default rejects that and deletes the bond) and `PairableTimeout = 0` (with pairable off at pair time the bond is thrown away); `hidp` is loaded at boot (the first connection after a boot could drop); `ps5-bt-revive.service` reloads `btusb` if the Bluetooth adapter hangs after a warm reboot (missing, or unpowered with command timeouts; a user who switched Bluetooth off is left alone)
 - **Full-rate DP link**: the link from the GPU to the HDMI chip runs at full rate for every resolution; no black screens at any resolution in rc1 testing; if training at full rate ever fails, the fixed rate is released for the session and amdgpu chooses by itself again
-- **VRR: not yet.** rc1/rc2 drove VRR from the GPU alone: the HDMI chip locks the frame timing. hsgodd then found the chip's own VRR mode in the stock system (Sony's VSync block with VRR values, written after link training, plus 6224=40,0f); with it the picture comes up, but TVs drop the signal ~3.5 s after the chip enters VRR mode, even at a fixed refresh rate, with every combination of ignore-MSA, VTEM metadata guess and FreeSync InfoFrame (vrr-test8). Most likely the VTEM packet's contents are still missing. Parked in `patches/parked/` (test 8 and hsgodd's test 7)
+- **VRR: not yet.** rc1/rc2 drove VRR from the GPU alone: the HDMI chip locks the frame timing. hsgodd then found the chip's own VRR mode in the stock system (Sony's VSync block with VRR values, written after link training, plus 6224=40,0f); with it the picture comes up, but TVs drop the signal ~3.5 s after the chip enters VRR mode, even at a fixed refresh rate, with every combination of ignore-MSA, VTEM metadata guess and FreeSync InfoFrame (vrr-test8). Most likely the VTEM packet's contents are still missing. Parked in the `archive/research-2026-11` tag (test 8 and hsgodd's test 7)
 - No new boot options: the HDMI debug log (rc1's `hdmi.log_notify=1`) is a dynamic-debug log now (`dyndbg="file drivers/ps5/hdmi.c +p"`), the full-rate link and VRR have no switches
 - In-place update: `FILES` lines can have a third column, the file mode; the update enables the Bluetooth services
 - **Sleep (suspend-to-idle)** (ps5-linux-patches PR #4 by Dasloh, applied on top of meower): a short power-button press (or Steam's Sleep) sleeps the console, a short press wakes it; games, network and Bluetooth continue. Kernel config gains `CONFIG_SUSPEND=y` (+ PM_SLEEP etc., `AMD_PMC` off)
