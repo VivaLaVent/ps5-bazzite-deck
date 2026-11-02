@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.0.0] – 2026-11-02 (pre-release)
+## [v2.0.0] – 2026-11-02
 > Full build (image and update bundle). Everything since v1.8.4, the current Latest: the v1.8.5–v1.8.9 test kernels, today's upstream updates, and fixes for the reported Bluetooth and PS5 Pro problems. Untested parts are marked as such.
 
 **Controller / Bluetooth**
