@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.1] – 2026-11-<DD>
+## [v2.1.1] – 2026-11-02
 > v2.1.0's image with the new kernel installed into it, checked file by file.
 - **Fix: Bluetooth on original PS5s (IW620) found no new devices** ("Busy"; the DualSense still worked): v2.0's reconnect quirk made the kernel scan with the old command family while it advertised with the new one, and this chip refuses to mix them ("Command Disallowed" on every scan). The quirk is taken out again, back to v1.8.x behaviour; consistent with rmux reporting Bluetooth trouble on his branch, which has the same quirk
 - **Fix: fan target back to 50 °C after sleep** (and the fan loud again): on waking up the fan driver re-sends its parameter table to the console, which resets the fan target. The current target (80 °C, or what you set with `ps5-perf`/hwcon) is put back now
