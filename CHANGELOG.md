@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.0.1] – 2026-11-<DD> (pre-release)
+## [v2.0.1] – 2026-11-02 (pre-release)
 > Kernel, Bluetooth module and the changed scripts, as a quick package on top of v2.0.0.
 - **Fix: fan louder than before** (Shahine, Phat): v2.0.0's new fan driver no longer set the console's fan target to 80 °C at boot, as the old driver did, so the firmware used its own lower target. It's set again. And the fan modes now match upstream's, so fan tools work as intended: `pwm1_enable` 2 is the kernel curve (as hwcon and CoolerControl expect), 3 the console's firmware control (the default); writing `target_temp` returns to firmware control
 - **PS5 Pro: Bluetooth works from a cold boot** (mfoster978, PR #30): the first HCI Reset raced the controller becoming ready, which left a dead `hci0` until btusb was reloaded; it's retried a few times now (Pro chip only)
