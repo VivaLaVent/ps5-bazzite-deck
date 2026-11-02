@@ -1,0 +1,74 @@
+#!/bin/bash
+# Give the PS5 Pro 0e8d:3605 adapter a volatile Linux-only public address.
+# The Pro needs Bluetooth fully started before its address can be changed safely.
+set -u
+command -v btmgmt >/dev/null || { echo "btmgmt missing"; exit 0; }
+
+OFF=/etc/ps5-bazzite-deck/bt-address-off
+[ -e "$OFF" ] && { echo "PS5 Pro: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on)"; exit 0; }
+
+kernel_addr() { btmgmt --index 0 info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }'; }
+ready=0
+
+for _ in $(seq 40); do
+    if [ -e /sys/class/bluetooth/hci0 ]; then
+        cur=$(kernel_addr)
+        if [ -n "$cur" ] && btmgmt --index 0 info 2>/dev/null | grep -q 'current settings:.*powered'; then
+            ready=1
+            break
+        fi
+    fi
+    sleep 0.25
+done
+[ "$ready" = 1 ] || { echo "PS5 Pro: no powered Bluetooth adapter found"; exit 0; }
+
+usb=$(readlink -f /sys/class/bluetooth/hci0/device/..)
+id="$(cat "$usb/idVendor" 2>/dev/null):$(cat "$usb/idProduct" 2>/dev/null)"
+[ "$id" = "0e8d:3605" ] || { echo "PS5 Pro: Bluetooth chip is $id, nothing to do"; exit 0; }
+
+cur=$(kernel_addr)
+[ -n "$cur" ] || { echo "PS5 Pro: could not read the Bluetooth address"; exit 1; }
+first=$((16#${cur%%:*}))
+if [ $((first & 2)) -ne 0 ]; then
+    echo "PS5 Pro: chip already uses the Linux address $cur"
+    exit 0
+fi
+new=$(printf '%02X' $((first | 2)))${cur#??}
+
+was_active=0
+[ "$(systemctl is-active bluetooth.service)" = active ] && was_active=1
+systemctl stop bluetooth.service || { echo "PS5 Pro: could not stop bluetooth.service"; exit 1; }
+
+recover() {
+    btmgmt --index 0 power on >/dev/null 2>&1 || true
+    if [ "$was_active" = 1 ]; then
+        systemctl start --no-block bluetooth.service >/dev/null 2>&1 || true
+    fi
+}
+
+btmgmt --index 0 power off >/dev/null || { echo "PS5 Pro: could not power hci0 off"; recover; exit 1; }
+out=$(btmgmt --index 0 public-addr "$new" 2>&1)
+rc=$?
+if [ "$rc" -ne 0 ]; then
+    echo "PS5 Pro: address change failed ($out)"
+    recover
+    exit 1
+fi
+btmgmt --index 0 power on >/dev/null || { echo "PS5 Pro: could not power hci0 on"; recover; exit 1; }
+
+kern=
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kern=$(kernel_addr)
+    [ "$kern" = "$new" ] && break
+    sleep 0.5
+done
+if [ "$kern" != "$new" ]; then
+    echo "PS5 Pro: address change did not stick; kernel uses $kern"
+    recover
+    exit 1
+fi
+
+if [ "$was_active" = 1 ]; then
+    systemctl start --no-block bluetooth.service >/dev/null
+fi
+echo "PS5 Pro: changed volatile Bluetooth address $cur -> $new; kernel verified $kern"

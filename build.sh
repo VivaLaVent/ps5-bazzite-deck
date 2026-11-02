@@ -118,10 +118,13 @@ sudo install -Dm644 "$SRC/files/99-ps5-bt-phantom.rules" "$ROOT/etc/udev/rules.d
 sudo install -Dm644 "$SRC/files/btusb-ps5.conf" "$ROOT/etc/modprobe.d/btusb-ps5.conf"
 sudo install -Dm755 "$SRC/files/ps5-bt-addr" "$ROOT/usr/local/sbin/ps5-bt-addr"                                 # IW620: Linux-only BT address, DualSense keeps PS5 + Linux profiles (PR #9, Dasloh)
 sudo install -Dm644 "$SRC/files/ps5-bt-addr.service" "$ROOT/etc/systemd/system/ps5-bt-addr.service"
+sudo install -Dm755 "$SRC/files/ps5-bt-pro-addr" "$ROOT/usr/local/sbin/ps5-bt-pro-addr"                         # PS5 Pro: apply its volatile Linux-only address after Bluetooth is powered
+sudo install -Dm644 "$SRC/files/ps5-bt-pro-addr.service" "$ROOT/etc/systemd/system/ps5-bt-pro-addr.service"
 sudo install -Dm644 "$SRC/files/ps5-bt-connectable.service" "$ROOT/etc/systemd/system/ps5-bt-connectable.service"   # adapter accepts incoming connections (controllers reconnect)
 sudo install -Dm644 "$SRC/files/bluetooth-ps5-connectable.conf" "$ROOT/etc/systemd/system/bluetooth.service.d/10-ps5-connectable.conf"   # ...again after every bluetoothd start
 sudo install -Dm644 "$SRC/files/99-ps5-bt-services.rules" "$ROOT/etc/udev/rules.d/99-ps5-bt-services.rules"   # both services every time the adapter appears
 sudo mkdir -p "$ROOT/etc/systemd/system/bluetooth.target.wants" && for u in ps5-bt-addr ps5-bt-connectable; do sudo ln -sf /etc/systemd/system/$u.service "$ROOT/etc/systemd/system/bluetooth.target.wants/$u.service"; done
+sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /etc/systemd/system/ps5-bt-pro-addr.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-bt-pro-addr.service"
 sudo install -Dm755 "$SRC/files/ps5-bt-revive" "$ROOT/usr/local/sbin/ps5-bt-revive"                             # revive a Bluetooth adapter that hangs after a warm reboot
 sudo install -Dm644 "$SRC/files/ps5-bt-revive.service" "$ROOT/etc/systemd/system/ps5-bt-revive.service"
 sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /etc/systemd/system/ps5-bt-revive.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-bt-revive.service"
