@@ -38,7 +38,7 @@ if [ "$inst" != n ] && [ "$inst" != N ]; then
 else
   echo "   not installed on the PS5"
 fi
-read -r -p "== Start Linux with the loader and test. Publish $V as ${PRERELEASE:+a pre-release}${PRERELEASE:-the stable release}? [y/N] " ok
+read -r -p "== Start Linux with the loader and test. Publish $V as $([ -n "${PRERELEASE:-}" ] && echo a pre-release || echo the stable release)? [y/N] " ok
 [ "$ok" = y ] || { echo "Not published."; exit 0; }
 fi
 cd $O

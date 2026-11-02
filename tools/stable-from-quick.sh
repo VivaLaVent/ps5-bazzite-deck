@@ -27,8 +27,8 @@ cleanup() {
   [ -n "${L:-}" ] && sudo losetup -d "$L" 2>/dev/null || true
 }
 trap cleanup EXIT
-mount_img() {   # $1 = rw|ro
-  L=$(sudo losetup -fP --show "$IMG"); sudo udevadm settle 2>/dev/null || true
+mount_img() {   # $1 = rw|ro, $2 = image (default: the new one)
+  L=$(sudo losetup -fP --show "${2:-$IMG}"); sudo udevadm settle 2>/dev/null || true
   RP=$(for p in ${L}p*; do [ "$(sudo blkid -o value -s LABEL $p)" = bazzite-deck ] && echo $p && break; done)
   BP=$(for p in ${L}p*; do [ "$(sudo blkid -o value -s TYPE $p)" = vfat ] && echo $p && break; done)
   [ -n "$RP" ] && [ -n "$BP" ] || { echo "STOP: image partitions not found"; exit 1; }
@@ -37,7 +37,7 @@ mount_img() {   # $1 = rw|ro
 umount_img() { sync; for m in dev/pts dev proc sys boot/efi ""; do sudo umount "$MNT/$m" 2>/dev/null || true; done; sudo losetup -d "$L"; L=; }
 
 step "image $PREV is the base"
-mount_img ro
+mount_img ro "$IMG0"
 BASEV=$(sudo cat "$MNT/etc/ps5-bazzite-deck-version"); KV=$(sudo ls "$MNT/usr/lib/modules")
 umount_img
 [ "$BASEV" = "$PREV" ] || { echo "STOP: $IMG0 is $BASEV, not $PREV"; exit 1; }
