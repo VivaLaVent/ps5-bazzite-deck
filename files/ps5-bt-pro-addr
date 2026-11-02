@@ -8,6 +8,14 @@ OFF=/etc/ps5-bazzite-deck/bt-address-off
 [ -e "$OFF" ] && { echo "PS5 Pro: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on)"; exit 0; }
 
 kernel_addr() { btmgmt --index 0 info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }'; }
+ps5_pro_present() {
+    local usb
+    for usb in /sys/bus/usb/devices/*; do
+        [ "$(cat "$usb/idVendor" 2>/dev/null)" = 0e8d ] &&
+            [ "$(cat "$usb/idProduct" 2>/dev/null)" = 3605 ] && return 0
+    done
+    return 1
+}
 ready=0
 
 for _ in $(seq 40); do
@@ -20,7 +28,11 @@ for _ in $(seq 40); do
     fi
     sleep 0.25
 done
-[ "$ready" = 1 ] || { echo "PS5 Pro: no powered Bluetooth adapter found"; exit 0; }
+if [ "$ready" != 1 ]; then
+    ps5_pro_present || { echo "PS5 Pro: Bluetooth chip not found, nothing to do"; exit 0; }
+    echo "PS5 Pro: Bluetooth chip found, but hci0 did not become powered within 10 seconds"
+    exit 1
+fi
 
 usb=$(readlink -f /sys/class/bluetooth/hci0/device/..)
 id="$(cat "$usb/idVendor" 2>/dev/null):$(cat "$usb/idProduct" 2>/dev/null)"
@@ -42,7 +54,7 @@ systemctl stop bluetooth.service || { echo "PS5 Pro: could not stop bluetooth.se
 recover() {
     btmgmt --index 0 power on >/dev/null 2>&1 || true
     if [ "$was_active" = 1 ]; then
-        systemctl start --no-block bluetooth.service >/dev/null 2>&1 || true
+        systemctl start bluetooth.service >/dev/null 2>&1 || true
     fi
 }
 
@@ -69,6 +81,7 @@ if [ "$kern" != "$new" ]; then
 fi
 
 if [ "$was_active" = 1 ]; then
-    systemctl start --no-block bluetooth.service >/dev/null
+    systemctl start bluetooth.service >/dev/null ||
+        { echo "PS5 Pro: address changed, but bluetooth.service did not restart"; exit 1; }
 fi
 echo "PS5 Pro: changed volatile Bluetooth address $cur -> $new; kernel verified $kern"
