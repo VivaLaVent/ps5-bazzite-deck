@@ -40,7 +40,7 @@ cat > "$O/install.sh" << 'EOI'
 # archives, later files replace earlier ones). The original is kept as initrd.img.base.
 set -euo pipefail
 cd "$(dirname "$0")"
-K=$(uname -r); [ "$K" = "$(cat KERNEL)" ] || { echo "STOP: running kernel $K, this build is $(cat KERNEL)"; exit 1; }
+K=${QUICK_KERNEL:-$(uname -r)}; [ "$K" = "$(cat KERNEL)" ] || { echo "STOP: running kernel $K, this build is $(cat KERNEL)"; exit 1; }   # QUICK_KERNEL: installing into an image (chroot)
 EFI=$(for d in /efi /boot/efi; do sudo test -f $d/bzImage && echo $d && break; done)
 [ -n "$EFI" ] || { sudo mkdir -p /boot/efi; mountpoint -q /boot/efi || sudo mount LABEL=boot /boot/efi; EFI=/boot/efi; }
 sudo test -f "$EFI/bzImage" || { echo "STOP: no bzImage on the boot partition"; exit 1; }
@@ -110,7 +110,7 @@ if [ -f files/MAP ]; then
     sudo install -D -m "${mode:-644}" "files/$f" "$dest"
   done < files/MAP
   sudo systemctl daemon-reload
-  grep -q "\.rules$" <(awk '{print $1}' files/MAP) && sudo udevadm control --reload
+  grep -q "\.rules$" <(awk '{print $1}' files/MAP) && { sudo udevadm control --reload 2>/dev/null || true; }
   for u in $(awk '$1 ~ /\.service$/ {print $1}' files/MAP); do sudo systemctl enable "$u" >/dev/null 2>&1 || true; done
   echo "files: $(awk '{print $1}' files/MAP | tr '\n' ' ')"
 fi

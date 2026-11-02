@@ -5,7 +5,7 @@
 set -euo pipefail
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 REL=${1:?usage: make-update-bundle.sh v1.0.6}
-B=~/ps5-build-7.3; IMG=$B/output/ps5-bazzite-deck.img
+B=~/ps5-build-7.3; IMG=${IMG:-$B/output/ps5-bazzite-deck.img}
 NAME=ps5-bazzite-deck-$REL-update; OUT=$B/output/$NAME
 rm -rf "$OUT" "$OUT.tar.xz" "$OUT.tar.xz.sha256"; mkdir -p "$OUT/efi" "$OUT/modules" "$OUT/files"
 if [ -n "${FROM_BUNDLE:-}" ]; then

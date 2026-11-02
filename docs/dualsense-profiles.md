@@ -1,4 +1,4 @@
-> **On by default from v1.8.9, on IW620 and MediaTek (Slim) consoles.** Not yet on the PS5 Pro's Bluetooth chip. IW620: while it's on, restarts go through the PS5 system instead of warm ones (the chip doesn't survive a warm restart with the changed address). `ps5-bt-address off` switches it off. Making both work together: [iw620-bt-address-warm-restart.md](iw620-bt-address-warm-restart.md).
+> **On by default from v1.8.9, on IW620 and MediaTek (Slim) consoles.** Not yet on the PS5 Pro's Bluetooth chip. IW620: while it's on, restarts go through the PS5 system instead of warm ones (the chip doesn't survive a warm restart with the changed address). `ps5-bt-address off` switches it off. Background: [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/).
 
 # One DualSense for the PS5 system and Linux
 

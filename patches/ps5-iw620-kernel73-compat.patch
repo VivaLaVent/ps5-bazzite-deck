@@ -1,3 +1,9 @@
+NXP IW620 Wi-Fi (mwifiex, out of tree): build against Linux 7.3
+
+Adapts the vendored NXP driver to the 7.3 cfg80211 API (mgmt_tx and related callback
+signatures). Applied to ps5-linux/ps5-linux-mwifiex by build.sh, not to the kernel tree.
+---
+
 diff --git a/mlinux/moal_cfg80211.c b/mlinux/moal_cfg80211.c
 index 8404ea0..19f5f61 100644
 --- a/mlinux/moal_cfg80211.c

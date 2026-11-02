@@ -2,7 +2,12 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.0.1] – 2026-11-02 (pre-release)
+## [v2.1.0] – 2026-11-<DD>
+> Stable release: v2.0.0's image with the v2.0.1 and v2.1.0 kernel, Bluetooth driver and scripts installed into it (no full image build), checked file by file. Everything since v1.8.4 is in the v2.0.0, v2.0.1 and v2.1.0 entries.
+- **CPU boost off is really off:** with boost switched off (`ps5-perf`, or the CPU boost toggle in tools), the CPU could still reach the boost clocks; the ceiling now drops to 3.2 GHz. The CPU starts in a defined state, so the current clock and the cpufreq statistics are right from boot (rmux's fix, ported to our driver)
+- Checked against rmux's 7.3.1 branch: its fan commit adds diagnostics and drops one temperature channel; nothing there fixes a problem we have, so it isn't taken. A move to Linux 7.3.1 comes as its own release later
+
+## [v2.0.1] – 2026-11-<DD> (pre-release)
 > Kernel, Bluetooth module and the changed scripts, as a quick package on top of v2.0.0.
 - **Fix: fan louder than before** (Shahine, Phat): v2.0.0's new fan driver no longer set the console's fan target to 80 °C at boot, as the old driver did, so the firmware used its own lower target. It's set again. And the fan modes now match upstream's, so fan tools work as intended: `pwm1_enable` 2 is the kernel curve (as hwcon and CoolerControl expect), 3 the console's firmware control (the default); writing `target_temp` returns to firmware control
 - **PS5 Pro: Bluetooth works from a cold boot** (mfoster978, PR #30): the first HCI Reset raced the controller becoming ready, which left a dead `hci0` until btusb was reloaded; it's retried a few times now (Pro chip only)
