@@ -54,7 +54,7 @@ sudo rm -f /etc/ps5-bazzite-deck/bt-address
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
 # v1.8.9: hdmi.rearm=0 is gone (the re-arm has its own back-off now); a leftover kept TVs dark after mode changes
 sudo sed -i 's/ *hdmi\.rearm=0//' "$EFI/cmdline.txt"
-for u in ps5-bt-addr ps5-bt-connectable ps5-bt-revive ps5-wifi-repair ps5-perf ps5-stage-viola-fw; do
+for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-connectable ps5-bt-revive ps5-wifi-repair ps5-perf ps5-stage-viola-fw; do
   [ -f "/etc/systemd/system/$u.service" ] && sudo systemctl enable "$u.service" 2>/dev/null || true
 done
 [ -f /etc/systemd/system/ps5-wifi-powersave.timer ] && sudo systemctl enable ps5-wifi-powersave.timer 2>/dev/null || true

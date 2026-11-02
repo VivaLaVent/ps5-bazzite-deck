@@ -1,6 +1,6 @@
 [Unit]
 Description=Bluetooth adapter accepts incoming connections (controllers reconnect by themselves)
-After=bluetooth.service ps5-bt-addr.service
+After=bluetooth.service ps5-bt-addr.service ps5-bt-pro-addr.service
 
 [Service]
 Type=oneshot

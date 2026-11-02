@@ -8,7 +8,7 @@ The PS5 system and Linux use the same Bluetooth chip. The two systems have the s
 
 A DualSense with pairing profiles keeps one pairing for each host address. When you pair the DualSense with Linux, the DualSense replaces the PS5 pairing. When you pair the DualSense with the PS5 again, the DualSense replaces the Linux pairing. You must pair the DualSense again each time that you change the system.
 
-The `ps5-bt-addr` service gives Linux a different Bluetooth address. The DualSense then keeps two pairings:
+The `ps5-bt-addr` service on IW620, or `ps5-bt-pro-addr` on PS5 Pro, gives Linux a different Bluetooth address. The DualSense then keeps two pairings:
 
 - One pairing for the PS5 system, on one profile.
 - One pairing for Linux, on a different profile.
@@ -18,6 +18,7 @@ You do not need a USB cable when you change the system.
 ## Applicability
 
 - PS5 consoles with the Marvell IW620 Bluetooth chip (USB ID `1286:2059`). The original PS5 has this chip.
+- PS5 Pro consoles with the MediaTek Bluetooth chip (USB ID `0e8d:3605`).
 - The service does not change consoles with a different Bluetooth chip. Some PS5 Slim consoles have a MediaTek chip.
 - DualSense controllers with pairing profiles (PS button + a face button).
 
@@ -37,17 +38,16 @@ Before you start, make sure that the DualSense is paired with the PS5 system on 
 ## Procedure: make sure that the service operates
 
 1. Open a terminal on Linux.
-2. Type `sudo ps5-bt-addr`.
-3. Make sure that the result is `chip already uses the Linux address 82:...`.
-4. If you get a different result, type `journalctl -b -u ps5-bt-addr` and read the log.
+2. On IW620, type `sudo ps5-bt-addr` and make sure that the result is `chip already uses the Linux address 82:...`.
+3. On PS5 Pro, type `journalctl -b -u ps5-bt-pro-addr` and make sure that the log reports `changed volatile Bluetooth address`.
 
 ## Procedure: disable the service
 
-1. Type `sudo systemctl disable ps5-bt-addr.service`.
+1. Type `ps5-bt-address off`.
 2. Start Linux again. The chip uses its initial address.
 3. Pair the DualSense with Linux again.
 
-## How the service operates
+## How the IW620 service operates
 
 1. The service starts before `bluetooth.service`.
 2. The service reads the USB ID of the Bluetooth chip. If the chip is not the IW620, the service stops.
@@ -58,12 +58,17 @@ Before you start, make sure that the DualSense is paired with the PS5 system on 
 
 The chip keeps the new address in its RAM. When you start the PS5 system, the chip gets its initial address again. The service does not change the PS5 system.
 
-## Why the service does not use `btmgmt public-addr`
+On PS5 Pro (`0e8d:3605`), `ps5-bt-pro-addr.service` waits until the adapter is powered, stops
+`bluetooth.service`, powers the adapter off, applies the locally administered public address with
+`btmgmt public-addr`, verifies it after power-on, and restarts Bluetooth. It runs after
+`bluetooth.service`; the earlier IW620 and MediaTek paths continue to run before Bluetooth.
+
+## Why the IW620 service does not use `btmgmt public-addr`
 
 The kernel sends a new public address to the chip only during the first setup of the adapter. When the adapter operates, the kernel keeps the new address in memory. The kernel does not send this address to the chip. For this reason, the service sends the vendor command directly to the chip.
 
 ## Known limits
 
-- `bluetoothctl` and the Bluetooth settings show the initial address. The kernel does not read the address from the chip again. The chip and the DualSense use the new address.
+- On IW620, `bluetoothctl` and the Bluetooth settings show the initial address. The kernel does not read the address from the chip again. The chip and the DualSense use the new address.
 - In rest mode, the two profiles can start the PS5. After the PS5 starts, only the PS5 profile connects.
 - The service is not tested on a PS5 Slim.
