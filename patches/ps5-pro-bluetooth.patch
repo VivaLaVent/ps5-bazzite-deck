@@ -1,4 +1,8 @@
 PS5 Pro internal Bluetooth: route Viola HCI and wait for first-probe readiness
+Based on QuartConz/ps5-pro-viola-bluetooth patch 0001
+(v0.1.0-preview, GPL-2.0), including its interface routing and WMT
+activation.  The second bulk OUT endpoint approach comes from
+WizGery/ps5-mediatek-fixes.
 
 The PS5 Pro's MediaTek 0e8d:3605 Bluetooth function is on USB interface 3.
 It needs a function-on WMT request for that interface, HCI control requests
