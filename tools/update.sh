@@ -50,9 +50,9 @@ sudo systemctl disable ps5-first-start.service 2>/dev/null || true
 sudo rm -f /etc/systemd/system/ps5-first-start.service /etc/systemd/system/multi-user.target.wants/ps5-first-start.service /usr/local/sbin/ps5-first-start
 # v1.8.9: the Linux-only Bluetooth address is on by default; the old opt-in flag isn't used any more
 sudo rm -f /etc/ps5-bazzite-deck/bt-address
-# v1.9.0: Bazzite's ostree-only services fail at every boot on this image: masked
+# v1.8.9: Bazzite's ostree-only services fail at every boot on this image: masked
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
-# v1.9.0: hdmi.rearm=0 is gone (the re-arm has its own back-off now); a leftover kept TVs dark after mode changes
+# v1.8.9: hdmi.rearm=0 is gone (the re-arm has its own back-off now); a leftover kept TVs dark after mode changes
 sudo sed -i 's/ *hdmi\.rearm=0//' "$EFI/cmdline.txt"
 for u in ps5-bt-addr ps5-bt-connectable ps5-bt-revive ps5-wifi-repair ps5-perf ps5-stage-viola-fw; do
   [ -f "/etc/systemd/system/$u.service" ] && sudo systemctl enable "$u.service" 2>/dev/null || true
@@ -82,6 +82,15 @@ echo
 # A new kernel needs a cold start: with warm reboot on, the next restart would kexec straight into it
 # without the PS5 resetting its hardware (an untested combination; the v1.5.0 test install hung that way).
 [ -e /etc/ps5-bazzite-deck/warm-reboot ] && sudo touch /run/ps5-reboot-to-ps5 && echo "note: warm reboot is on; this one restart goes through the PS5 system (cold), as a new kernel needs"
+B=/var/lib/ps5-update-backup
+if [ -d "$B" ]; then
+  old=$(ls -1dt "$B"/*/ 2>/dev/null | tail -n +3)
+  if [ -n "$old" ]; then
+    freed=$(sudo du -shc $old 2>/dev/null | tail -1 | cut -f1)
+    sudo rm -rf $old
+    echo "old backups removed, kept the newest 2 ($freed freed)"
+  fi
+fi
 echo "DONE: updated to $V. Reboot (sudo reboot) and run the loader as usual."
 [ "$MOUNTED" = 1 ] && echo "(for the undo, mount the boot partition first: sudo mount LABEL=boot /efi)"
 echo "Undo: sudo cp -a $BK/efi/* $EFI/ && sudo rm -rf /usr/lib/modules/$K && sudo cp -a $BK/modules /usr/lib/modules/$K && sync"

@@ -1,4 +1,4 @@
-PS5 USB-C DP: off by default, opt in with usbc_dp.enable=1          [ps5-bazzite-deck]
+PS5 USB-C DP: off by default, opt in with usbc_dp.enable=1
 
 Programming the front USB-C port's DisplayPort policy (PR #57) can reset a device on
 that port, e.g. a boot drive there. Slip's hdmi-usbc-test branch makes it opt-in for
@@ -13,7 +13,7 @@ the same reason. USB-C displays and PSVR2: add usbc_dp.enable=1 to cmdline.txt.
   */
 -static bool enable = true;
 +/*
-+ * Off by default (Slip's hdmi-usbc-test branch does the same): programming the port's DP
++ * Off by default programming the port's DP
 + * policy can reset a device on the front USB-C port, e.g. a boot drive there. USB-C
 + * displays and PSVR2: usbc_dp.enable=1 in cmdline.txt.
 + */

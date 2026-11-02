@@ -8,8 +8,12 @@ It runs from a USB drive, started by **rmux's** [PS5 Linux loader](https://githu
 Your PS5 itself is not modified. Linux only starts when you run the loader; restart or power off and the PS5 starts
 its own system again, with the drive still plugged in.
 
+**Official wiki:** [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/) covers PS5 Linux in general (loaders, hardware,
+other images) and is the place to check first for anything not specific to this image.
+
 **Which version:** use the release marked **Latest** on the [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases).
-Releases marked **Pre-release** are test builds for testers, even when their number is higher.
+Releases marked **Pre-release** are test builds for testers, even when their number is higher. What changed in which
+version is in the [changelog](CHANGELOG.md); this README describes the current release.
 
 **Download:** [Releases](../../releases) · **Help & testing:** [Discord](https://discord.gg/qGcuTgBBYU) · **Support the project:** [Ko-fi](https://ko-fi.com/vivalavent)
 
@@ -28,9 +32,9 @@ One image runs on every supported PS5. What differs is decided by three parts of
 | | FLAVA3 | VERDE | |
 |---|:---:|:---:|---|
 | **1440p120** | ✅ | ❌ | |
-| **4K120** | ✅ | ❌ | v1.7.2+, HDMI 2.1 TV and cable; from v1.8.5 only offered when the TV can take it, and back to 4K by itself if the link fails |
+| **4K120** | ✅ | ❌ | HDMI 2.1 TV and cable; only offered when the TV can take it, and back to 4K by itself if the link fails |
 | **HDR** (1080p60, 4K60) | ✅ | ❌ | Game Mode → Settings → Display |
-| **VRR** (displays with HDMI VRR) | ✅ | ❌ | v1.7.1+, every resolution: Game Mode → Settings → Display → Enable VRR. As on the PS5 system, not on monitors that only have FreeSync (from v1.8.6) |
+| **VRR** (displays with HDMI VRR) | ✅ | ❌ | every resolution: Game Mode → Settings → Display → Enable VRR. As on the PS5 system, not on monitors that only have FreeSync |
 
 Both chips: 1080p60, 1080p120, 1440p60 and 4K60, when the TV/monitor can do them. Other resolutions (ultrawide,
 other refresh rates) aren't offered: the HDMI chip only has setups for these.
@@ -39,12 +43,20 @@ other refresh rates) aren't offered: the HDMI chip only has setups for these.
 
 | | IW620 | MediaTek | |
 |---|:---:|:---:|---|
-| **One DualSense for PS5 and Linux** (separate pairing profiles) | ✅ | ✅ | On by default from v1.8.9: pair the controller with Linux on its own profile (e.g. PS + Square). IW620: while it's on, restarts go through the PS5 system instead of warm ones. `ps5-bt-address off` switches it off. See [docs/dualsense-profiles.md](docs/dualsense-profiles.md) |
+| **One DualSense for PS5 and Linux** (separate pairing profiles) | ✅ | ✅ | on by default: pair the controller with Linux on its own profile (e.g. PS + Square). IW620: while it's on, restarts go through the PS5 system instead of warm ones. `ps5-bt-address off` switches it off. See [docs/dualsense-profiles.md](docs/dualsense-profiles.md) |
 | **Wi-Fi after a restart straight into Linux** (`ps5-warm-reboot on`) | ⚠️ | ✅ | IW620: repaired automatically; if it's still missing, power off and run the loader |
 
-**PS5 Pro:** supported from v1.8.4, as a first version (GPU with 64 compute units and its own firmware, Wi-Fi,
-Bluetooth). After the first start, start Linux with the loader once more: that one uses the Pro's GPU firmware.
-Reports welcome in #bazzite-ps5-pro-tests.
+**PS5 Pro:** a first version (GPU with 60 compute units and its own firmware, Wi-Fi, Bluetooth; see
+[Features and your hardware](#features-and-your-hardware) for the exact split). It needs a loader that dumps the
+Pro's GPU firmware to the boot partition; without that the GPU runs as a base PS5 (38 CUs). After the first start,
+start Linux with the loader once more: that one uses the Pro's GPU firmware (`journalctl -u ps5-stage-viola-fw`
+says whether it was found and added). Not yet supported on the Pro: the 40-CU unlock (see below) and the
+Linux-only Bluetooth address. The same drive works in a Slim or original PS5 too; the Pro's firmware files on it are
+ignored there. Reports welcome in #bazzite-ps5-pro-tests either way.
+
+**Switching between Game Mode and the desktop:** the usual way is Steam's own Switch to Desktop /
+Return to Gaming Mode. From a terminal or over SSH, the same thing is `steamos-session-select plasma`
+(desktop) or `steamos-session-select gamescope` (Game Mode).
 
 ## Prerequisites
 
@@ -96,13 +108,26 @@ end with a space in front of it, or delete it again to undo. Leave the entries t
 |---|---|---|
 | `amdgpu.force_1080p=1` | Only allows 1080p60 | Black or garbled picture you can't get past, e.g. after picking a resolution your display can't show. Remove it once you've set a working resolution; step by step in [docs/display-recovery.md](docs/display-recovery.md) |
 | `usb-storage.quirks=xxxx:yyyy:u` | Turns off UAS for one USB drive (`xxxx:yyyy` from `lsusb`) | USB-C SSDs or enclosures that disconnect, freeze or show I/O errors (many have buggy UAS) |
-| `usbc_dp.enable=1` | Switches on the front USB-C port's DisplayPort output (v1.6.1+) | USB-C displays and the PSVR2. Not with your boot drive on the front USB-C port |
-| `hdmi.frl_4k120=0` | Never offers 4K at 120 Hz (v1.7.2+) | A TV where 4K120 misbehaves |
+| `usbc_dp.enable=1` | Switches on the front USB-C port's DisplayPort output | USB-C displays and the PSVR2. Not with your boot drive on the front USB-C port |
+| `hdmi.frl_4k120=0` | Never offers 4K at 120 Hz | A TV where 4K120 misbehaves |
 
 To switch off VRR, use Steam's setting (Settings → Display); to keep the TV from following the console at boot,
 switch off HDMI-CEC in the TV's settings (SIMPLINK, Anynet+, BRAVIA Sync…).
 
 ## 40 GPU compute units
+
+## GPU memory (VRAM)
+
+The GPU reserves 512 MB of RAM for itself and can borrow up to half of the rest on top (so about 8.25 GB total
+on a 16 GB console). A memory-hungry game can hit that ceiling: stutter, or a game crashing with something like
+"not enough memory for command submission". Raise the ceiling, rather than fix a bigger reserved amount (that
+locks the memory away even when you're not gaming):
+```
+E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break; done); sudo sed -i 's/ *ttm\.pages_limit=[0-9]*//; s/[[:space:]]*$/ ttm.pages_limit=2621440/' $E/cmdline.txt && sudo cat $E/cmdline.txt
+```
+That sets a 10 GB ceiling (`2621440` = GB × 262144); remove the option to go back to the default. **Check:**
+`sudo dmesg | grep -iE 'VRAM|GTT'` after rebooting.
+
 
 *Original PS5 and Slim only.* The PS5 Pro's 60 compute units are all active already; don't use this on a Pro.
 
@@ -125,6 +150,8 @@ E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break;
 The setting stays as it is across updates.
 
 ## Troubleshooting
+
+Wider PS5-Linux questions (loaders, other hardware, general background): [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/).
 
 **Ask in [Discord](https://discord.gg/qGcuTgBBYU)** (#bazzite-problems), with the report from `ps5-report` (in a
 terminal or over SSH). It only reads, and saves one file with your hardware and the relevant logs. Without network,

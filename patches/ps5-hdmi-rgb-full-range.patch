@@ -1,4 +1,4 @@
-PS5 HDMI: full RGB range in the AVI InfoFrame (hdmi.rgb_range)     [ps5-bazzite-deck]
+PS5 HDMI: full RGB range in the AVI InfoFrame (hdmi.rgb_range)
 
 The GPU sends full-range RGB on its DP link to the FLAVA3 bridge, but the
 AVI InfoFrame's quantization range (PB3 Q1:Q0, register 0x7226 bits 3:2;
@@ -21,7 +21,7 @@ hdmi.rgb_range=0 restores the old behaviour, 2 says limited.
 + * The GPU sends full-range RGB on its DP link to the bridge, but the AVI
 + * InfoFrame said "default", which TVs read as LIMITED for TV timings like
 + * 1080p (CTA-861) and as full for PC timings like 1440p: crushed blacks and
-+ * oversaturated colours at 1080p only (ObsessiveRug). Say "full" explicitly;
++ * oversaturated colours at 1080p only. Say "full" explicitly;
 + * TVs without selectable quantization (VCDB QS=0) ignore it.
 + * hdmi.rgb_range: 1 full (default), 2 limited, 0 leave it at "default".
 + */

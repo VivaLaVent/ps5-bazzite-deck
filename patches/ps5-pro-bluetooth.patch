@@ -1,4 +1,4 @@
-PS5 Pro internal Bluetooth (MediaTek 0e8d:3605), by QuartConz, ported to our tree  [ps5-bazzite-deck v1.8]
+PS5 Pro internal Bluetooth (MediaTek 0e8d:3605), by QuartConz, ported to our tree
 
 From QuartConz/ps5-pro-viola-bluetooth (patch 0001, v0.1.0-preview, GPL-2.0), tested by
 him on a PS5 Pro on 13.60 with kernel 7.3 + linux.patch:
@@ -48,7 +48,7 @@ Only touches 0e8d:3605; other consoles are unaffected.
  			data->intf->cur_altsetting->desc.bInterfaceNumber);
  	else
 -		dr->wIndex = 0;
-+		/* PS5 Pro (Viola) 0e8d:3605: HCI commands go to its interface 3 (QuartConz) */
++		/* PS5 Pro (Viola) 0e8d:3605: HCI commands go to its interface 3 */
 +		dr->wIndex = cpu_to_le16(
 +			data->cmdreq_type == (USB_TYPE_CLASS | USB_RECIP_INTERFACE) &&
 +			le16_to_cpu(data->udev->descriptor.idVendor) == 0x0e8d &&
@@ -188,7 +188,7 @@ Only touches 0e8d:3605; other consoles are unaffected.
  
 +        /*
 +         * PS5 Pro Viola 0e8d:3605
-+         * v1.4 experiment: ACL Bulk-OUT endpoint 0x0d.
++         * ACL Bulk-OUT endpoint 0x0d.
 +         * IF3, HCI commands, firmware and RX remain unchanged.
 +         */
 +        if (le16_to_cpu(interface_to_usbdev(intf)->descriptor.idVendor) == 0x0e8d &&

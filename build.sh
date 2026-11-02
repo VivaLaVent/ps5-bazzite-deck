@@ -8,9 +8,10 @@ SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # this repo
 RELEASE="${RELEASE:-$(git -C "$SRC" describe --tags --always 2>/dev/null || echo dev)}"
 
 REPO="$HOME/ps5-build-7.3"            # fresh build directory
-OLD="$HOME/ps5-linux-image"           # previous build dir, only used to reuse its download cache
+OLD="${OLD:-$HOME/ps5-linux-image}"   # previous build dir, only used to reuse its download cache
 BUILDER_COMMIT=52db0a4                 # ps5-linux/ps5-linux-image
-PATCHES_BRANCH=meower                  # rmuxnet/ps5-linux-patches-1, 7.3 port (@ 36f173f when this was written)
+PATCHES_BRANCH=meower                  # rmuxnet/ps5-linux-patches-1, 7.3 port
+PATCHES_COMMIT=36b9828                 # pinned: the state our patches are made against; newer meower commits (fan hwmon 883eef9, IW620 LE cf37af5) are carried as patches/ps5-fan-hwmon-curve.patch and ps5-iw620-le-reconnect.patch
 KERNEL_TAG=v7.3
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
@@ -49,18 +50,22 @@ cp "$SRC/patches/ps5-iw620-kernel73-compat.patch" extra-patches/
 echo "==> 3. kernel source: $KERNEL_TAG + $PATCHES_BRANCH patches"
 mkdir -p work
 git clone -q -b "$PATCHES_BRANCH" https://github.com/rmuxnet/ps5-linux-patches-1 work/ps5-linux-patches
+git -C work/ps5-linux-patches checkout -q "$PATCHES_COMMIT"
 git -C work/ps5-linux-patches checkout -q baee34d                                                   # pinned: the commit the patches below were made against
 git -C work/ps5-linux-patches apply "$SRC/patches/ps5-linux-patches-pr4-s2idle.patch"              # suspend-to-idle (sleep), ps5-linux-patches PR #4 by Dasloh (.config + linux.patch)
 sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"/' work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_DEBUG_INFO_BTF is not set/CONFIG_DEBUG_INFO_BTF=y/' work/ps5-linux-patches/.config
 sed -i 's/^CONFIG_USB_AUTOSUSPEND_DELAY=.*/CONFIG_USB_AUTOSUSPEND_DELAY=-1/' work/ps5-linux-patches/.config   # USB never sleeps: the kernel default now, not a cmdline option
+sed -i 's/^CONFIG_LOG_BUF_SHIFT=.*/CONFIG_LOG_BUF_SHIFT=20/' work/ps5-linux-patches/.config   # 1 MiB boot log (was 256 KiB): early lines (HDMI chip, Pro firmware) were scrolling out of ps5-report
 grep -q '^CONFIG_DEBUG_INFO_BTF=y' work/ps5-linux-patches/.config || echo 'CONFIG_DEBUG_INFO_BTF=y' >> work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_MODULE_ALLOW_BTF_MISMATCH is not set/CONFIG_MODULE_ALLOW_BTF_MISMATCH=y/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' work/ps5-linux-patches/.config || echo 'CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' >> work/ps5-linux-patches/.config   # kernel-only hotfixes keep loading the release modules
 sed -i 's/^# CONFIG_MT7921E is not set/CONFIG_MT7921E=m/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MT7921E=m' work/ps5-linux-patches/.config || echo 'CONFIG_MT7921E=m' >> work/ps5-linux-patches/.config   # MediaTek MT7921 Wi-Fi (PS5 Slim)
+sed -i 's/^CONFIG_PS5_GPUFREQ=.*/# CONFIG_PS5_GPUFREQ is not set/' work/ps5-linux-patches/.config   # rmux's GPU clock driver: replaced by upstream's governor (drivers/ps5/gpufreq.c)
 for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do sed -i "s/^# CONFIG_$o is not set/CONFIG_$o=y/" work/ps5-linux-patches/.config; done   # wheel force feedback, as rmux's meower (36b9828)
 git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git work/linux73
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
 git -C work/linux73 apply "$SRC/patches/ps5-bluetooth.patch"          # MediaTek bulk-OUT endpoint (IW620 + L2CAP fixes are in meower)
+git -C work/linux73 apply "$SRC/patches/ps5-fan-hwmon-curve.patch"       # fan hwmon curve control (rmux meower), Kconfig selects HWMON too
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-upstream.patch"      # ps5-linux-patches #49 HDR (FLAVA3), #50 SCDC, #54 hotplug back-off, ported to 7.3
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-rearm-pr46.patch"     # picture back when the same display wakes up (upstream PR #46)
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-output-fixes.patch"   # no FLAVA3 event sequences, re-arm same display only, 8-bit cap (HDR exception)
@@ -86,12 +91,13 @@ git -C work/linux73 apply "$SRC/patches/ps5-vrr-follow-guard.patch"         # VR
 git -C work/linux73 apply "$SRC/patches/ps5-vrr-min-48.patch"              # VRR never below 48 Hz (PS5 system floor), SPD with the actual range
 git -C work/linux73 apply "$SRC/patches/ps5-pro-gpu.patch"                 # PS5 Pro GPU (upstream #58, Borchev), only with the Viola firmware
 git -C work/linux73 apply "$SRC/patches/ps5-pro-bluetooth.patch"           # PS5 Pro internal Bluetooth 0e8d:3605 (QuartConz)
+git -C work/linux73 apply "$SRC/patches/ps5-iw620-le-reconnect.patch"    # IW620: legacy LE command family (keyboard/controller reconnects, rmux meower)
 git -C work/linux73 apply "$SRC/patches/ps5-pro-no-freqdrivers.patch"      # PS5 Pro: no PS5 CPU/GPU frequency drivers (MP1 busy flood)
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-4k120-guard.patch"        # 4K120 only where it can work, back to 4K60 by itself (after Slip)
 git -C work/linux73 apply "$SRC/patches/ps5-vrr-hdmi-only.patch"           # VRR only with HDMI VRR, as on the PS5 system
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-100hz-test.patch"         # 100 Hz modes (test): 1080p100, 1440p100, 4K100
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-scdc-tmds-config.patch"    # SCDC TMDS_Config at every setup (Beyond TV dropping to HDMI 1.4)
-git -C work/linux73 apply "$SRC/patches/ps5-hdmi-4k120-422-test.patch"      # 4K120 as YCbCr 4:2:2 8 bpc (test)
+git -C work/linux73 apply "$SRC/patches/ps5-pro-upstream66.patch"          # PS5 Pro: upstream #66 (GPU governor, WGP check, 0x13dc, no thermal.c)
 cp work/ps5-linux-patches/.config work/linux73/.config
 cp -r work/ps5-linux-patches work/linux73/ps5-linux-patches
 grep -E '^CONFIG_LSM=|^CONFIG_DEBUG_INFO_BTF=|^CONFIG_MT7921E=|^CONFIG_MODULE_ALLOW_BTF_MISMATCH=' work/linux73/.config

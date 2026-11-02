@@ -3,6 +3,8 @@
 #   bash tools/release.sh vX.Y "release title"                         stable 1.X: image + update bundle
 #   PRERELEASE=1 BUNDLE_ONLY=1 bash tools/release.sh vX.Y.Z "title"  pre-release 1.X.Y: update bundle only
 #   NO_DEPLOY=1 ...: skip the test install on the PS5 and the publish question
+#   FRESH=1 ...: a from-scratch build first (build.sh: fresh clone of builder, kernel and patches, every
+#     patch applied in order), instead of reusing ~/ps5-build-7.3; the previous build dir is moved aside
 # (BUNDLE_ONLY still builds the image, the bundle's initrd comes from it, but skips the
 # 7-Zip volumes and their upload.) Uses the kernel tree in ~/ps5-build-7.3/work/linux73 as it is (apply any delta first),
 # rebuilds the image and the update bundle, installs the bundle on the PS5 ($PS5), and
@@ -19,6 +21,13 @@ gh release view "$V" --repo "$R" >/dev/null 2>&1 && { echo "STOP: $V is already 
 FREE=$(df --output=avail -BG "$HOME" | tail -1 | tr -dc 0-9)
 echo "free space: ${FREE}G"; [ "$FREE" -ge 60 ] || { echo "STOP: need at least 60G free"; exit 1; }
 
+if [ -n "${FRESH:-}" ]; then
+  echo "==> FRESH: from-scratch build with build.sh (the previous build dir is kept as $B.prev)"
+  [ -d "$B" ] && { rm -rf "$B.prev"; mv "$B" "$B.prev"; }
+  OLD="$B.prev" SKIP_7Z=1 RELEASE="$V" bash "$SRC/build.sh"
+  cd "$B"
+  [ -f "output/ps5-bazzite-deck-$V-update.tar.xz" ] || { echo "STOP: build.sh produced no bundle"; exit 1; }
+else
 echo "==> build image + update bundle ($V)"
 cd "$B"
 # old kernel packages aside (root-owned: sudo), or the builder reuses them instead of building
@@ -32,6 +41,7 @@ sudo -v
 SKIP_7Z=1 bash /tmp/finish.sh
 # release assets only: drop patch files left by earlier builds that are no longer in the repo
 for f in output/*.patch; do [ -f "$SRC/patches/$(basename "$f")" ] || rm -f "$f"; done
+fi
 BUNDLE=ps5-bazzite-deck-$V-update.tar.xz
 
 if [ -n "${NO_DEPLOY:-}" ]; then

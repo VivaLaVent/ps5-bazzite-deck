@@ -1,4 +1,4 @@
-PS5 HDMI (Verde): IT content and content type "game" in the AVI InfoFrame    [ps5-bazzite-deck]
+PS5 HDMI (Verde): IT content and content type "game" in the AVI InfoFrame
 
 FLAVA3 sets ITC and CN = game (0x7226 bit 7, 0x7228 bits 5:4), so TVs pick
 their game / low-latency picture mode. Verde builds its AVI InfoFrame as one

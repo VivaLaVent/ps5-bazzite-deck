@@ -1,4 +1,4 @@
-PS5 Pro: CPU and GPU frequency drivers left out (v1.8.4)  [ps5-bazzite-deck]
+PS5 Pro: CPU and GPU frequency drivers left out
 
 A Pro tester on v1.8.x got an endless flood: "mp1fw_sendmsg: Error : busy msgid=0x22",
 "cpufreq: Failed to change cpu frequency: -16" every 2.5 s and "devfreq ps5-gpufreq: dvfs
@@ -23,9 +23,9 @@ unaffected.
  static int __init ps5_cpufreq_init(void)
  {
 +	/*
-+	 * v1.8.4: not on the PS5 Pro (GPU 1002:13da): its frequency requests to the power
++	 * not on the PS5 Pro (GPU 1002:13da): its frequency requests to the power
 +	 * controller (MP1 UniversalModeEntry, 0x22) come back "busy" without end there
-+	 * (Pro tester, v1.8.x). The Pro keeps the CPU clock its firmware sets.
++	 * The Pro keeps the CPU clock its firmware sets.
 +	 */
 +	struct pci_dev *pro = pci_get_device(PCI_VENDOR_ID_ATI, 0x13da, NULL);
 +
@@ -44,8 +44,8 @@ unaffected.
  static struct platform_device *ps5_gpufreq_pdev;
  
 +/*
-+ * v1.8.4: not on the PS5 Pro (GPU 1002:13da). There its requests to the power controller
-+ * (MP1) come back "busy" without end, flooding the log every 0.27 s (a Pro tester on v1.8.x,
++ * not on the PS5 Pro (GPU 1002:13da). There its requests to the power controller
++ * (MP1) come back "busy" without end, flooding the log every 0.27 s (
 + * where the Pro's own SMU backend from upstream #58 talks to the same controller). The Pro
 + * keeps the clocks its firmware sets, as with the upstream kernel, which has no such driver.
 + */

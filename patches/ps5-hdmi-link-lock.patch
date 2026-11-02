@@ -1,4 +1,4 @@
-PS5 HDMI: full-rate DP link to the HDMI bridge             [ps5-bazzite-deck]
+PS5 HDMI: full-rate DP link to the HDMI bridge
 
 Train the DP link to the HDMI bridge at its full verified rate (4 lanes HBR3)
 for every mode, instead of the lowest rate the mode needs: the bridge

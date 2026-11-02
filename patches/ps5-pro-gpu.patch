@@ -1,4 +1,4 @@
-PS5 Pro GPU support (upstream #58 by Borchev, ported to 7.3)  [ps5-bazzite-deck v1.8]
+PS5 Pro GPU support (upstream #58 by Borchev, ported to 7.3)
 
 Port of ps5-linux/ps5-linux-patches#58 ("PS5 Pro GPU Support, some SMU backend stuff",
 f21f65b) from Linux 7.2.3 to our 7.3 tree. Everything only switches on with the PS5 Pro's

@@ -1,7 +1,7 @@
 # IW620: Linux-only Bluetooth address together with warm restarts
 
-**Status: interim solution in v1.9.0, real fix open.** Requested by Max (fat PS5, IW620), who offered to test.
-v1.9.0 keeps the address as an opt-in on IW620, and while it's on, a restart goes through the PS5 system instead
+**Status: interim solution in v1.8.9, real fix open.** Requested by Max (fat PS5, IW620), who offered to test.
+v1.8.9 keeps the address on by default on IW620, and while it's on, a restart goes through the PS5 system instead
 of warm (idea 4 below). The aim is still both together.
 
 ## The request
@@ -10,8 +10,8 @@ On consoles with the IW620 Wi-Fi/Bluetooth chip, keep both:
   for Linux on separate profiles, no re-pairing when switching ([dualsense-profiles.md](dualsense-profiles.md));
 - **warm restarts** (`ps5-warm-reboot on`): restart straight back into Linux without the PS5 system and the loader.
 
-They don't go together yet: v1.8.4's update switched the address off on IW620 consoles; from v1.9.0 it's opt-in
-again, with warm restarts replaced by normal ones while it's on.
+They don't go together yet: v1.8.4's update switched the address off on IW620 consoles; from v1.8.9 it's on by
+default again, with warm restarts replaced by normal ones while it's on.
 
 ## What we know
 - With the address on, a warm restart can leave the chip hung: its Bluetooth part doesn't answer on USB any more

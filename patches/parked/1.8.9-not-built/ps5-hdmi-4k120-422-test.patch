@@ -1,0 +1,42 @@
+PS5 HDMI: 4K120 as YCbCr 4:2:2 at 8 bits instead of RGB at 6 (v1.8.9, test)  [ps5-bazzite-deck]
+
+amdgpu skips 6 bpc only for HDMI sinks and DP->HDMI dongles; the PS5's HDMI chip is a DP->HDMI
+converter that doesn't report as one, so 4K120 left the GPU as RGB at 6 bpc (fits the DP link;
+HDMI has no 6 bpc) instead of YCbCr 4:2:2 at 8 bpc, the format Sony's 4K120 setup for the chip
+is made for. The PS5's HDMI connector now counts as the HDMI endpoint it is. Test for hsgodd's
+GPU fault at 4K120 session switches (LG B4), which never happens at 4K60 or 1440p120.
+The "over FRL" log line shows the format and depth that went out.
+(The connector part is patches/parked/1.8-reverted/ps5-hdmi-no-6bpc.patch.)
+---
+
+--- a/drivers/ps5/hdmi.c
++++ b/drivers/ps5/hdmi.c
+@@ -1579,7 +1579,8 @@
+ 	atomic_inc(&frl_check_seq);
+ 	if (ps5_mode_frl(drm_match_cea_mode(mode))) {
+ 		setVideoAdditionalConfigFrlFlava3();
+-		pr_info("hdmi: %dx%d@%d over FRL\n", mode->hdisplay, mode->vdisplay, drm_mode_vrefresh(mode));
++		pr_info("hdmi: %dx%d@%d over FRL (%s, %u bpc)\n", mode->hdisplay, mode->vdisplay,
++			drm_mode_vrefresh(mode), yuv422 ? "YCbCr 4:2:2" : "RGB", bpc);
+ 		mod_delayed_work(system_wq, &frl_check_work, msecs_to_jiffies(1500));
+ 	} else {
+ 		setVideoAdditionalConfigFlava3(mode);
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+@@ -2428,6 +2428,16 @@
+ 		     aconnector->dc_link->dpcd_caps.dongle_type ==
+ 			     DISPLAY_DONGLE_DP_HDMI_CONVERTER);
+ 	is_dp_or_hdmi = dc_is_hdmi_signal(signal) || dc_is_dp_signal(signal);
++#ifdef CONFIG_X86_PS5
++	/*
++	 * v1.8.4: the PS5's HDMI chip is a DP->HDMI converter, but doesn't report itself as a
++	 * dongle, so 4K120 went out as RGB at 6 bpc (fits the DP link; HDMI has no 6 bpc) instead
++	 * of YCbCr 4:2:2 at 8 bpc, which the chip's 4K120 setup (Sony's) is made for. On
++	 * hsgodd's LG that gave no picture. Treat it as the HDMI endpoint it is.
++	 */
++	if (ps5_dm_is_hdmi_connector(aconnector))
++		is_hdmi_ep = true;
++#endif
+ 
+ 	/*
+ 	 * Build the set of pixel encodings this sink advertises, so we only

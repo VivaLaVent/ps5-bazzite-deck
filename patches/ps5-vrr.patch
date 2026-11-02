@@ -1,4 +1,4 @@
-PS5 VRR on FLAVA3 consoles, switched with Steam's VRR setting  [ps5-bazzite-deck v1.7]
+PS5 VRR on FLAVA3 consoles, switched with Steam's VRR setting
 
 Lawson's fix (his PS5 VRR kernel vrr13), on the GPU side; hsgodd's stock-system
 captures had narrowed the problem down:
@@ -73,8 +73,8 @@ Replaces the v1.5.1-v1.6.3 VRR test patches.
 +/*
 + * VRR (FLAVA3 consoles).
 + *
-+ * Lawson's fix (his PS5 VRR kernel vrr13), found on the GPU side, which no ICC capture
-+ * could show (hsgodd's stock-system captures had narrowed it down):
++ * The fix is on the GPU side, which no ICC capture
++ * could show (stock-system captures narrowed it down):
 + *  1. Sony's GPU sends the HDMI chip a timing packet every frame, a DP extension SDP
 + *     (HB 39 04) with the source timing (amdgpu_dm_freesync.c). Without it the chip's
 + *     follow mode (0x6064=03) gives a black picture.
@@ -93,7 +93,7 @@ Replaces the v1.5.1-v1.6.3 VRR test patches.
 +module_param(vrr_measure, bool, 0644);
 +MODULE_PARM_DESC(vrr_measure, "Log the measured frame intervals every 2 s while VRR is on, for debugging (default off)");
 +
-+#define VRR_FOLLOW_STEP_MS	250	/* between the follow steps (Lawson's tests: 1000) */
++#define VRR_FOLLOW_STEP_MS	250	/* between the follow steps (tested up to 1000) */
 +#define VRR_FOLLOW_SETTLE_MS	500	/* after the last step, before the picture comes back */
 +
 +static bool vrr_requested;		/* VRR switched on, as last set up */
@@ -307,7 +307,7 @@ Replaces the v1.5.1-v1.6.3 VRR test patches.
 +		return;
 +	WRITE_ONCE(vrr_follow_pending, true);
 +	vrr_follow_hz = mode ? drm_mode_vrefresh(mode) : 60;
-+	mod_delayed_work(system_wq, &vrr_follow_work, msecs_to_jiffies(VRR_FOLLOW_STEP_MS));
++	mod_delayed_work(system_dfl_wq, &vrr_follow_work, msecs_to_jiffies(VRR_FOLLOW_STEP_MS));
 +}
 +
  static void setHdmiVideoConfigFlava3(const struct drm_display_mode *mode,
@@ -543,7 +543,7 @@ Replaces the v1.5.1-v1.6.3 VRR test patches.
  					&new_stream->adaptive_sync_infopacket);
 +#ifdef CONFIG_X86_PS5
 +		/*
-+		 * VRR on the HDMI chip (Lawson): Sony's GPU sends a DP extension SDP (HB 39 04)
++		 * VRR on the HDMI chip: Sony's GPU sends a DP extension SDP (HB 39 04)
 +		 * with the source timing every frame from the adaptive-sync slot: DB0-9 =
 +		 * h_total, h_start (sync + back porch), h_sync, v_start, v_sync, MSB first;
 +		 * DB10 = 1. Sent whatever the sync polarity (1440p60 has a negative vsync).
@@ -608,7 +608,7 @@ Replaces the v1.5.1-v1.6.3 VRR test patches.
   */
 +#ifdef CONFIG_X86_PS5
 +/*
-+ * VRR test 21 (hsgodd's question B): does the GPU really send a variable frame length?
++ * Check: does the GPU really send a variable frame length?
 + * In VRR mode the vblank interval follows the game (16.7 ms at 60 fps on a 120 Hz mode);
 + * without DRR it stays at the mode's fixed period (8.3 ms). Measured in the vblank IRQ,
 + * logged every 2 s while hdmi.vrr_test=1.
@@ -694,7 +694,7 @@ Replaces the v1.5.1-v1.6.3 VRR test patches.
  				(stream->ignore_msa_timing_param) ? 1 : 0;
 +#ifdef CONFIG_X86_PS5
 +		/*
-+		 * VRR on the PS5's HDMI chip (Lawson): it drops its input lock when DPCD 0x107
++		 * VRR on the PS5's HDMI chip: it drops its input lock when DPCD 0x107
 +		 * bit 7 is set, but follows a variable frame length with valid MSA: keep DRR
 +		 * (stream->ignore_msa_timing_param), leave MSA_TIMING_PAR_IGNORE_EN clear.
 +		 */

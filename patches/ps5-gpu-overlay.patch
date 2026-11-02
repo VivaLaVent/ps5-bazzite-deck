@@ -1,4 +1,4 @@
-PS5: GPU load and temperature for overlays                [ps5-bazzite-deck]
+PS5: GPU load and temperature for overlays
 
 amdgpu reports GPU load and its hwmon sensors through the power-management
 firmware (SMU), which on the PS5 belongs to Sony's firmware, so overlays

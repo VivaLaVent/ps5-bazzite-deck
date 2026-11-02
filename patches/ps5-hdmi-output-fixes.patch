@@ -1,4 +1,4 @@
-PS5 HDMI output fixes                                     [ps5-bazzite-deck]
+PS5 HDMI output fixes
 
 1. FLAVA3: don't program the "back to unplugged" / "back to wait resolution"
    event sequences that #43 enabled (black screen at boot on some TVs).

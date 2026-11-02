@@ -1,4 +1,4 @@
-PS5 HDMI: SCDC TMDS_Config at every setup for SCDC sinks, as a PC does (v1.8.8)  [ps5-bazzite-deck]
+PS5 HDMI: SCDC TMDS_Config at every setup for SCDC sinks, as a PC does
 
 The "Beyond TV" (issues #11, #21, ARG-BerserkeR) announces its HDMI 2.1 EDID at boot (FRL rate
 6, 120 Hz, 600 MHz, VRR range), then, about 5 s after the console set it up at 1080p60,
@@ -15,11 +15,11 @@ On v1.2.0, which started at 4K60 (TMDS_Config written), this TV kept its HDMI 2.
  		i2c_waitclear(0x7a84, 0x01);
  	}
 +	/*
-+	 * SCDC TMDS_Config: scrambling + 1/40 clock ratio above 340 MHz. v1.8.8: written at every
++	 * SCDC TMDS_Config: scrambling + 1/40 clock ratio above 340 MHz. written at every
 +	 * setup for a sink that talks SCDC, 0x00 at low rates too, as a PC's driver does. The
 +	 * "Beyond TV" (issues #11, #21) re-announced an HDMI 1.4 EDID (max 60 Hz, 340 MHz, no 4K120,
 +	 * no VRR) a few seconds after a 1080p60 start, where TMDS_Config was never written; it
-+	 * kept its HDMI 2.1 EDID when the console started at 4K60, where it was (v1.2.0).
++	 * kept its HDMI 2.1 EDID when the console started at 4K60, where it was.
 +	 */
  	i2c_begin_block();
 -	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling) {

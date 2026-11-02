@@ -36,3 +36,4 @@ v1.8.6	v1.8.6 – VRR only for displays with HDMI VRR
 v1.8.7	v1.8.7 – TEST: 100 Hz modes
 v1.8.8	v1.8.8 – TEST: TVs dropping to HDMI 1.4 modes
 v1.8.9	v1.8.9 – TEST: one DualSense for PS5 and Linux by default (full)
+v2.0.0	v2.0.0 – DualSense for PS5 and Linux by default, Pro and IW620 Bluetooth fixes, new fan driver (pre-release)

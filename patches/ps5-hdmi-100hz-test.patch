@@ -1,4 +1,4 @@
-PS5 HDMI: 100 Hz modes, test (v1.8.7)  [ps5-bazzite-deck]
+PS5 HDMI: 100 Hz modes, test
 
 FLAVA3 only, each offered only when the display goes to 100 Hz or more and its clock limit
 allows; no new options:
@@ -36,7 +36,7 @@ allows; no new options:
  		return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 &&
 -		       mode->clock == 497750 && mode->vtotal == 1525;	/* 1440p120, CVT-RB */
 +		       ((mode->clock == 497750 && mode->vtotal == 1525) ||	/* 1440p120, CVT-RB */
-+			(mode->clock == 410500 && mode->vtotal == 1510));	/* 1440p100, CVT-RB (v1.8.7 test) */
++			(mode->clock == 410500 && mode->vtotal == 1510));	/* 1440p100, CVT-RB */
  	}
  
  	switch (vic) {
@@ -44,9 +44,9 @@ allows; no new options:
  	case 63: /* 1080p120 */
  	case 97: /* 2160p60 */
  		return true;
-+	case 64: /* 1080p100 (v1.8.7 test) */
++	case 64: /* 1080p100 */
 +		return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3;
-+	case 117: /* 2160p100, FRL (v1.8.7 test): Sony's index 0x0a */
++	case 117: /* 2160p100, FRL: Sony's index 0x0a */
 +		return ps5_mode_frl(vic) && frl_offer_ok() && mode->clock == 1188000;
  	case 118: /* 2160p120, FRL */
  		return ps5_mode_frl(vic) && frl_offer_ok();
@@ -56,7 +56,7 @@ allows; no new options:
  };
  
 +/*
-+ * v1.8.7 (test): 1440p100, the CVT reduced-blanking timing between 1440p60 and 1440p120 (same
++ * 1440p100, the CVT reduced-blanking timing between 1440p60 and 1440p120 (same
 + * 2720-pixel line and sync shape; the chip's 1440p index 0x04 serves both of those already).
 + */
 +static const struct drm_display_mode ps5_1440p100 = {
@@ -72,7 +72,7 @@ allows; no new options:
  	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && has_1440 && max_hz >= 119 &&
  	    tmds >= 497750)
  		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p120));
-+	/* v1.8.7 test: 100 Hz where the display goes to 100 Hz or more (FLAVA3) */
++	/* 100 Hz where the display goes to 100 Hz or more (FLAVA3) */
 +	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && max_hz >= 100) {
 +		if (tmds >= 297000)
 +			added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 64));

@@ -1,4 +1,4 @@
-PS5 HDMI: mute and leave HDR when the output goes down     [ps5-bazzite-deck]
+PS5 HDMI: mute and leave HDR when the output goes down
 
 amdgpu's commit tail mutes the bridge's audio and video and re-inits the
 video config when a CRTC turns on or changes mode, but did nothing when it

@@ -1,4 +1,4 @@
-PS5 HDMI: debug log of bridge notifications and picture setups  [ps5-bazzite-deck]
+PS5 HDMI: debug log of bridge notifications and picture setups
 
 Logs every notification from the HDMI bridge and every picture setup (mode,
 VIC, bpc, RGB or YCbCr 4:2:2), with timestamps, to see where a black screen

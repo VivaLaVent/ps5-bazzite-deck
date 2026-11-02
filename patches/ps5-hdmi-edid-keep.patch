@@ -1,4 +1,4 @@
-PS5 HDMI: keep the previous EDID on a short or invalid announcement    [ps5-bazzite-deck]
+PS5 HDMI: keep the previous EDID on a short or invalid announcement
 
 Before PR #57 a short or broken EDID announcement from the bridge (seen
 around display power changes, e.g. leaving the desktop for Game Mode)

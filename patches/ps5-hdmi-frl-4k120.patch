@@ -1,4 +1,4 @@
-PS5 HDMI: 4K120 over HDMI 2.1 FRL on FLAVA3 (Lawson), hdmi.frl_4k120  [ps5-bazzite-deck]
+PS5 HDMI: 4K120 over HDMI 2.1 FRL on FLAVA3 (Lawson), hdmi.frl_4k120
 
 Ported from Lawson's PS5 kernel (vrr13), which follows how Sony's 13.60 kernel programs
 the FLAVA3 chip for its 4K120 mode (mode id 211; 4K100, 210, isn't offered):
@@ -30,7 +30,7 @@ Offered on FLAVA3 when the TV lists 4K120 itself; hdmi.frl_4k120=0 never offers 
  static bool avi_rgb;
  
 +/*
-+ * 4K120 over HDMI 2.1 FRL (Lawson's port of Sony's 13.60 setup for mode id 211): the TV
++ * 4K120 over HDMI 2.1 FRL (Sony's 13.60 setup for mode id 211): the TV
 + * mode (VIC 118) gets Sony's 4K120 mode index 0x0b (4K100, 0x0a, isn't offered); the chip trains the FRL
 + * link itself once the output is started with 5/3 02; the InfoFrames are updated by event
 + * sequence 0x30, which the chip runs when the FRL link is up. The GPU-to-chip DP link
@@ -142,7 +142,7 @@ Offered on FLAVA3 when the TV lists 4K120 itself; hdmi.frl_4k120=0 never offers 
  	int lo, hi;
  
 -	return ps5_hdmi_vrr_possible() && !ps5_hdmi_vrr_range(&lo, &hi, &src);
-+	/* not in FRL modes: Lawson's 4K120 VRR ran on Sony's FRL setup without them */
++	/* not in FRL modes: 4K120 VRR runs on Sony's FRL setup without them */
 +	return ps5_hdmi_vrr_possible() && !setup_frl && !ps5_hdmi_vrr_range(&lo, &hi, &src);
  }
  

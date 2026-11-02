@@ -1,4 +1,4 @@
-PS5 VRR: stock PHY tail and VSync block in every setup again (v1.7.1)  [ps5-bazzite-deck]
+PS5 VRR: stock PHY tail and VSync block in every setup again
 
 VRR worked in v1.6.3 and not in v1.7.0 (Gilles, LG C4). In v1.6.3, hdmi.vrr_test=1 also
 made every setup use stock's full PHY tail (lane selectors 0x7030/0x7026, test 19) and
@@ -60,8 +60,8 @@ console's controller stayed stuck in that wait and the whole console hung (v1.7.
  EXPORT_SYMBOL(ps5_hdmi_vrr_range);
  
 +/*
-+ * v1.7.1: VRR worked in v1.6.3, where hdmi.vrr_test=1 also made every setup use stock's
-+ * full PHY tail and write the VSync block (normal values) at stock's position; v1.7.0
++ * VRR worked when every setup used stock's
++ * full PHY tail and write the VSync block (normal values) at stock's position; without them
 + * dropped both with the test code and the chip no longer followed. Both are back, for
 + * FLAVA3 with a TV that has a VRR range.
 + */
@@ -92,9 +92,9 @@ console's controller stayed stuck in that wait and the whole console hung (v1.7.
 -	b[n++] = 0x03; b[n++] = 8; b[n++] = 0x03; b[n++] = 1;		/* until it's taken */
 -	b[n++] = 0; b[n++] = 0x72; b[n++] = 0x04; b[n++] = 0x20;
 +	/*
-+	 * v1.7.1: no wait-until-clear on the strobe here. If the chip isn't outputting, the
-+	 * bit never clears and the console's controller stays stuck in that wait: on v1.7.0
-+	 * (follow mode not taking) the whole console hung, SSH included (Gilles).
++	 * no wait-until-clear on the strobe here. If the chip isn't outputting, the
++	 * bit never clears and the console's controller stays stuck in that wait:
++	 * (follow mode not taking) the whole console hung, SSH included.
 +	 */
  	b[1] = n & 0xff; b[2] = n >> 8;
  	ret = vrr_icc(b, n);

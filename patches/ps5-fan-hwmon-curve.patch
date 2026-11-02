@@ -1,0 +1,1169 @@
+PS5 fan: hwmon driver (meower 883eef9 by Armandas Kvietkus + upstream #66 Pro fix by Borchev), ported
+
+drivers/ps5/fan.c + autoservo_param.h from upstream #66 (same as rmux's meower hwmon curve
+driver, plus #66's PS5 Pro fix: the Pro hands the MainSoC zone over in manual mode, which made
+the driver fail to probe; it's returned to firmware auto). Kconfig: X86_PS5 also selects HWMON.
+ps5.h: ps5_is_viola() (0x13da and 0x13dc).
+
+Adapted for this image (upstream defaults to its own kernel fan curve at boot):
+ - pwm1_enable 2 = the console's own firmware fan control, the DEFAULT (what every release so
+   far did); 3 = the kernel's curve (pwm1_auto_point*), opt-in; 0 full, 1 manual as upstream
+ - target_temp on the platform device (/sys/bus/platform/devices/ps5-fan/target_temp) kept, as
+   the old driver had it: ps5-perf's FAN_TARGET and the hwcon plugin write it
+ - after an emergency (max fan) the driver returns to firmware control, not the curve
+hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_input, pwm1.
+---
+
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -610,6 +610,7 @@
+ 	depends on X86_EXTENDED_PLATFORM
+ 	depends on PCI
+ 	select CEC_CORE
++	select HWMON
+ 	help
+ 	  Select to include support for the Sony PlayStation 5 game console.
+ 
+--- a/include/linux/ps5.h
++++ b/include/linux/ps5.h
+@@ -11,6 +11,12 @@
+ struct drm_connector;
+ struct drm_edid;
+ 
++/* PS5 Pro GPU (Viola); Sony's kernel matches both IDs (upstream #66). */
++static inline bool ps5_is_viola(u16 device)
++{
++	return device == 0x13da || device == 0x13dc;
++}
++
+ struct pci_dev;
+ 
+ struct hdmi_drm_infoframe;
+--- a/drivers/ps5/fan.c
++++ b/drivers/ps5/fan.c
+@@ -4,19 +4,22 @@
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
+ #include <linux/err.h>
++#include <linux/pci.h>
+ #include <linux/unaligned.h>
+ #include <linux/ps5.h>
+ #include <linux/io.h>
+ #include "ps5-fan.h"
+ #include "autoservo_param.h"
+-
+-#define PS5_FAN_BOOT_TARGET_TEMP	80
++#include <linux/device.h>
++#include <linux/hwmon.h>
++#include <linux/hwmon-sysfs.h>
++#include <linux/jiffies.h>
++#include <linux/mutex.h>
++#include <linux/pm.h>
++#include <linux/workqueue.h>
+ 
+ #define PS5_FAN_PARAM_OFF		4
+ #define PS5_FAN_PARAM_SIZE		0x6ae
+-#define PS5_FAN_PARAM_BLOCK_SIZE	0x160
+-#define PS5_FAN_PARAM_BLOCK_COUNT	4
+-#define PS5_FAN_PARAM_MAINSOC_OFF	0x20
+ 
+ #define GDDR6_SAMSUNG		0x01
+ #define GDDR6_HYNIX		0x06
+@@ -52,11 +55,16 @@
+ 
+ int icc_fan_update_param(const u8 *param)
+ {
+-	u8 buf[ICC_MSG_MAX_SIZE] = {};
+-	struct icc_msg *msg = (struct icc_msg *)buf;
++	u8 *buf;
++	struct icc_msg *msg;
+ 	u16 status;
+ 	int ret;
+ 
++	buf = kzalloc(ICC_MSG_MAX_SIZE, GFP_KERNEL);
++	if (!buf)
++		return -ENOMEM;
++	msg = (struct icc_msg *)buf;
++
+ 	msg->service_id = ICC_SERVICE_ID_FAN;
+ 	msg->msg_type = 0xe;
+ 	msg->length = sizeof(*msg) + PS5_FAN_PARAM_OFF + PS5_FAN_PARAM_SIZE;
+@@ -64,32 +72,20 @@
+ 
+ 	ret = icc_query(buf, buf);
+ 	if (ret)
+-		return ret;
++		goto out;
+ 
+ 	status = get_unaligned_le16(msg->data);
+ 	if (status) {
+ 		pr_err("FanServo: EMC rejected param, status 0x%x\n", status);
+-		return -EIO;
++		ret = -EIO;
+ 	}
+ 
+-	return 0;
++out:
++	kfree(buf);
++	return ret;
+ }
+ EXPORT_SYMBOL(icc_fan_update_param);
+ 
+-static void fan_param_cap_mainsoc_target(u8 *param, u16 celsius)
+-{
+-	u32 cap = (u32)celsius << PS5_TARGETTEMP_SHIFT;
+-	int i;
+-
+-	for (i = 0; i < PS5_FAN_PARAM_BLOCK_COUNT; i++) {
+-		u8 *t = param + i * PS5_FAN_PARAM_BLOCK_SIZE +
+-			PS5_FAN_PARAM_MAINSOC_OFF;
+-
+-		if (get_unaligned_le32(t) > cap)
+-			put_unaligned_le32(cap, t);
+-	}
+-}
+-
+ int icc_fan_update_autoservo_param(void)
+ {
+ 	u64 board_id, board_mask_a, board_mask_b;
+@@ -98,7 +94,6 @@
+ 	const char *board_name = NULL;
+ 	const char *gddr6_name = NULL;
+ 	const u8 *param = NULL;
+-	u8 *buf;
+ 	int ret;
+ 
+ 	bootparam_get_config_board_id(&board_id);
+@@ -206,13 +201,7 @@
+ 	if (!param)
+ 		goto not_updated;
+ 
+-	buf = kmemdup(param, PS5_FAN_PARAM_SIZE, GFP_KERNEL);
+-	if (!buf)
+-		return -ENOMEM;
+-
+-	fan_param_cap_mainsoc_target(buf, PS5_FAN_BOOT_TARGET_TEMP);
+-	ret = icc_fan_update_param(buf);
+-	kfree(buf);
++	ret = icc_fan_update_param(param);
+ 	if (ret)
+ 		pr_err("Error: %s: %d\n", __func__, ret);
+ 
+@@ -224,112 +213,664 @@
+ }
+ EXPORT_SYMBOL(icc_fan_update_autoservo_param);
+ 
+-static int icc_fan_txn(u8 svc, u16 mt, u16 len,
+-		       const u8 *data, size_t dlen,
+-		       u8 *reply_out, size_t rlen)
++static inline struct ps5_fan_curve ps5_fan_default_curve(void)
+ {
+-	u8 *buf;
++	return ps5_fan_quiet_default;
++}
++
++static inline struct ps5_fan_curve ps5_fan_board_curve(unsigned int minimum_pwm)
++{
++	struct ps5_fan_curve curve = ps5_fan_default_curve();
++	int i;
++
++	if (minimum_pwm > 255)
++		minimum_pwm = 255;
++	for (i = 0; i < PS5_CURVE_POINTS; i++)
++		if (curve.pwm[i] < minimum_pwm)
++			curve.pwm[i] = minimum_pwm;
++	return curve;
++}
++
++static inline int ps5_fan_curve_valid(const struct ps5_fan_curve *curve)
++{
++	int i;
++
++	if (curve->stop_temp < 0 || curve->stop_temp >= curve->temp[0])
++		return -EINVAL;
++	for (i = 0; i < PS5_CURVE_POINTS; i++) {
++		if (curve->temp[i] < 0 ||
++		    curve->temp[i] > PS5_FAN_EMERGENCY_MC ||
++		    curve->pwm[i] > 255)
++			return -EINVAL;
++		if (i && (curve->temp[i] <= curve->temp[i - 1] ||
++			  curve->pwm[i] < curve->pwm[i - 1]))
++			return -EINVAL;
++	}
++	return curve->pwm[PS5_CURVE_POINTS - 1] == 255 ? 0 : -EINVAL;
++}
++
++static inline unsigned int
++ps5_fan_interpolate(const struct ps5_fan_curve *curve, int temp)
++{
++	int i;
++
++	if (temp <= curve->temp[0])
++		return curve->pwm[0];
++	for (i = 1; i < PS5_CURVE_POINTS; i++) {
++		if (temp <= curve->temp[i]) {
++			unsigned int span = curve->temp[i] - curve->temp[i - 1];
++			unsigned int rise = curve->pwm[i] - curve->pwm[i - 1];
++
++			return curve->pwm[i - 1] +
++			       (rise * (temp - curve->temp[i - 1]) + span / 2) /
++				       span;
++		}
++	}
++	return 255;
++}
++
++static inline unsigned int ps5_fan_auto_pwm(const struct ps5_fan_curve *curve,
++					    int raw_temp, int filtered_temp,
++					    bool *running)
++{
++	if (raw_temp < curve->stop_temp)
++		*running = false;
++	else if (raw_temp >= curve->temp[0])
++		*running = true;
++	if (!*running)
++		return 0;
++	return ps5_fan_interpolate(curve, filtered_temp);
++}
++
++static inline unsigned int ps5_fan_slew(unsigned int wanted,
++					unsigned int previous)
++{
++	if (wanted > previous && wanted - previous > 26)
++		return previous + 26;
++	if (wanted < previous && previous - wanted > 13)
++		return previous - 13;
++	return wanted;
++}
++
++static inline unsigned int ps5_pwm_to_duty(unsigned int pwm)
++{
++	return (pwm * 1024 + 127) / 255;
++}
++
++static inline unsigned int ps5_duty_to_pwm(unsigned int duty)
++{
++	return (duty * 255 + 512) / 1024;
++}
++
++#define PS5_SERVO_SIZE 0x6ae
++#define PS5_CONTROL_INTERVAL msecs_to_jiffies(500)
++#define PS5_PWM_FULL 0
++#define PS5_PWM_MANUAL 1
++/*
++ * ps5-bazzite-deck: pwm1_enable 2 keeps the console's own firmware fan control (the
++ * target_temp behaviour of every release so far, the default); 3 is the kernel's curve
++ * (pwm1_auto_point*), opt-in. Upstream has the curve at 2 and no firmware mode.
++ */
++#define PS5_PWM_FIRMWARE 2
++#define PS5_PWM_AUTO 3
++
++/* ICC sensor per temp channel: fan zones 0-3, then sensor 18. */
++static const u8 ps5_fan_temp_sensor[] = { 0, 1, 2, 3, 18 };
++#define PS5_TEMP_CHANNELS ARRAY_SIZE(ps5_fan_temp_sensor)
++#define PS5_SENSOR18_CHANNEL PS5_ZONE_COUNT
++
++struct ps5_fan_data {
++	struct device *dev;
++
++	struct mutex lock;
++	struct delayed_work work;
++	struct ps5_fan_curve curve;
++	struct ps5_fan_curve default_curve;
++	u8 original[PS5_SERVO_SIZE];
++	u8 backup[PS5_SERVO_SIZE];
++	int temp[PS5_TEMP_CHANNELS];
++	int temp_error[PS5_TEMP_CHANNELS];
++	int filtered_temp;
++	unsigned int enable;
++	unsigned int manual_pwm;
++	unsigned int requested_pwm;
++	int wire_mode;
++	bool running;
++	bool filtered_valid;
++	bool fault;
++	bool emergency;
++	bool suspended;
++	bool has_sensor18;
++};
++
++static int ps5_fan_message(u8 service, u16 type, u16 length,
++			   const void *request, size_t request_size,
++			   void *reply, size_t reply_size)
++{
++	u8 *buf = kzalloc(ICC_MSG_MAX_SIZE, GFP_KERNEL);
+ 	struct icc_msg *msg;
+ 	int ret;
+ 
+-	buf = kzalloc(ICC_MSG_MAX_SIZE, GFP_KERNEL);
+ 	if (!buf)
+ 		return -ENOMEM;
+ 	msg = (struct icc_msg *)buf;
+-
+-	msg->service_id = svc;
+-	msg->msg_type = mt;
+-	msg->length = len;
+-	if (data && dlen)
+-		memcpy(msg->data, data, dlen);
+-
++	msg->service_id = service;
++	msg->msg_type = type;
++	msg->length = length;
++	if (request_size)
++		memcpy(msg->data, request, request_size);
+ 	ret = icc_query(buf, buf);
+-	if (!ret && reply_out && rlen)
+-		memcpy(reply_out, msg->data, rlen);
+-
++	if (!ret && (msg->length < 0x10 || msg->length > ICC_MSG_MAX_SIZE))
++		ret = -EPROTO;
++	if (!ret && get_unaligned_le16(msg->data))
++		ret = -EIO;
++	if (!ret && reply_size) {
++		if (msg->length < 0xc + reply_size)
++			ret = -EPROTO;
++		else
++			memcpy(reply, msg->data, reply_size);
++	}
+ 	kfree(buf);
+ 	return ret;
+ }
+ 
+-static int icc_fan_get_curset(u8 zone, u32 out[PS5_CURSET_COUNT])
++static int ps5_fan_read_temp(unsigned int zone, int *temp)
+ {
+-	u8 req[ICC_MSG_MAX_SIZE - sizeof(struct icc_msg)] = {};
+-	u8 reply[ICC_MSG_MIN_SIZE] = {};
+-	int ret, i;
++	u8 request[4] = { zone };
++	u8 reply[4];
++	int raw, ret;
++
++	ret = ps5_fan_message(0xb, 1, 0x20, request, sizeof(request), reply,
++			      sizeof(reply));
++	if (ret)
++		return ret;
++	raw = (s16)get_unaligned_le16(reply + 2);
++	if (raw < 0 || raw >= 125 * 256)
++		return -ENODATA;
++	*temp = DIV_ROUND_CLOSEST(raw * 1000, 256);
++	return 0;
++}
+ 
+-	req[PS5_FAN_ZONE_OFF] = zone;
++static int ps5_fan_read_duty(unsigned int *duty)
++{
++	u8 reply[4];
++	int ret = ps5_fan_message(0xa, 1, 0x20, NULL, 0, reply, sizeof(reply));
+ 
+-	ret = icc_fan_txn(ICC_SERVICE_ID_FAN, PS5_FAN_MT_CURSET_GET,
+-			  PS5_FAN_CURSET_GET_LEN, req, sizeof(req),
+-			  reply, sizeof(reply));
+ 	if (ret)
+ 		return ret;
++	*duty = get_unaligned_le16(reply + 2);
++	return *duty <= 1024 ? 0 : -EPROTO;
++}
+ 
+-	for (i = 0; i < PS5_CURSET_COUNT; i++)
+-		out[i] = get_unaligned_le32(reply +
+-			  PS5_FAN_CURSET_GET_OFF + i * 4);
+-	return 0;
++static int ps5_fan_set_mode(struct ps5_fan_data *data, int mode)
++{
++	u8 request[4] = { 0, mode };
++	int ret;
++
++	if (data->wire_mode == mode)
++		return 0;
++	ret = ps5_fan_message(0xa, 2, 0x20, request, sizeof(request), NULL, 0);
++	if (!ret)
++		data->wire_mode = mode;
++	return ret;
+ }
+ 
+-static int icc_fan_set_curset(u8 zone, u8 config, const u32 in[PS5_CURSET_COUNT])
++static int ps5_fan_write_pwm(struct ps5_fan_data *data, unsigned int pwm)
+ {
+-	u8 req[ICC_MSG_MAX_SIZE - sizeof(struct icc_msg)] = {};
+-	int i;
++	u8 request[4] = {};
++	int ret = ps5_fan_set_mode(data, PS5_FAN_MODE_MANUAL);
+ 
+-	req[PS5_FAN_ZONE_OFF] = zone;
+-	req[PS5_FAN_CONFIG_OFF] = config;
+-	for (i = 0; i < PS5_CURSET_COUNT; i++)
+-		put_unaligned_le32(in[i], req + PS5_FAN_CURSET_SET_OFF + i * 4);
++	if (ret)
++		return ret;
++	put_unaligned_le16(ps5_pwm_to_duty(pwm), request + 2);
++	ret = ps5_fan_message(0xa, 4, 0x20, request, sizeof(request), NULL, 0);
++	if (!ret)
++		data->requested_pwm = pwm;
++	return ret;
++}
++
++static void ps5_fan_prepare_backup(struct ps5_fan_data *data)
++{
++	int block, zone, field;
+ 
+-	return icc_fan_txn(ICC_SERVICE_ID_FAN, PS5_FAN_MT_CURSET_SET,
+-			   PS5_FAN_CURSET_SET_LEN, req, sizeof(req), NULL, 0);
++	memcpy(data->backup, data->original, PS5_SERVO_SIZE);
++	for (block = 0; block < 4; block++) {
++		u8 *head = data->backup + block * 0x160;
++		u8 *record = head + 0x20;
++
++		for (zone = 1; zone < 4; zone++)
++			put_unaligned_le16(0, head + zone * 4 + 2);
++
++		put_unaligned_le16(1024, head);
++		if (get_unaligned_le16(head + 2) < 103)
++			put_unaligned_le16(103, head + 2);
++		put_unaligned_le16(1024, head + 0x10);
++		for (field = 0; field < ARRAY_SIZE(ps5_fan_quiet_servo);
++		     field++)
++			put_unaligned_le32(
++				ps5_fan_quiet_servo[field].value,
++				record + ps5_fan_quiet_servo[field].offset);
++	}
++
++	put_unaligned_le16(0, data->backup + 0x583);
+ }
+ 
+-static DEFINE_MUTEX(fan_lock);
++static bool ps5_fan_on_viola(void)
++{
++	struct pci_dev *pdev = NULL;
++
++	while ((pdev = pci_get_device(PCI_VENDOR_ID_ATI, PCI_ANY_ID, pdev))) {
++		if (ps5_is_viola(pdev->device)) {
++			pci_dev_put(pdev);
++			return true;
++		}
++	}
++	return false;
++}
+ 
+-static int fan_get_target_temp(u8 zone, u16 *celsius)
++/*
++ * The PS5 Pro hands over with the MainSoC zone in manual mode. Nothing else
++ * drives the fan, so return it to firmware auto.
++ */
++static int ps5_fan_reclaim_mainsoc(struct ps5_fan_data *data, u8 mode)
+ {
+-	u32 cs[PS5_CURSET_COUNT];
++	u8 request[4] = { PS5_ZONE_MAINSOC };
++	u8 reply[4];
+ 	int ret;
+ 
+-	mutex_lock(&fan_lock);
+-	ret = icc_fan_get_curset(zone, cs);
+-	mutex_unlock(&fan_lock);
++	dev_info(data->dev,
++		 "MainSoC fan zone left in mode %u, returning it to auto\n",
++		 mode);
++	data->wire_mode = -1;
++	ret = ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO);
++	if (!ret)
++		ret = ps5_fan_message(0xa, 3, 0x20, request, sizeof(request),
++				      reply, sizeof(reply));
++	if (!ret && reply[2] != PS5_FAN_MODE_AUTO)
++		ret = -EBUSY;
+ 	if (ret)
+-		return ret;
++		dev_err(data->dev,
++			"cannot return MainSoC fan zone to auto: %d\n", ret);
++	return ret;
++}
+ 
+-	*celsius = cs[PS5_CURSET_TARGETTEMP] >> PS5_TARGETTEMP_SHIFT;
+-	return 0;
++static int ps5_fan_snapshot(struct ps5_fan_data *data)
++{
++	u8 *reply = kzalloc(PS5_SERVO_SIZE + 4, GFP_KERNEL);
++	u8 request[4] = {};
++	u8 mode[4];
++	int ret, zone;
++
++	if (!reply)
++		return -ENOMEM;
++	ret = ps5_fan_message(0xa, 0xf, 0x20, NULL, 0, reply,
++			      PS5_SERVO_SIZE + 4);
++	if (!ret)
++		memcpy(data->original, reply + 4, PS5_SERVO_SIZE);
++	kfree(reply);
++	for (zone = 0; !ret && zone < 4; zone++) {
++		request[0] = zone;
++		ret = ps5_fan_message(0xa, 3, 0x20, request, sizeof(request),
++				      mode, sizeof(mode));
++		if (ret || mode[2] == PS5_FAN_MODE_AUTO)
++			continue;
++		if (zone == PS5_ZONE_MAINSOC && ps5_fan_on_viola())
++			ret = ps5_fan_reclaim_mainsoc(data, mode[2]);
++		else
++			ret = -EBUSY;
++	}
++	return ret;
+ }
+ 
+-static int fan_set_target_temp(u8 zone, u8 config, u16 celsius)
++static void ps5_fan_fallback(struct ps5_fan_data *data)
+ {
+-	u32 cs[PS5_CURSET_COUNT];
+ 	int ret;
+ 
+-	mutex_lock(&fan_lock);
+-	ret = icc_fan_get_curset(zone, cs);
+-	if (!ret) {
+-		cs[PS5_CURSET_TARGETTEMP] = (u32)celsius << PS5_TARGETTEMP_SHIFT;
+-		ret = icc_fan_set_curset(zone, config, cs);
++	data->fault = true;
++	data->wire_mode = -1;
++	ret = ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO);
++	if (ret)
++		dev_err_ratelimited(data->dev,
++				    "cannot restore firmware auto mode: %d\n",
++				    ret);
++}
++
++static int ps5_fan_update_locked(struct ps5_fan_data *data)
++{
++	unsigned int pwm;
++	int ret;
++
++	data->temp_error[0] = ps5_fan_read_temp(0, &data->temp[0]);
++	ret = data->temp_error[0];
++	if (ret && data->enable == PS5_PWM_FULL) {
++		data->fault = true;
++		return ps5_fan_set_mode(data, PS5_FAN_MODE_MAXIMUM);
+ 	}
+-	mutex_unlock(&fan_lock);
++	if (ret)
++		goto failed;
++	if (!data->filtered_valid) {
++		data->filtered_temp = data->temp[0];
++		data->filtered_valid = true;
++	} else {
++		data->filtered_temp =
++			(3 * data->filtered_temp + data->temp[0]) / 4;
++	}
++	if (data->temp[0] >= PS5_FAN_EMERGENCY_MC) {
++		data->emergency = true;
++		data->enable = PS5_PWM_FIRMWARE;	/* back to the firmware once it's cool again */
++	} else if (data->temp[0] < PS5_FAN_EMERGENCY_MC - 5000) {
++		data->emergency = false;
++	}
++	if (data->enable == PS5_PWM_FIRMWARE && !data->emergency) {
++		ret = ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO);
++		if (ret)
++			goto failed;
++		data->fault = false;
++		return 0;
++	}
++	if (data->enable == PS5_PWM_FULL || data->emergency) {
++		ret = ps5_fan_set_mode(data, PS5_FAN_MODE_MAXIMUM);
++		if (ret)
++			goto failed;
++		data->requested_pwm = 255;
++	} else {
++		if (data->enable == PS5_PWM_MANUAL) {
++			pwm = data->manual_pwm;
++		} else {
++
++			pwm = ps5_fan_auto_pwm(&data->curve, data->temp[0],
++					       data->temp[0] >= 80000 ?
++						       data->temp[0] :
++						       data->filtered_temp,
++					       &data->running);
++			pwm = ps5_fan_slew(pwm, data->requested_pwm);
++		}
++		ret = ps5_fan_write_pwm(data, pwm);
++		if (ret)
++			goto failed;
++	}
++	data->fault = false;
++	return 0;
++failed:
++	dev_warn_ratelimited(data->dev,
++			     "fan control failed (%d); using firmware auto\n",
++			     ret);
++	ps5_fan_fallback(data);
+ 	return ret;
+ }
+ 
+-static ssize_t target_temp_show(struct device *dev,
+-				struct device_attribute *attr, char *buf)
++static void ps5_fan_control_work(struct work_struct *work)
+ {
+-	u16 c;
+-	int ret = fan_get_target_temp(PS5_ZONE_MAINSOC, &c);
++	struct ps5_fan_data *data =
++		container_of(to_delayed_work(work), struct ps5_fan_data, work);
++
++	mutex_lock(&data->lock);
++	if (!data->suspended) {
++		ps5_fan_update_locked(data);
++		schedule_delayed_work(&data->work, PS5_CONTROL_INTERVAL);
++	}
++	mutex_unlock(&data->lock);
++}
++
++static umode_t ps5_fan_hwmon_visible(const void *drvdata,
++				     enum hwmon_sensor_types type, u32 attr,
++				     int channel)
++{
++	const struct ps5_fan_data *data = drvdata;
++
++	if (type == hwmon_pwm)
++		return 0644;
++	if (type == hwmon_temp &&
++	    (channel != PS5_SENSOR18_CHANNEL || data->has_sensor18))
++		return 0444;
++	return 0;
++}
++
++static int ps5_fan_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
++			      u32 attr, int channel, long *value)
++{
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
++	unsigned int duty;
++	int ret = 0;
++
++	mutex_lock(&data->lock);
++	if (type == hwmon_pwm && attr == hwmon_pwm_enable) {
++		*value = data->enable;
++	} else if (type == hwmon_pwm && attr == hwmon_pwm_input) {
++		ret = ps5_fan_read_duty(&duty);
++		if (!ret)
++			*value = ps5_duty_to_pwm(duty);
++	} else if (type == hwmon_temp && attr == hwmon_temp_input) {
++		ret = ps5_fan_read_temp(ps5_fan_temp_sensor[channel],
++					&data->temp[channel]);
++		data->temp_error[channel] = ret;
++		if (!ret)
++			*value = data->temp[channel];
++	} else if (type == hwmon_temp && attr == hwmon_temp_fault) {
++		*value = !!data->temp_error[channel];
++	} else {
++		ret = -EOPNOTSUPP;
++	}
++	mutex_unlock(&data->lock);
++	return ret;
++}
++
++static int ps5_fan_hwmon_read_string(struct device *dev,
++				     enum hwmon_sensor_types type, u32 attr,
++				     int channel, const char **value)
++{
++	static const char *const labels[] = { "MainSoC", "Local1", "Local2",
++					      "Local3", "Local4" };
++
++	if (type != hwmon_temp || attr != hwmon_temp_label)
++		return -EOPNOTSUPP;
++	*value = labels[channel];
++	return 0;
++}
++
++static int ps5_fan_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
++			       u32 attr, int channel, long value)
++{
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
++	unsigned int duty;
++	int ret = 0;
++
++	if (type != hwmon_pwm)
++		return -EOPNOTSUPP;
++	mutex_lock(&data->lock);
++	if (data->suspended) {
++		ret = -EBUSY;
++		goto out;
++	}
++	if (attr == hwmon_pwm_enable) {
++		if (value < 0 || value > PS5_PWM_AUTO) {
++			ret = -EINVAL;
++			goto out;
++		}
++		if (data->emergency && value == PS5_PWM_MANUAL) {
++			ret = -EBUSY;
++			goto out;
++		}
++		if (value == PS5_PWM_MANUAL) {
++			ret = ps5_fan_read_duty(&duty);
++			if (ret)
++				goto out;
++			data->manual_pwm = ps5_duty_to_pwm(duty);
++		}
++		data->enable = value;
++	} else if (attr == hwmon_pwm_input) {
++		if (value < 0 || value > 255) {
++			ret = -EINVAL;
++			goto out;
++		}
++		if (data->enable != PS5_PWM_MANUAL) {
++			ret = -EBUSY;
++			goto out;
++		}
++		data->manual_pwm = value;
++	} else {
++		ret = -EOPNOTSUPP;
++		goto out;
++	}
++	ret = ps5_fan_update_locked(data);
++out:
++	mutex_unlock(&data->lock);
++	return ret;
++}
++
++static const struct hwmon_ops ps5_fan_hwmon_ops = {
++	.is_visible = ps5_fan_hwmon_visible,
++	.read = ps5_fan_hwmon_read,
++	.read_string = ps5_fan_hwmon_read_string,
++	.write = ps5_fan_hwmon_write,
++};
++
++static const struct hwmon_channel_info *const ps5_fan_hwmon_channels[] = {
++	HWMON_CHANNEL_INFO(pwm, HWMON_PWM_INPUT | HWMON_PWM_ENABLE),
++	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_FAULT,
++			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_FAULT,
++			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_FAULT,
++			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_FAULT,
++			   HWMON_T_INPUT | HWMON_T_LABEL | HWMON_T_FAULT),
++	NULL,
++};
++
++static const struct hwmon_chip_info ps5_fan_chip_info = {
++	.ops = &ps5_fan_hwmon_ops,
++	.info = ps5_fan_hwmon_channels,
++};
++
++static ssize_t ps5_curve_show(struct device *dev, struct device_attribute *attr,
++			      char *buf)
++{
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
++	struct sensor_device_attribute_2 *point = to_sensor_dev_attr_2(attr);
++	unsigned int value;
++
++	mutex_lock(&data->lock);
++	if (point->nr == 0)
++		value = data->curve.temp[point->index];
++	else if (point->nr == 1)
++		value = data->curve.pwm[point->index];
++	else
++		value = data->curve.stop_temp;
++	mutex_unlock(&data->lock);
++	return sysfs_emit(buf, "%u\n", value);
++}
++
++static ssize_t ps5_curve_store(struct device *dev,
++			       struct device_attribute *attr, const char *buf,
++			       size_t count)
++{
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
++	struct sensor_device_attribute_2 *point = to_sensor_dev_attr_2(attr);
++	struct ps5_fan_curve candidate;
++	unsigned int value;
++	int ret;
++
++	if (kstrtouint(buf, 10, &value))
++		return -EINVAL;
++	if (value > PS5_FAN_EMERGENCY_MC)
++		return -ERANGE;
++	mutex_lock(&data->lock);
++	candidate = data->curve;
++	if (point->nr == 0)
++		candidate.temp[point->index] = value;
++	else if (point->nr == 1)
++		candidate.pwm[point->index] = value;
++	else
++		candidate.stop_temp = value;
++	ret = ps5_fan_curve_valid(&candidate);
++	if (!ret)
++		data->curve = candidate;
++	mutex_unlock(&data->lock);
++	return ret ? ret : count;
++}
++
++static ssize_t curve_reset_store(struct device *dev,
++				 struct device_attribute *attr, const char *buf,
++				 size_t count)
++{
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
++	unsigned int value;
++
++	if (kstrtouint(buf, 10, &value) || value != 1)
++		return -EINVAL;
++	mutex_lock(&data->lock);
++	data->curve = data->default_curve;
++	data->running = data->temp[0] >= data->curve.temp[0];
++	data->filtered_valid = false;
++	mutex_unlock(&data->lock);
++	return count;
++}
++static DEVICE_ATTR_WO(curve_reset);
++
++/*
++ * target_temp: the firmware's MainSoC fan target in °C, as the old driver exposed it
++ * (ps5-perf's FAN_TARGET and the hwcon plugin write it). Only meaningful while
++ * pwm1_enable is 2 (firmware control); the console's default is 80.
++ */
++#define PS5_FAN_REQ_SIZE (ICC_MSG_MAX_SIZE - sizeof(struct icc_msg))
++
++static int ps5_fan_curset(u8 mt, u16 len, u8 *req, u8 *reply)
++{
++	return ps5_fan_message(ICC_SERVICE_ID_FAN, mt, len, req, PS5_FAN_REQ_SIZE,
++			       reply, reply ? ICC_MSG_MIN_SIZE : 0);
++}
++
++static int ps5_fan_get_target_temp(u16 *celsius)
++{
++	u8 *req = kzalloc(PS5_FAN_REQ_SIZE + ICC_MSG_MIN_SIZE, GFP_KERNEL), *reply;
++	int ret;
++
++	if (!req)
++		return -ENOMEM;
++	reply = req + PS5_FAN_REQ_SIZE;
++	req[PS5_FAN_ZONE_OFF] = PS5_ZONE_MAINSOC;
++	ret = ps5_fan_curset(PS5_FAN_MT_CURSET_GET, PS5_FAN_CURSET_GET_LEN, req, reply);
++	if (!ret)
++		*celsius = get_unaligned_le32(reply + PS5_FAN_CURSET_GET_OFF + PS5_CURSET_TARGETTEMP * 4) >>
++			   PS5_TARGETTEMP_SHIFT;
++	kfree(req);
++	return ret;
++}
++
++static int ps5_fan_set_target_temp(u16 celsius)
++{
++	u8 *req = kzalloc(PS5_FAN_REQ_SIZE + ICC_MSG_MIN_SIZE, GFP_KERNEL), *reply;
++	u32 cs[PS5_CURSET_COUNT];
++	int ret, i;
+ 
++	if (!req)
++		return -ENOMEM;
++	reply = req + PS5_FAN_REQ_SIZE;
++	req[PS5_FAN_ZONE_OFF] = PS5_ZONE_MAINSOC;
++	ret = ps5_fan_curset(PS5_FAN_MT_CURSET_GET, PS5_FAN_CURSET_GET_LEN, req, reply);
+ 	if (ret)
+-		return ret;
+-	return sysfs_emit(buf, "%u\n", c);
++		goto out;
++	for (i = 0; i < PS5_CURSET_COUNT; i++)
++		cs[i] = get_unaligned_le32(reply + PS5_FAN_CURSET_GET_OFF + i * 4);
++	cs[PS5_CURSET_TARGETTEMP] = (u32)celsius << PS5_TARGETTEMP_SHIFT;
++	memset(req, 0, PS5_FAN_REQ_SIZE);
++	req[PS5_FAN_ZONE_OFF] = PS5_ZONE_MAINSOC;
++	req[PS5_FAN_CONFIG_OFF] = 0;
++	for (i = 0; i < PS5_CURSET_COUNT; i++)
++		put_unaligned_le32(cs[i], req + PS5_FAN_CURSET_SET_OFF + i * 4);
++	ret = ps5_fan_curset(PS5_FAN_MT_CURSET_SET, PS5_FAN_CURSET_SET_LEN, req, NULL);
++out:
++	kfree(req);
++	return ret;
+ }
+ 
+-static ssize_t target_temp_store(struct device *dev,
+-				 struct device_attribute *attr,
++static ssize_t target_temp_show(struct device *dev, struct device_attribute *attr, char *buf)
++{
++	u16 c;
++	int ret = ps5_fan_get_target_temp(&c);
++
++	return ret ? ret : sysfs_emit(buf, "%u\n", c);
++}
++
++static ssize_t target_temp_store(struct device *dev, struct device_attribute *attr,
+ 				 const char *buf, size_t count)
+ {
+ 	u16 c;
+@@ -339,37 +880,225 @@
+ 		return -EINVAL;
+ 	if (c > 100)
+ 		return -ERANGE;
+-
+-	ret = fan_set_target_temp(PS5_ZONE_MAINSOC, 0, c);
++	ret = ps5_fan_set_target_temp(c);
+ 	return ret ? ret : count;
+ }
+ static DEVICE_ATTR_RW(target_temp);
+ 
+-static struct attribute *ps5_fan_attrs[] = {
++static struct attribute *ps5_fan_platform_attrs[] = {
+ 	&dev_attr_target_temp.attr,
+ 	NULL,
+ };
+-ATTRIBUTE_GROUPS(ps5_fan);
++ATTRIBUTE_GROUPS(ps5_fan_platform);
+ 
+-static int ps5_fan_probe(struct platform_device *pdev)
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point1_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 0);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point1_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 0);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point2_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 1);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point2_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 1);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point3_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 2);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point3_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 2);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point4_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 3);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point4_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 3);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point5_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 4);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point5_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 4);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point6_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 5);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point6_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 5);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point7_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 6);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point7_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 6);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point8_temp, 0644, ps5_curve_show,
++			    ps5_curve_store, 0, 7);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point8_pwm, 0644, ps5_curve_show,
++			    ps5_curve_store, 1, 7);
++static SENSOR_DEVICE_ATTR_2(pwm1_auto_point1_temp_hyst, 0644, ps5_curve_show,
++			    ps5_curve_store, 2, 0);
++
++#define PS5_CURVE_ATTRS(n)                                        \
++	&sensor_dev_attr_pwm1_auto_point##n##_temp.dev_attr.attr, \
++		&sensor_dev_attr_pwm1_auto_point##n##_pwm.dev_attr.attr
++static struct attribute *ps5_curve_attrs[] = {
++	PS5_CURVE_ATTRS(1),
++	PS5_CURVE_ATTRS(2),
++	PS5_CURVE_ATTRS(3),
++	PS5_CURVE_ATTRS(4),
++	PS5_CURVE_ATTRS(5),
++	PS5_CURVE_ATTRS(6),
++	PS5_CURVE_ATTRS(7),
++	PS5_CURVE_ATTRS(8),
++	&sensor_dev_attr_pwm1_auto_point1_temp_hyst.dev_attr.attr,
++	&dev_attr_curve_reset.attr,
++	NULL,
++};
++ATTRIBUTE_GROUPS(ps5_curve);
++
++static void ps5_fan_hwmon_cleanup(void *arg)
+ {
+-	int ret = icc_fan_update_autoservo_param();
++	struct ps5_fan_data *data = arg;
++	int ret;
+ 
+-	if (ret)
+-		dev_warn(&pdev->dev, "autoservo param load failed: %d\n", ret);
++	mutex_lock(&data->lock);
++	data->suspended = true;
++	mutex_unlock(&data->lock);
++	cancel_delayed_work_sync(&data->work);
++	ret = icc_fan_update_param(data->original);
++	data->wire_mode = -1;
++	if (ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO) || ret)
++		dev_err(data->dev,
++			"original fan state could not be fully restored\n");
++}
+ 
+-	ret = fan_set_target_temp(PS5_ZONE_MAINSOC, 0, PS5_FAN_BOOT_TARGET_TEMP);
+-	if (ret)
+-		dev_warn(&pdev->dev, "boot target temp set failed: %d\n", ret);
++static int ps5_fan_hwmon_probe(struct platform_device *pdev)
++{
++	struct ps5_fan_data *data;
++	struct device *hwmon;
++	unsigned int duty;
++	int ret;
+ 
++	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
++	if (!data)
++		return -ENOMEM;
++	data->dev = &pdev->dev;
++	data->curve = ps5_fan_default_curve();
++	data->enable = PS5_PWM_FIRMWARE;
++	data->wire_mode = -1;
++	mutex_init(&data->lock);
++	INIT_DELAYED_WORK(&data->work, ps5_fan_control_work);
++	ret = ps5_fan_read_temp(0, &data->temp[0]);
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
++				     "MainSoC temperature unavailable\n");
++	data->has_sensor18 =
++		!ps5_fan_read_temp(18, &data->temp[PS5_SENSOR18_CHANNEL]);
++	ret = ps5_fan_snapshot(data);
++	if (ret)
++		return ret;
++	duty = get_unaligned_le16(data->original + 2);
++	data->default_curve = ps5_fan_board_curve(ps5_duty_to_pwm(duty));
++	data->curve = data->default_curve;
++	ps5_fan_prepare_backup(data);
++	ret = icc_fan_update_param(data->backup);
++	if (ret) {
++		icc_fan_update_param(data->original);
++		return ret;
++	}
++	ret = devm_add_action_or_reset(&pdev->dev, ps5_fan_hwmon_cleanup, data);
++	if (ret)
++		return ret;
++	platform_set_drvdata(pdev, data);
++	ret = ps5_fan_read_duty(&duty);
++	if (ret)
++		return ret;
++	data->requested_pwm = ps5_duty_to_pwm(duty);
++	ret = ps5_fan_update_locked(data);
++	if (ret)
++		return ret;
++	hwmon = devm_hwmon_device_register_with_info(&pdev->dev, "ps5_fan",
++						     data, &ps5_fan_chip_info,
++						     ps5_curve_groups);
++	if (IS_ERR(hwmon))
++		return PTR_ERR(hwmon);
++	schedule_delayed_work(&data->work, PS5_CONTROL_INTERVAL);
++	dev_info(&pdev->dev, "firmware fan control (pwm1_enable 2); the kernel curve is opt-in (3) through %s\n",
++		 dev_name(hwmon));
+ 	return 0;
+ }
+ 
++static int ps5_fan_hwmon_suspend(struct device *dev)
++{
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
++	int ret;
++
++	mutex_lock(&data->lock);
++	data->suspended = true;
++	mutex_unlock(&data->lock);
++	cancel_delayed_work_sync(&data->work);
++	mutex_lock(&data->lock);
++	data->wire_mode = -1;
++	ret = ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO);
++	mutex_unlock(&data->lock);
++	if (ret) {
++		mutex_lock(&data->lock);
++		data->suspended = false;
++		mutex_unlock(&data->lock);
++		schedule_delayed_work(&data->work, PS5_CONTROL_INTERVAL);
++	}
++	return ret;
++}
++
++static int ps5_fan_hwmon_resume(struct device *dev)
++{
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
++	int ret;
++
++	mutex_lock(&data->lock);
++	ret = icc_fan_update_param(data->backup);
++	data->wire_mode = -1;
++	data->filtered_valid = false;
++	data->suspended = false;
++	if (!ret)
++		ret = ps5_fan_update_locked(data);
++	else
++		ps5_fan_fallback(data);
++	mutex_unlock(&data->lock);
++	schedule_delayed_work(&data->work, PS5_CONTROL_INTERVAL);
++	return ret;
++}
++
++static const struct dev_pm_ops ps5_fan_hwmon_pm_ops = {
++	.suspend = ps5_fan_hwmon_suspend,
++	.resume = ps5_fan_hwmon_resume,
++	.freeze = ps5_fan_hwmon_suspend,
++	.thaw = ps5_fan_hwmon_resume,
++	.poweroff = ps5_fan_hwmon_suspend,
++	.restore = ps5_fan_hwmon_resume,
++};
++
++static void ps5_fan_hwmon_shutdown(struct platform_device *pdev)
++{
++	struct ps5_fan_data *data = platform_get_drvdata(pdev);
++
++	mutex_lock(&data->lock);
++	data->suspended = true;
++	mutex_unlock(&data->lock);
++	cancel_delayed_work_sync(&data->work);
++	mutex_lock(&data->lock);
++	data->wire_mode = -1;
++	if (ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO))
++		dev_warn(data->dev,
++			 "firmware auto handoff failed during shutdown\n");
++	mutex_unlock(&data->lock);
++}
++
++static int ps5_fan_probe(struct platform_device *pdev)
++{
++	int ret = icc_fan_update_autoservo_param();
++
++	if (ret)
++		return dev_err_probe(&pdev->dev, ret,
++				     "autoservo param load failed\n");
++	return ps5_fan_hwmon_probe(pdev);
++}
++
+ static struct platform_driver ps5_fan_driver = {
+ 	.probe  = ps5_fan_probe,
++	.shutdown = ps5_fan_hwmon_shutdown,
+ 	.driver = {
+ 		.name = "ps5-fan",
+-		.dev_groups = ps5_fan_groups,
++		.pm = &ps5_fan_hwmon_pm_ops,
++		.dev_groups = ps5_fan_platform_groups,
+ 	},
+ };
+ 
+@@ -403,5 +1132,5 @@
+ module_exit(ps5_fan_exit);
+ 
+ MODULE_LICENSE("GPL");
+-MODULE_DESCRIPTION("PS5 fan driver");
++MODULE_DESCRIPTION("PS5 fan hwmon driver");
+ MODULE_ALIAS("platform:ps5-fan");
+--- a/drivers/ps5/autoservo_param.h
++++ b/drivers/ps5/autoservo_param.h
+@@ -3,6 +3,44 @@
+ #ifndef _AUTOSERVO_PARAM_H
+ #define _AUTOSERVO_PARAM_H
+ 
++#define PS5_CURVE_POINTS 8
++#define PS5_FAN_EMERGENCY_MC 90000
++
++struct ps5_fan_curve {
++	int temp[PS5_CURVE_POINTS];
++	unsigned int pwm[PS5_CURVE_POINTS];
++	int stop_temp;
++};
++
++static const struct ps5_fan_curve ps5_fan_quiet_default = {
++	.temp = { 50000, 60000, 65000, 70000, 75000, 80000, 85000, 87000 },
++	.pwm = { 26, 77, 102, 128, 166, 204, 242, 255 },
++	.stop_temp = 45000,
++};
++
++struct ps5_servo_override {
++	unsigned int offset;
++	unsigned int value;
++};
++
++static const struct ps5_servo_override ps5_fan_quiet_servo[] = {
++	{ 0, 50 * 256 },
++	{ 4, 5243 },
++	{ 8, 0 },
++	{ 12, 0 },
++	{ 16, 64 },
++	{ 20, 16 },
++	{ 24, 0x0fffffff },
++	{ 28, 0x0fffffff },
++	{ 32, 0x0fffffff },
++	{ 36, 0x0fffffff },
++	{ 40, 0 },
++	{ 56, 70 * 256 },
++	{ 60, 0 },
++	{ 64, 2621 },
++	{ 68, 0 },
++};
++
+ static const u8 autoservo_param_sancarlo[] = {
+ 	0x00, 0x04, 0x33, 0x01, 0x33, 0x01, 0xe1, 0x00, 0x33, 0x01, 0xe1, 0x00,
+ 	0x00, 0x04, 0x33, 0x01, 0x00, 0x04, 0x33, 0x01, 0x33, 0x01, 0x00, 0x04,

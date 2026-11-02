@@ -1,4 +1,4 @@
-PS5 HDMI: no hang on the blinking cursor when switching sessions    [ps5-bazzite-deck]
+PS5 HDMI: no hang on the blinking cursor when switching sessions
 
 Game Mode <-> desktop: between the two compositors the console owns the
 display; its modeset makes the TV re-announce, and two things then fought

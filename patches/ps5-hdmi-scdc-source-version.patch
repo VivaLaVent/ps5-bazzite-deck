@@ -1,4 +1,4 @@
-PS5 HDMI: SCDC Source Version at every video setup       [ps5-bazzite-deck]
+PS5 HDMI: SCDC Source Version at every video setup
 
 Issue #11: a TV ("Beyond TV", XXX 9615) offered its HDMI 2.1 EDID (4K60 RGB,
 1080p120, 4K120, VRR) on v1.2.0 and an HDMI 1.4 EDID (340 MHz, 4K60 as
@@ -73,7 +73,7 @@ HDMI 1.4 TVs never get SCDC traffic.
 +		 * hotplug. Some TVs only present their HDMI 2.x EDID (4K60 RGB, 120 Hz,
 +		 * VRR) to a source that writes it; the "Beyond TV" of issue #11 fell
 +		 * back to an HDMI 1.4 EDID once we started at 1080p60 with no SCDC
-+		 * traffic, and offered the modes again on v1.2.0, which started at 4K60
++		 * traffic, and offered the modes again when the console started at 4K60
 +		 * (TMDS_Config written). The 0x7a80 descriptor is the bridge's DDC
 +		 * write: SCDC address 0xa8, register, length-1, start.
 +		 */

@@ -1,4 +1,4 @@
-PS5: USB-C DisplayPort output (PSVR2) and GFX1013 fixes, ported to 7.3    [ps5-bazzite-deck]
+PS5: USB-C DisplayPort output (PSVR2) and GFX1013 fixes, ported to 7.3
 
 ps5-linux-patches #57 by tertiumndatur (thanks rmuxnet), merged upstream on
 7.2.3 (9bad84f), ported to our 7.3 tree (meower + our patches):

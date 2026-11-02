@@ -1,4 +1,4 @@
-PS5 HDMI: RGB range flag encoded correctly (CTA-861 Q1:Q0)          [ps5-bazzite-deck]
+PS5 HDMI: RGB range flag encoded correctly (CTA-861 Q1:Q0)
 
 v1.5.0's full-range fix wrote the hdmi.rgb_range value itself into the AVI
 InfoFrame's quantization field, but CTA-861 codes it as 0 default, 1 limited,
@@ -19,9 +19,9 @@ right codes.
 -	i2c_mask(0x7226, avi_rgb && rgb_range <= 2 ? rgb_range << 2 : 0x00, 0x0c);
 +	/*
 +	 * RGB quantization range (Q1:Q0), only meaningful for RGB output. CTA-861 codes:
-+	 * 0 default, 1 limited, 2 full. v1.5.0-v1.5.2 wrote the parameter value itself, so
++	 * 0 default, 1 limited, 2 full. Earlier versions wrote the parameter value itself, so
 +	 * "1 = full" went out as LIMITED: TVs that follow the flag (VCDB QS=1, e.g. LG) on
-+	 * "Auto" showed full-range RGB as limited, too dark at every resolution (Gilles, LG).
++	 * "Auto" showed full-range RGB as limited, too dark at every resolution (an LG TV).
 +	 */
 +	{
 +		static const u8 q_code[] = { 0, 2, 1 };	/* rgb_range 0 default, 1 full, 2 limited */

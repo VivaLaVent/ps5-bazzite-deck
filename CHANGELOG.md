@@ -2,12 +2,50 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v1.8.9] – 2026-10-30
+## [v2.0.0] – 2026-11-02 (pre-release)
+> Full build (image and update bundle). Everything since v1.8.4, the current Latest: the v1.8.5–v1.8.9 test kernels, today's upstream updates, and fixes for the reported Bluetooth and PS5 Pro problems. Untested parts are marked as such.
+
+**Controller / Bluetooth**
+- **One DualSense for the PS5 system and Linux, on by default on every console:** Linux keeps its own Bluetooth address, so the controller keeps one pairing per system (on separate profiles). `ps5-bt-address off` switches it off
+- **Fix: controller needed pairing again after every cold boot** (several consoles): the Linux address was derived afresh from the chip's power-on default at every boot, and that default isn't fixed on every unit. The chosen address is now saved on first use and reused on every boot. Not yet confirmed on the affected consoles
+- **MediaTek (Slim):** where the kernel's way of setting the address didn't stick (the controller lost its PS5-system pairing every time), MediaTek's own command is used as a fallback. Untested so far
+- **IW620: better reconnects of keyboards and controllers** (legacy LE command family, rmux's meower `cf37af5` by Daniel Walker, upstream-style quirk). Untested on this image
+- **IW620: no warm restart while the Linux-only address is on** (restarts go through the PS5 system instead), because the chip didn't survive a warm restart with the changed address (Max). The real "both together" fix stays open
+- The PS5 Pro's Bluetooth chip is recognised; the Linux-only address isn't supported on it yet (stated instead of silently skipped)
+
+**PS5 Pro**
+- **Fix: the Pro's GPU firmware mostly never loaded (v1.8.0–v1.8.9).** The firmware is appended to the initrd, and the kernel needs each appended archive to start on a 4-byte boundary; our script didn't pad, so on most installs the kernel stopped reading at the join and **the Pro ran as a base PS5 (36 compute units)**. That's behind most Pro game crashes and HDMI losses reported (007 First Light, Persona 3, No Man's Sky, GTA V). Found, measured and fixed by mfoster978 (issue #27, PR #32); his retest at 60 CUs no longer crashed. The Pro also needs a loader that dumps the firmware (loader PR #91 for 11.60)
+- **Upstream #66 (Borchev) ported in full:** a GPU clock governor with a thermal limit (85 °C by default, `ps5_gpufreq.temp_limit`), 500–2350 MHz on the Pro and 500–2230 MHz on the base PS5; GPU busy reporting on the Pro (`gpu_busy_percent`); the compute-unit enable check moved to GPU init (it ran too early) and repeated after resume and GPU resets; `0x13dc` treated as a Pro; the gfx clock read from the SMU and the GPU temperature from Tctl. The separate thermal driver is gone, its sensor is `temp5` of the fan's hwmon device. This governor replaces rmux's GPU clock driver, which is no longer built. All of it untested on this image so far
+- **Fan driver starts on the Pro:** the Pro hands the fan zone over in manual mode, which made the driver fail; it's returned to firmware control (upstream #66)
+- The PS5 CPU frequency driver still doesn't start on a Pro (its requests came back "busy")
+- `ps5-report` has a PS5 Pro section: compute units, whether the Pro's GPU firmware was found and loaded, fan board id, and whether the unsupported `cu_unlock` option is set
+
+**Fan**
+- **New fan driver** (rmux's meower hwmon driver): a standard hwmon device (`ps5_fan`: temperatures, fan speed, `pwm1`, a curve via `pwm1_auto_point*`). **The console's own firmware fan control stays the default** (`pwm1_enable` 2); the kernel's curve is opt-in (3). `target_temp` (what `ps5-perf` and the hwcon plugin use) is kept. `ps5-perf status` shows the fan mode and speed
+
+**Display**
+- 4K120 only where the TV can take it, and back to 4K by itself when the link doesn't come up (v1.8.5, after Slip's work)
+- VRR only for displays with HDMI VRR, as on the PS5 system; FreeSync-only monitors blanked (v1.8.6, Storm)
+- 100 Hz modes (1080p100, 1440p100, 4K100) offered where the display goes to 100 Hz; 1080p100 is the uncertain one (v1.8.7, test)
+- HDMI 2.x link settings told to the TV at every mode change, for TVs that dropped to HDMI 1.4 modes after boot (v1.8.8, Beyond TV, #11/#21). Not yet confirmed by the reporter, and a suspect for one monitor (ASUS MS27UC behind an HDMI switch) that lost 4K60 on v1.8.9; a display log from that setup is wanted
+- Tried and taken out again (kept under `patches/parked/`): ALLM, instant VRR switching, a one-step switch-over, 4K120 as YCbCr 4:2:2 (wrong colour range), a re-arm change
+
+**Cleanups and tooling**
+- **Patch cleanup:** release numbers and people's names moved out of code comments into the patch descriptions and this changelog; no code change
+- **Reproducible builds:** rmux's meower branch is pinned to the commit our patches are made against (`36b9828`); newer meower commits are carried as our own patches. A `FRESH=1` release mode builds from fresh clones with every patch applied in order
+- Steering wheels: force feedback for Logitech wheels and rumble pads, as in vanilla Bazzite
+- No failed services at boot (Bazzite's ostree-only `bootloader-update` and `greenboot` are masked); the update removes a leftover `hdmi.rearm=0`
+- The updater keeps the two newest backups and removes older ones
+- 1 MiB kernel log buffer, so early boot lines (HDMI chip, Pro firmware) stay in reports; `ps5-report` also reads the persistent journal and tells the Pro's Bluetooth chip apart
+- Deprecated workqueue use fixed (the `vrr_follow_fn enqueued on deprecated workqueue` warning)
+- README: features described without version history (that's this file), VRAM/GTT section, `steamos-session-select`, the official wiki (wiki.ps5-linux.eu)
+- Upstream: MT7921 Wi-Fi config (#40) was already in; #63 (Slip) partly borrowed in v1.8.5; #66 partly, see above
+
+## [v1.8.9] – 2026-10-<DD>
 > Full release (image and update bundle) with the v1.8.8 kernel. Replaces the first v1.8.9 (4K120 as YCbCr 4:2:2), which showed the wrong colour range.
 - **One DualSense for the PS5 and Linux, on by default on every console:** Linux has its own Bluetooth address, so the controller keeps a pairing for each (on separate profiles) instead of losing one every time you switch. IW620: while it's on, restarts go through the PS5 system instead of warm ones, because the chip didn't survive a warm restart with the changed address (Max). `ps5-bt-address off` switches it off
 - **MediaTek (Slim): the Linux-only Bluetooth address works on more consoles:** where the kernel's way of setting it didn't stick (hsgodd: the controller lost its PS5-system pairing every time), MediaTek's own command is used as a fallback
 - **Steering wheels:** force feedback for Logitech wheels and rumble pads, as in vanilla Bazzite (the kernel config of rmux's 7.3 port has it too; it's in a module, so it needs the full build)
-- **IW620: the Linux-only Bluetooth address is opt-in again** (`ps5-bt-address on`; v1.8.4's update had switched it off): while it's on, restarts go through the PS5 system instead of warm, because the chip didn't survive a warm restart with it (Max)
 
 ## [v1.8.8] – 2026-10-<DD>
 > Test build: kernel only, as a quick kernel package, on top of v1.8.6 or v1.8.7.

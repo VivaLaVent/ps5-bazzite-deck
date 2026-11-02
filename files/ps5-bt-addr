@@ -23,10 +23,18 @@ if [ "$id" = "0e8d:3603" ] && [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
 fi
 if [ "$id" = "0e8d:3603" ]; then
     # MediaTek: the kernel can set this chip's address itself (btmgmt public-addr, powered off),
-    # so the new address is known to kernel and bluetoothd right away.
+    # so the new address is known to kernel and bluetoothd right away. v1.8.9: reuse the address
+    # saved on first run (same reasoning as IW620 below: a freshly derived address isn't guaranteed
+    # stable across cold boots on every unit).
+    SAVED=/etc/ps5-bazzite-deck/bt-address-value
     cur=$(kernel_addr); first=$((16#${cur%%:*}))
-    if [ $((first & 2)) -ne 0 ]; then echo "chip already uses the Linux address $cur"; exit 0; fi
-    new=$(printf '%02X' $((first | 2)))${cur#??}
+    new=$(cat "$SAVED" 2>/dev/null || true)
+    if [ -z "$new" ]; then
+        if [ $((first & 2)) -ne 0 ]; then echo "chip already uses the Linux address $cur"; exit 0; fi
+        new=$(printf '%02X' $((first | 2)))${cur#??}
+    elif [ "$cur" = "$new" ]; then
+        echo "chip already uses the saved address $cur"; exit 0
+    fi
     was_active=0
     [ "$(systemctl is-active bluetooth.service)" != inactive ] && was_active=1
     [ "$was_active" = 1 ] && systemctl stop bluetooth.service
@@ -35,7 +43,7 @@ if [ "$id" = "0e8d:3603" ]; then
     btmgmt --index 0 power on >/dev/null
     for _ in 1 2 3 4 5 6; do kern=$(kernel_addr); [ "$kern" = "$new" ] && break; sleep 0.5; done
     if [ "$kern" != "$new" ]; then
-        # v1.9.0: btmgmt's public-addr isn't applied on every MT7961 (hsgodd: "Set Public Address complete"
+        # v1.8.9: btmgmt's public-addr isn't applied on every MT7961 (hsgodd: "Set Public Address complete"
         # but the old address stayed). Fallback: MediaTek's own vendor command, the one the kernel's
         # btmtk_set_bdaddr sends (0xFC1A, the address little-endian), then a power cycle so the kernel
         # reads the new address back, as on the IW620 path.
@@ -58,9 +66,15 @@ sys.exit(f"MediaTek vendor command refused (status 0x{status:02x})" if status el
 PY
         for _ in 1 2 3 4 5 6; do kern=$(kernel_addr); [ "$kern" = "$new" ] && break; sleep 0.5; done
     fi
-    if [ "$kern" = "$new" ]; then echo "changing Bluetooth address $cur -> $new (MediaTek); kernel uses $kern"
+    if [ "$kern" = "$new" ]; then
+        echo "changing Bluetooth address $cur -> $new (MediaTek); kernel uses $kern"
+        mkdir -p /etc/ps5-bazzite-deck; echo "$new" > "$SAVED" 2>/dev/null || true
     else echo "MediaTek address change not possible ($out); staying on $cur"; fi
     [ "$was_active" = 1 ] && systemctl start --no-block bluetooth.service
+    exit 0
+fi
+if [ "$id" = "0e8d:3605" ]; then
+    echo "PS5 Pro: the Linux-only Bluetooth address isn't supported on this chip yet; the controller keeps one pairing"
     exit 0
 fi
 if [ "$id" != "1286:2059" ]; then
@@ -77,7 +91,9 @@ fi
 
 btmgmt --index 0 power on >/dev/null
 
-chip=$(python3 -I - <<'PY'
+SAVED=/etc/ps5-bazzite-deck/bt-address-value
+val=$(cat "$SAVED" 2>/dev/null || true)
+chip=$(python3 -I - "$val" <<'PY'
 import socket, struct, sys
 
 def open_hci():
@@ -106,12 +122,24 @@ def chip_address(s):
 
 s = open_hci()
 cur = chip_address(s)
-first = int(cur[:2], 16)
-if first & 0x02:
+
+# v1.8.9: use the address saved on first run, not one derived fresh from the chip's power-on
+# default -- that default isn't fixed in hardware on every IW620 and can read differently after
+# a cold boot, which changed our derived address too and broke the controller's stored pairing.
+saved = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
+if saved:
+    new = saved
+elif int(cur[:2], 16) & 0x02:
     print(f"chip already uses the Linux address {cur}", file=sys.stderr)
     print(cur)
     sys.exit(0)
-new = f"{first | 0x02:02X}" + cur[2:]
+else:
+    new = f"{int(cur[:2], 16) | 0x02:02X}" + cur[2:]
+
+if cur == new:
+    print(f"chip already uses the saved address {cur}", file=sys.stderr)
+    print(cur)
+    sys.exit(0)
 print(f"changing Bluetooth address {cur} -> {new}", file=sys.stderr)
 
 raw = bytes(int(x, 16) for x in reversed(new.split(":")))
@@ -126,6 +154,9 @@ print(f"chip address is now {now}", file=sys.stderr)
 print(now)
 PY
 ) || exit 0
+sudo_mkdir_saved() { mkdir -p /etc/ps5-bazzite-deck; }
+sudo_mkdir_saved
+echo "$chip" > "$SAVED" 2>/dev/null || true
 
 kern=$(kernel_addr)
 if [ "$kern" = "$chip" ]; then

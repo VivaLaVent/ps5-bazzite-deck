@@ -1,4 +1,4 @@
-PS5 VRR: never below 48 Hz, FreeSync SPD with the actual range  [ps5-bazzite-deck]
+PS5 VRR: never below 48 Hz, FreeSync SPD with the actual range
 
 The VRR range came from the TV (HDMI Forum VRRmin/VRRmax, else the FreeSync block),
 often 40 Hz at the low end, where OLED TVs flicker visibly when the refresh rate swings
@@ -13,11 +13,11 @@ fixed 40 Hz minimum; it now sends the range actually used.
 @@ -1164,12 +1164,20 @@
  MODULE_PARM_DESC(vrr_measure, "Log the measured frame intervals every 2 s while VRR is on, for debugging (default off)");
  
- #define VRR_FOLLOW_STEP_MS	250	/* between the follow steps (Lawson's tests: 1000) */
+ #define VRR_FOLLOW_STEP_MS	250	/* between the follow steps (tested up to 1000) */
 +/*
-+ * v1.7.3: VRR never goes below 48 Hz, the PS5 system's own floor (Lawson's notes): below
++ * VRR never goes below 48 Hz, the PS5 system's own floor: below
 + * that, frames are doubled at 120 Hz modes, and 60 Hz modes keep a fixed 60 Hz. TVs' own
-+ * minimum is often 40 Hz, where OLEDs flicker visibly (hsgodd). A TV whose minimum is
++ * minimum is often 40 Hz, where OLEDs flicker visibly. A TV whose minimum is
 + * higher keeps it.
 + */
 +#define VRR_MIN_HZ		48

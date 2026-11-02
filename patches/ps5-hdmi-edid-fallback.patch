@@ -1,4 +1,4 @@
-PS5 HDMI: EDID fallback when no connector is bound          [ps5-bazzite-deck]
+PS5 HDMI: EDID fallback when no connector is bound
 
 PR #57 hands the bridge's EDID only to the one connector amdgpu binds; when
 the routing looks ambiguous (more or fewer than one HDMI-like link in the

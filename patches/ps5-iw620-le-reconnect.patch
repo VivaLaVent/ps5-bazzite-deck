@@ -1,0 +1,41 @@
+Bluetooth: IW620 legacy LE command family quirk (rmux/meower cf37af5, Daniel Walker #7), ported
+
+Fixes keyboards (and other LE peripherals, DualSense included) failing to reconnect on the
+IW620 chip: it doesn't support the extended LE Create Connection command family properly.
+Adds BTUSB_BROKEN_EXT_SCAN and a new BTUSB_BROKEN_EXT_CREATE_CONN quirk to the 0e8d:2059
+Marvell entry, which sets the kernel's existing HCI_QUIRK_BROKEN_EXT_CREATE_CONN so
+bluetoothd falls back to the legacy LE command family for this adapter. Based on our tree
+state after ps5-pro-bluetooth.patch (apply order: ...pro-bluetooth, then this one).
+---
+
+--- a/drivers/bluetooth/btusb.c
++++ b/drivers/bluetooth/btusb.c
+@@ -78,6 +78,7 @@
+ #define BTUSB_BROKEN_READ_LOCAL_NAME	BIT(32)
+ #define BTUSB_NO_AUTOSUSPEND		BIT(33)
+ #define BTUSB_HCI_IFACE_RECIPIENT   BIT(34)
++#define BTUSB_BROKEN_EXT_CREATE_CONN	BIT(35)
+ 
+ static const struct usb_device_id btusb_table[] = {
+     /* PS5 Pro Viola: MediaTek Bluetooth HCI on interface 3 */
+@@ -210,6 +211,8 @@
+ 	{ USB_DEVICE(0x1286, 0x2059),
+ 	  .driver_info = BTUSB_MARVELL |
+ 			 BTUSB_IFNUM_0 |
++			 BTUSB_BROKEN_EXT_SCAN |
++			 BTUSB_BROKEN_EXT_CREATE_CONN |
+ 			 BTUSB_BROKEN_LE_DEFAULT_PHY |
+ 			 BTUSB_BROKEN_READ_LOCAL_NAME |
+ 			 BTUSB_NO_AUTOSUSPEND |
+@@ -4695,6 +4698,11 @@
+ 	if (id->driver_info & BTUSB_BROKEN_READ_LOCAL_NAME)
+ 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_LOCAL_NAME);
+ 
++	if (id->driver_info & BTUSB_BROKEN_EXT_CREATE_CONN) {
++		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_CREATE_CONN);
++		dev_info(&intf->dev, "PS5 btusb: legacy LE command family quirks set\n");
++	}
++
+ 	if (id->driver_info & BTUSB_BROKEN_EXT_SCAN)
+ 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
+ 

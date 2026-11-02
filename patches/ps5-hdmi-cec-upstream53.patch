@@ -1,4 +1,4 @@
-PS5 HDMI: CEC (ps5-linux-patches #53 by Slip), ported to 7.3    [borrowed]
+PS5 HDMI: CEC (ps5-linux-patches #53 by Slip), ported to 7.3
 
 HDMI CEC through the HDMI bridge: a CEC adapter (drivers/ps5/ps5-cec.c, the
 CEC framework) that gets the bridge's CEC notifications (RX 0x05, TX result
@@ -31,7 +31,7 @@ Upstream file taken as is; only the hook in hdmi.c is placed in our handler.
  }
  EXPORT_SYMBOL(hdmi_set_hotplug_handler);
  
-+/* ps5-linux-patches #53 (Slip): HDMI CEC. The CEC driver gets every bridge notification. */
++/* ps5-linux-patches #53: HDMI CEC. The CEC driver gets every bridge notification. */
 +static DEFINE_MUTEX(cec_lock);
 +static void (*cec_handler)(void *data, const struct icc_msg *msg);
 +static void *cec_data;

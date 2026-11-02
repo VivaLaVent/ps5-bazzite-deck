@@ -1,4 +1,4 @@
-PS5 VRR: a running follow block stops when a newer setup starts  [ps5-bazzite-deck]
+PS5 VRR: a running follow block stops when a newer setup starts
 
 The follow block runs from a work item about 2 s after a setup. If VRR is switched again
 or the mode changes meanwhile (e.g. 4K60 -> 4K120), the old block kept writing its steps

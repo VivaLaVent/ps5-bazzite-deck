@@ -23,7 +23,7 @@ index 6ebd5b7bc..0491971fd 100644
  
 +	/* PS5 MediaTek (0e8d:3603): the chip only drains ACL data from the
 +	 * second bulk OUT endpoint (0x02), the one paired with bulk IN 0x82.
-+	 * (WizGery/ps5-mediatek-fixes 0003, ported to the 7.3 probe code.)
++	 * (from ps5-mediatek-fixes 0003, ported to the 7.3 probe code.)
 +	 */
 +	if (le16_to_cpu(interface_to_usbdev(intf)->descriptor.idVendor) == 0x0e8d &&
 +	    le16_to_cpu(interface_to_usbdev(intf)->descriptor.idProduct) == 0x3603 && ps5_tx_ep) {
