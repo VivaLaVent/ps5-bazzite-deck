@@ -251,8 +251,8 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +#define PS5_PWM_FULL 0
 +#define PS5_PWM_MANUAL 1
 +/*
-+ * ps5-bazzite-deck: pwm1_enable 2 keeps the console's own firmware fan control (the
-+ * target_temp behaviour of every release so far, the default); 3 is the kernel's curve
++ * pwm1_enable 2 keeps the console's own firmware fan control (configured through
++ * target_temp; the default); 3 is the kernel's curve
 + * (pwm1_auto_point*), opt-in. Upstream has the curve at 2 and no firmware mode.
 + */
 +#define PS5_PWM_FIRMWARE 2

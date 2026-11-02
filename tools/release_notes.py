@@ -5,7 +5,7 @@
   python3 tools/release_notes.py --dry-run  # render only
 
 Per release it combines: the release's
-"What's new" / "Known issues" (docs/release-notes/<tag>.md), its in-place update section
+"What's new" / "What to test" / "Testing" / "Sharing logs" / "Known issues" (docs/release-notes/<tag>.md), its in-place update section
 (docs/update-sections/<tag>.md), the common settings/install/known-issues blocks below, the release's
 own VERSIONS.md (downloaded from the release) and its actual asset list.
 """
@@ -73,8 +73,10 @@ def render(tag, tmp):
         versions = "## Versions\n" + "\n".join(l for l in v if l.startswith("|")) + "\n"
     issues = [l[2:] for l in section(per, "Known issues").splitlines() if l.startswith("- ")]
     vrr = section(per, "VRR test")
+    extra = "".join(f"## {name}\n{body}\n" for name in ("What to test", "Testing", "Sharing logs")
+                    if (body := section(per, name)))
     parts = ["## What's new\n" + section(per, "What's new") + "\n",
-             ("## VRR test\n" + vrr + "\n") if vrr else "", upd + "\n",
+             ("## VRR test\n" + vrr + "\n") if vrr else "", extra, upd + "\n",
              ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else "",
              versions, files_section(tag, assets), f"---\nNew install: see the [README](https://github.com/{REPO}#install).\n\n**Found a problem?** Run this on the PS5 (it only reads, changes nothing) and post the file it saves in Discord:\n`bash <(curl -fsSL https://raw.githubusercontent.com/{REPO}/main/tools/ps5-report.sh)`\n\nQuestions, bug reports, test results: **Discord {DISCORD}**\nLike the project? Support it on **Ko-fi {KOFI}**\n"]
     return "\n".join(p for p in parts if p)

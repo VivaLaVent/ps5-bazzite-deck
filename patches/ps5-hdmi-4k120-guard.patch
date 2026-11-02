@@ -21,7 +21,7 @@ every boot until 4K120 was taken away by hand (hsgodd, kishy, pukason).
  }
  
 +/*
-+ * offer 4K120 only where it can work, and leave it
++ * Offer 4K120 only where it can work, and leave it
 + * by itself when it doesn't come up (no more black screen until a reboot).
 + *  - the display's EDID must announce FRL at 4 lanes x 8 Gbps or more (HF-VSDB or HF-SCDB
 + *    Max_FRL_Rate >= 4; the chip's 4K120 path needs that rate) and YCbCr 4:2:2 in a CTA block
@@ -238,7 +238,7 @@ every boot until 4K120 was taken away by hand (hsgodd, kishy, pukason).
  }
  
 +/*
-+ * when the HDMI chip reports that a 4K120 link didn't come
++ * When the HDMI chip reports that a 4K120 link didn't come
 + * up, 4K120 is withheld for that display, but gamescope keeps its mode when only the mode list
 + * changes: switch to the same size at the highest refresh still offered ourselves, then tell
 + * userspace to re-probe.

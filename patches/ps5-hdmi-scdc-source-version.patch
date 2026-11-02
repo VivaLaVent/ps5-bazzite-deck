@@ -62,7 +62,7 @@ HDMI 1.4 TVs never get SCDC traffic.
  static bool hdr_enabled;
  static bool bt2020_enabled;
  
-@@ -895,6 +935,24 @@
+@@ -895,6 +935,22 @@
  	i2c_waitclear(0x7a84, 0x01);
  	i2c_begin_block();
  	i2c_write(0x7a8b, 0x05);
@@ -71,10 +71,8 @@ HDMI 1.4 TVs never get SCDC traffic.
 +		/*
 +		 * SCDC Source Version = 1 at every setup, as HDMI 2.x sources do after
 +		 * hotplug. Some TVs only present their HDMI 2.x EDID (4K60 RGB, 120 Hz,
-+		 * VRR) to a source that writes it; the "Beyond TV" of issue #11 fell
-+		 * back to an HDMI 1.4 EDID once we started at 1080p60 with no SCDC
-+		 * traffic, and offered the modes again when the console started at 4K60
-+		 * (TMDS_Config written). The 0x7a80 descriptor is the bridge's DDC
++		 * VRR) to a source that writes it, and fall back to an HDMI 1.4 EDID
++		 * after a low-rate start without SCDC traffic. The 0x7a80 descriptor is the bridge's DDC
 +		 * write: SCDC address 0xa8, register, length-1, start.
 +		 */
 +		i2c_begin_block();

@@ -10,8 +10,11 @@ ps5-linux-patches 53809a3 "PS5 Pro fixes, add GPU governor", on top of our #58 p
  - 0x13dc treated as Viola like 0x13da (PCI id table, DC asic id)
  - gfx clock from SMU QueryGfxclk and the GPU temperature from Tctl instead of the CLK4 read
  - ps5_thermal dropped: its one extra sensor is temp5 (Local4) of the ps5_fan hwmon device
- - mp1: query/request gfxclk, soc temperature, WGP enable
-MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-fan-hwmon-curve.
+ - the GPU-overlay temperature (amdgpu hwmon "edge") uses #66's ps5_soc_temp() instead of its own
+   copy of the same Tctl read
+ - mp1: query/request gfxclk, soc temperature, WGP enable; #66's IRQ-safe mailbox locking
+   (sleep entry sends with IRQs off) applied to the lock shared with ps5-cpufreq
+The #66 fan fix is in ps5-fan-hwmon-curve.
 ---
 
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu.h
@@ -447,11 +450,11 @@ MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-
  #define PPSMC_MSG_QueryVddcrSocClock			0x11
  #define PPSMC_MSG_ConfigureS3PwrOffRegisterAddressHigh	0x16
  #define PPSMC_MSG_ConfigureS3PwrOffRegisterAddressLow	0x17
-@@ -455,6 +458,32 @@
+@@ -455,6 +458,30 @@
  	}
  }
  
-+/* init, amdgpu, gpufreq, sleep and ioctls all send: one at a time. */
++/* The test mailbox (C2PMSG_96/98/72); the main one is under ps5_mp1_q0_lock. */
 +static DEFINE_MUTEX(mp1_mbox_mutex);
 +#define MP1_LOCK_POLLS	200000	/* 2 s at 10 us */
 +
@@ -464,23 +467,42 @@ MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-
 +	int i;
 +
 +	if (!irqs_disabled()) {
-+		mutex_lock(&mp1_mbox_mutex);
-+		return &mp1_mbox_mutex;
++		mutex_lock(&ps5_mp1_q0_lock);
++		return &ps5_mp1_q0_lock;
 +	}
 +	for (i = 0; i < MP1_LOCK_POLLS; i++) {
-+		if (mutex_trylock(&mp1_mbox_mutex))
-+			return &mp1_mbox_mutex;
++		if (mutex_trylock(&ps5_mp1_q0_lock))
++			return &ps5_mp1_q0_lock;
 +		udelay(10);
 +	}
 +	return NULL;
 +}
 +
-+DEFINE_FREE(mp1_mbox_unlock, struct mutex *, if (_T) mutex_unlock(_T))
-+
  static int mp1fw_waitmsg(u32 reg, u8 msgid)
  {
          int timeout = 0;
-@@ -516,6 +545,8 @@
+@@ -476,10 +503,10 @@
+ 
+ static int mp1fw_sendmsg(struct mp1_msg *msg, u8 msgid)
+ {
++	/* ps5_mp1_q0_lock: shared with ps5-cpufreq, which uses the same mailbox */
++	struct mutex *lock = mp1_mbox_lock();
+ 	int ret = 0;
+ 
+-	mutex_lock(&ps5_mp1_q0_lock);
+-
+ 	if (mp1fw_waitmsg(MP1_C2PMSG_90, msgid)) {
+ 		pr_err("[MP1ERROR] : %s: Error : busy msgid=0x%X, arg=0x%08X\n", __func__, msgid, msg->arg);
+ 		ret = -EBUSY;
+@@ -510,12 +537,15 @@
+ 	msg->resp_val = resp_val;
+ 
+ out_unlock:
+-	mutex_unlock(&ps5_mp1_q0_lock);
++	if (lock)
++		mutex_unlock(lock);
+ 	return ret;
+ }
  
  static int mp1fw_test_sendmsg(struct mp1_msg *msg, uint8_t msgid)
  {
@@ -489,7 +511,7 @@ MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-
  	if (mp1fw_waitmsg(MP1_C2PMSG_96, msgid)) {
  		printk("[MP1ERROR] : %s: Error : busy msgid=0x%X, arg=0x%08X\n", __func__, msgid, msg->arg);
  		return -EBUSY;
-@@ -711,7 +742,7 @@
+@@ -711,7 +741,7 @@
  	}
  }
  
@@ -498,7 +520,7 @@ MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-
  {
  	struct mp1_msg msg = {};
  	u32 before;
-@@ -724,8 +755,10 @@
+@@ -724,8 +754,10 @@
  	}
  
  	before = msg.resp_val;
@@ -510,7 +532,7 @@ MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-
  
  	memset(&msg, 0, sizeof(msg));
  	msg.arg = PS5PRO_ACTIVE_WGP_COUNT;
-@@ -737,6 +770,27 @@
+@@ -737,6 +769,27 @@
  		pr_info("Viola: enabled %u WGPs (was %u)\n",
  			PS5PRO_ACTIVE_WGP_COUNT, before);
  }
@@ -538,7 +560,7 @@ MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-
  
  static long mp1_query(unsigned long arg, u8 msgid)
  {
-@@ -773,8 +827,6 @@
+@@ -773,8 +826,6 @@
  		return;
  	mp1_viola = true;
  
@@ -575,6 +597,61 @@ MP1 mailbox locking was already in our tree (meower). The #66 fan fix is in ps5-
 +struct platform_device *ps5_gpufreq_register(struct device *gpu, ps5_gpu_busy_ns_t busy_ns);
  
  #endif /* _LINUX_PS5_H */
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -512,23 +512,9 @@
+ /*
+  * GPU temperature for the PS5. amdgpu's hwmon sensors also come from the SMU,
+  * so there are none. CPU and GPU are one die, and its one temperature sensor
+- * is what k10temp reports as Tctl; read the same register (SMN 0x59800, same
+- * decoding as k10temp) and report it as the GPU's "edge" temperature, so
+- * overlays show the chip temperature for the GPU too.
++ * is Tctl (ps5_soc_temp(), the same reading as k10temp); report it as the
++ * GPU's "edge" temperature, so overlays show the chip temperature for the GPU too.
+  */
+-#define PS5_SMN_REPORTED_TEMP_CTRL	0x00059800
+-
+-static int ps5_soc_temp(long *val)
+-{
+-	u32 regval;
+-
+-	if (amd_smn_read(0, PS5_SMN_REPORTED_TEMP_CTRL, &regval))
+-		return -EIO;
+-	*val = (regval >> 21) * 125;
+-	if ((regval & BIT(19)) || (regval & GENMASK(17, 16)) == GENMASK(17, 16))
+-		*val -= 49000;
+-	return 0;
+-}
+ 
+ static umode_t ps5_hwmon_is_visible(const void *data, enum hwmon_sensor_types type,
+ 				    u32 attr, int channel)
+@@ -540,9 +526,14 @@
+ static int ps5_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+ 			  u32 attr, int channel, long *val)
+ {
+-	if (type == hwmon_temp && attr == hwmon_temp_input)
+-		return ps5_soc_temp(val);
+-	return -EOPNOTSUPP;
++	int t, ret;
++
++	if (type != hwmon_temp || attr != hwmon_temp_input)
++		return -EOPNOTSUPP;
++	ret = ps5_soc_temp(&t);
++	if (!ret)
++		*val = t;
++	return ret;
+ }
+ 
+ static int ps5_hwmon_read_string(struct device *dev, enum hwmon_sensor_types type,
+@@ -924,7 +915,7 @@
+ 	if (device_create_file(adev->dev, &ps5_dev_attr_gpu_busy))
+ 		drm_info(adev_to_drm(adev), "PS5: gpu_busy_percent not created (already there?)\n");
+ 	{
+-		long t;
++		int t;
+ 
+ 		if (!ps5_soc_temp(&t)) {
+ 			ps5_hwmon = hwmon_device_register_with_info(adev->dev, "amdgpu", NULL,
 --- /dev/null
 +++ b/drivers/ps5/gpufreq.c
 @@ -0,0 +1,308 @@

@@ -92,7 +92,7 @@ console's controller stayed stuck in that wait and the whole console hung (v1.7.
 -	b[n++] = 0x03; b[n++] = 8; b[n++] = 0x03; b[n++] = 1;		/* until it's taken */
 -	b[n++] = 0; b[n++] = 0x72; b[n++] = 0x04; b[n++] = 0x20;
 +	/*
-+	 * no wait-until-clear on the strobe here. If the chip isn't outputting, the
++	 * No wait-until-clear on the strobe here. If the chip isn't outputting, the
 +	 * bit never clears and the console's controller stays stuck in that wait:
 +	 * (follow mode not taking) the whole console hung, SSH included.
 +	 */

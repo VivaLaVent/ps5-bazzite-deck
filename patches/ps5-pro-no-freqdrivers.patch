@@ -23,7 +23,7 @@ unaffected.
  static int __init ps5_cpufreq_init(void)
  {
 +	/*
-+	 * not on the PS5 Pro (GPU 1002:13da): its frequency requests to the power
++	 * Not on the PS5 Pro (GPU 1002:13da): its frequency requests to the power
 +	 * controller (MP1 UniversalModeEntry, 0x22) come back "busy" without end there
 +	 * The Pro keeps the CPU clock its firmware sets.
 +	 */
@@ -44,7 +44,7 @@ unaffected.
  static struct platform_device *ps5_gpufreq_pdev;
  
 +/*
-+ * not on the PS5 Pro (GPU 1002:13da). There its requests to the power controller
++ * Not on the PS5 Pro (GPU 1002:13da). There its requests to the power controller
 + * (MP1) come back "busy" without end, flooding the log every 0.27 s (
 + * where the Pro's own SMU backend from upstream #58 talks to the same controller). The Pro
 + * keeps the clocks its firmware sets, as with the upstream kernel, which has no such driver.

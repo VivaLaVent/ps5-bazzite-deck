@@ -11,7 +11,6 @@ REPO="$HOME/ps5-build-7.3"            # fresh build directory
 OLD="${OLD:-$HOME/ps5-linux-image}"   # previous build dir, only used to reuse its download cache
 BUILDER_COMMIT=52db0a4                 # ps5-linux/ps5-linux-image
 PATCHES_BRANCH=meower                  # rmuxnet/ps5-linux-patches-1, 7.3 port
-PATCHES_COMMIT=36b9828                 # pinned: the state our patches are made against; newer meower commits (fan hwmon 883eef9, IW620 LE cf37af5) are carried as patches/ps5-fan-hwmon-curve.patch and ps5-iw620-le-reconnect.patch
 KERNEL_TAG=v7.3
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
@@ -50,8 +49,7 @@ cp "$SRC/patches/ps5-iw620-kernel73-compat.patch" extra-patches/
 echo "==> 3. kernel source: $KERNEL_TAG + $PATCHES_BRANCH patches"
 mkdir -p work
 git clone -q -b "$PATCHES_BRANCH" https://github.com/rmuxnet/ps5-linux-patches-1 work/ps5-linux-patches
-git -C work/ps5-linux-patches checkout -q "$PATCHES_COMMIT"
-git -C work/ps5-linux-patches checkout -q baee34d                                                   # pinned: the commit the patches below were made against
+git -C work/ps5-linux-patches checkout -q baee34d                                                   # pinned: the commit the patches below were made against; newer meower commits (fan hwmon 883eef9, IW620 LE cf37af5) are carried as our own patches
 git -C work/ps5-linux-patches apply "$SRC/patches/ps5-linux-patches-pr4-s2idle.patch"              # suspend-to-idle (sleep), ps5-linux-patches PR #4 by Dasloh (.config + linux.patch)
 sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"/' work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_DEBUG_INFO_BTF is not set/CONFIG_DEBUG_INFO_BTF=y/' work/ps5-linux-patches/.config
@@ -65,7 +63,6 @@ for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do sed -i "s/^
 git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git work/linux73
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
 git -C work/linux73 apply "$SRC/patches/ps5-bluetooth.patch"          # MediaTek bulk-OUT endpoint (IW620 + L2CAP fixes are in meower)
-git -C work/linux73 apply "$SRC/patches/ps5-fan-hwmon-curve.patch"       # fan hwmon curve control (rmux meower), Kconfig selects HWMON too
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-upstream.patch"      # ps5-linux-patches #49 HDR (FLAVA3), #50 SCDC, #54 hotplug back-off, ported to 7.3
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-rearm-pr46.patch"     # picture back when the same display wakes up (upstream PR #46)
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-output-fixes.patch"   # no FLAVA3 event sequences, re-arm same display only, 8-bit cap (HDR exception)
@@ -84,6 +81,7 @@ git -C work/linux73 apply "$SRC/patches/ps5-hdmi-verde-game-content.patch" # Ver
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-session-switch.patch"    # no hang on the blinking cursor when switching Game Mode <-> desktop
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-rgb-range-encoding.patch"  # RGB range flag in the right CTA-861 code (v1.5.0-v1.5.2 sent "limited")
 git -C work/linux73 apply "$SRC/patches/ps5-usbc-dp-optin.patch"           # USB-C DP off by default (usbc_dp.enable=1): it can reset a boot drive there
+git -C work/linux73 apply "$SRC/patches/ps5-fan-hwmon-curve.patch"       # fan hwmon curve control (rmux meower), Kconfig selects HWMON too
 git -C work/linux73 apply "$SRC/patches/ps5-vrr.patch"                     # VRR on FLAVA3 (hsgodd, Lawson), switched with Steam's VRR setting
 git -C work/linux73 apply "$SRC/patches/ps5-vrr-stock-setup.patch"         # v1.7.1: stock PHY tail + VSync block in every setup (VRR needs them)
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-frl-4k120.patch"         # 4K120 over HDMI 2.1 FRL on FLAVA3 (Lawson), hdmi.frl_4k120=1

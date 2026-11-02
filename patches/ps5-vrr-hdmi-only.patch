@@ -15,10 +15,10 @@ aren't offered VRR any more; the log says why.
  	} else if (amd_min >= 1 && amd_max > amd_min + 10) {
 -		*min_hz = amd_min; *max_hz = amd_max; *src = "FreeSync block";
 +		/*
-+		 * a display that announces only AMD FreeSync, without HDMI VRR, isn't
++		 * A display that announces only AMD FreeSync, without HDMI VRR, isn't
 +		 * offered VRR, as on the PS5 system (which supports HDMI VRR only). The HDMI chip's
 +		 * VRR follow mode is HDMI VRR; a FreeSync-only monitor resynced on every refresh
-+		 * change and blanked (an AOC Q27G2G3R4B, at 1080p120, 1440p60 and 1440p120).
++		 * change and blanked.
 +		 */
 +		*src = "the display announces only FreeSync, no HDMI VRR";
 +		return -ENODATA;

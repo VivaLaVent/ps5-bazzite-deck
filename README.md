@@ -153,11 +153,22 @@ The setting stays as it is across updates.
 
 Wider PS5-Linux questions (loaders, other hardware, general background): [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/).
 
-**Ask in [Discord](https://discord.gg/qGcuTgBBYU)** (#bazzite-problems), with the report from `ps5-report` (in a
-terminal or over SSH). It only reads, and saves one file with your hardware and the relevant logs. Without network,
-copy it to the USB drive's FAT32 partition and take it from there on your PC:
+**Ask in [Discord](https://discord.gg/qGcuTgBBYU)** (#bazzite-problems) or open a
+[GitHub issue](https://github.com/VivaLaVent/ps5-bazzite-deck/issues), and attach the report from `ps5-report` (in a
+terminal or over SSH). It only reads, and saves one file with your hardware, display (EDID, modes, VRR state) and the
+relevant logs. For specific problems:
+
+| Problem | Also send |
+|---|---|
+| Picture, modes, VRR, 4K120 | the display log, see [docs/display-logs.md](docs/display-logs.md) |
+| Bluetooth | `{ ps5-bt-address status; lsusb; journalctl -u ps5-bt-addr -u bluetooth -b --no-pager \| tail -40; } > ~/bt-log.txt 2>&1`, before rebooting |
+| A game crashes | launch options `PROTON_LOG=1 %command%`, then `~/steam-<appid>.log` and `sudo dmesg \| tail -80` |
+| "page fault" or "ring timeout" in `dmesg` | right after it: `sudo cp /sys/class/drm/card0/device/devcoredump/data ~/gpu-coredump.txt` |
+
+Without network, copy the files to the drive's FAT32 partition and take them from there on your PC:
 `E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break; done); sudo cp ~/ps5-report-*.txt $E/`.
-Other commands: `ps5-perf` (CPU boost, fan target), `ps5-warm-reboot` (restart straight into Linux, experimental), `ps5-bt-address` (one DualSense for the PS5 and Linux, on by default).
+Commands: `ps5-perf` (CPU boost, fan; `status` shows the fan mode), `ps5-warm-reboot` (restart straight into Linux,
+experimental), `ps5-bt-address` (one DualSense for the PS5 and Linux, on by default).
 
 - **Console running, no picture** (wrong mode, a mode the TV doesn't take): get in with SSH or a TTY and change the
   mode by command, see [docs/display-recovery.md](docs/display-recovery.md). To report a display problem (VRR, a

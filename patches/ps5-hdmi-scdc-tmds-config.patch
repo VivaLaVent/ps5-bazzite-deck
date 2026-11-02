@@ -10,16 +10,15 @@ On v1.2.0, which started at 4K60 (TMDS_Config written), this TV kept its HDMI 2.
 
 --- a/drivers/ps5/hdmi.c
 +++ b/drivers/ps5/hdmi.c
-@@ -1249,14 +1249,20 @@
+@@ -1249,14 +1249,19 @@
  		i2c_end_block();
  		i2c_waitclear(0x7a84, 0x01);
  	}
 +	/*
-+	 * SCDC TMDS_Config: scrambling + 1/40 clock ratio above 340 MHz. written at every
-+	 * setup for a sink that talks SCDC, 0x00 at low rates too, as a PC's driver does. The
-+	 * "Beyond TV" (issues #11, #21) re-announced an HDMI 1.4 EDID (max 60 Hz, 340 MHz, no 4K120,
-+	 * no VRR) a few seconds after a 1080p60 start, where TMDS_Config was never written; it
-+	 * kept its HDMI 2.1 EDID when the console started at 4K60, where it was.
++	 * SCDC TMDS_Config: scrambling + 1/40 clock ratio above 340 MHz. Written at every
++	 * setup for a sink that talks SCDC, 0x00 at low rates too, as a PC's driver does. Some
++	 * TVs re-announce an HDMI 1.4 EDID shortly after a low-rate start when it was never
++	 * written.
 +	 */
  	i2c_begin_block();
 -	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling) {

@@ -53,7 +53,7 @@ index ca87027a3..c83588cab 100644
 +
 +	mutex_lock(&ps5_busy_lock);
 +	if (!ps5_busy_last_t || ktime_ms_delta(now, ps5_busy_last_t) >= 500) {
-+		/* the same GFX busy time rmux's ps5-gpufreq governor uses */
++		/* GFX busy time from amdgpu's fdinfo accounting */
 +		u64 busy = ktime_to_ns(amdgpu_ps5_get_gfx_busy_ns(to_pci_dev(d)));
 +
 +		if (ps5_busy_last_t) {
