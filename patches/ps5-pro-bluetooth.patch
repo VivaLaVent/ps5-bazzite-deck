@@ -86,7 +86,7 @@ index 0491971..7e3defe 100644
 +			return 0;
 +		}
 +		err = PTR_ERR(skb);
-+		if (err != -EBUSY && err != HCI_ERROR_COMMAND_DISALLOWED)
++		if (err != -EBUSY)
 +			return err;
 +
 +		if (attempt < PS5_VIOLA_RESET_RETRIES)
