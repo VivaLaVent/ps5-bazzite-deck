@@ -21,7 +21,11 @@ mkdir -p "$T/usr/lib/firmware/amdgpu"
 for f in $FILES; do cp "$SRC/$f.bin" "$T/usr/lib/firmware/amdgpu/"; done
 (cd "$T" && find usr | sort | cpio -o -H newc --quiet) > "$T/viola.cpio"
 cp -a "$E/initrd.img" "$E/initrd.img.noviola"
-cat "$E/initrd.img.noviola" "$T/viola.cpio" > "$E/initrd.img.new" && mv "$E/initrd.img.new" "$E/initrd.img"
+# Concatenated newc archives must start on a 4-byte boundary.
+base_size=$(stat -c %s "$E/initrd.img.noviola")
+padding=$(( (4 - base_size % 4) % 4 ))
+{ cat "$E/initrd.img.noviola"; head -c "$padding" /dev/zero; cat "$T/viola.cpio"; } \
+    > "$E/initrd.img.new" && mv "$E/initrd.img.new" "$E/initrd.img"
 sync
 mkdir -p "$(dirname "$STATE")"; sha256sum "$E/initrd.img" | cut -d' ' -f1 > "$STATE"
 echo "PS5 Pro: Viola GPU firmware added to $E/initrd.img; it's used from the next start with the loader"
