@@ -1,6 +1,7 @@
 #!/bin/bash
 # Stable release from a quick kernel, without a full image build:
 #   QUICK_FILES="name ..." bash tools/stable-from-quick.sh vNEW vPREV
+#   BASE_IMG=...: vPREV's image when it isn't output/ps5-bazzite-deck.img (e.g. one this tool made)
 # 1. builds the quick package from the kernel tree (bzImage, amdgpu, btusb, QUICK_FILES)
 # 2. copies vPREV's image (~/ps5-build-7.3/output/ps5-bazzite-deck.img) to a fresh vNEW image and
 #    installs the package into it with the same installer the consoles run (in a chroot)
@@ -11,7 +12,7 @@
 set -euo pipefail
 V=${1:?vNEW}; PREV=${2:?vPREV}
 B=~/ps5-build-7.3; O=$B/output; K=$B/work/linux73; SRC=~/ps5-bazzite-deck; R=VivaLaVent/ps5-bazzite-deck
-IMG0=$O/ps5-bazzite-deck.img; IMG=$O/ps5-bazzite-deck-$V.img; Q=$O/ps5-quick-$V; N=ps5-bazzite-deck-$V-update
+IMG0=${BASE_IMG:-$O/ps5-bazzite-deck.img}; IMG=$O/ps5-bazzite-deck-$V.img; Q=$O/ps5-quick-$V; N=ps5-bazzite-deck-$V-update
 MNT=/mnt/stable-$V
 step() { echo "== $*"; }
 

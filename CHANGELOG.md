@@ -2,7 +2,12 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.0] – 2026-11-02
+## [v2.1.1] – 2026-11-<DD>
+> v2.1.0's image with the new kernel installed into it, checked file by file.
+- **Fix: Bluetooth on original PS5s (IW620) found no new devices** ("Busy"; the DualSense still worked): v2.0's reconnect quirk made the kernel scan with the old command family while it advertised with the new one, and this chip refuses to mix them ("Command Disallowed" on every scan). The quirk is taken out again, back to v1.8.x behaviour; consistent with rmux reporting Bluetooth trouble on his branch, which has the same quirk
+- **Fix: fan target back to 50 °C after sleep** (and the fan loud again): on waking up the fan driver re-sends its parameter table to the console, which resets the fan target. The current target (80 °C, or what you set with `ps5-perf`/hwcon) is put back now
+
+## [v2.1.0] – 2026-11-<DD>
 > Stable release: v2.0.0's image with the v2.0.1 and v2.1.0 kernel, Bluetooth driver and scripts installed into it (no full image build), checked file by file. Everything since v1.8.4 is in the v2.0.0, v2.0.1 and v2.1.0 entries.
 - **CPU boost off is really off:** with boost switched off (`ps5-perf`, or the CPU boost toggle in tools), the CPU could still reach the boost clocks; the ceiling now drops to 3.2 GHz. The CPU starts in a defined state, so the current clock and the cpufreq statistics are right from boot (rmux's fix, ported to our driver)
 - Checked against rmux's 7.3.1 branch: its fan commit adds diagnostics and drops one temperature channel; nothing there fixes a problem we have, so it isn't taken. A move to Linux 7.3.1 comes as its own release later

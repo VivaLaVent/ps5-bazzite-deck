@@ -89,7 +89,6 @@ git -C work/linux73 apply "$SRC/patches/ps5-vrr-follow-guard.patch"         # VR
 git -C work/linux73 apply "$SRC/patches/ps5-vrr-min-48.patch"              # VRR never below 48 Hz (PS5 system floor), SPD with the actual range
 git -C work/linux73 apply "$SRC/patches/ps5-pro-gpu.patch"                 # PS5 Pro GPU (upstream #58, Borchev), only with the Viola firmware
 git -C work/linux73 apply "$SRC/patches/ps5-pro-bluetooth.patch"           # PS5 Pro internal Bluetooth 0e8d:3605 (QuartConz)
-git -C work/linux73 apply "$SRC/patches/ps5-iw620-le-reconnect.patch"    # IW620: legacy LE command family (keyboard/controller reconnects, rmux meower)
 git -C work/linux73 apply "$SRC/patches/ps5-pro-no-freqdrivers.patch"      # PS5 Pro: no PS5 CPU/GPU frequency drivers (MP1 busy flood)
 git -C work/linux73 apply "$SRC/patches/ps5-hdmi-4k120-guard.patch"        # 4K120 only where it can work, back to 4K60 by itself (after Slip)
 git -C work/linux73 apply "$SRC/patches/ps5-vrr-hdmi-only.patch"           # VRR only with HDMI VRR, as on the PS5 system
