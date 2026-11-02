@@ -39,7 +39,7 @@ echo "=== PS5 Pro"
 CUS=$(k | grep -o -m1 'active_cu_number [0-9]*' | awk '{print $2}')
 VIOLA_FW=$(k | grep -qi 'using Viola firmware' && echo yes || echo no)
 SMU_OK=$(k | grep -qi 'SMU is initialized successfully' && echo yes || echo no)
-VIOLA_FILES=$(for d in /boot/efi /efi; do [ -d "$d/lib/firmware/amdgpu" ] && ls "$d/lib/firmware/amdgpu"/viola_*.bin 2>/dev/null | wc -l && break; done)
+VIOLA_FILES=$(for d in /boot/efi /efi; do sudo test -f "$d/cmdline.txt" && { sudo sh -c "ls $d/lib/firmware/amdgpu/viola_*.bin 2>/dev/null" | wc -l; break; }; done)   # the boot partition is root-only
 echo "compute units active: ${CUS:-unknown (base-PS5 clock path, or not yet logged this boot)}"
 echo "Viola GPU firmware: loaded by the kernel: $VIOLA_FW | SMU initialised: $SMU_OK | files on the boot partition: ${VIOLA_FILES:-0}"
 journalctl -u ps5-stage-viola-fw --no-pager -o cat 2>/dev/null | tail -5

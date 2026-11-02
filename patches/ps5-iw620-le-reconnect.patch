@@ -7,18 +7,17 @@ Marvell entry, which sets the kernel's existing HCI_QUIRK_BROKEN_EXT_CREATE_CONN
 bluetoothd falls back to the legacy LE command family for this adapter. Based on our tree
 state after ps5-pro-bluetooth.patch (apply order: ...pro-bluetooth, then this one).
 ---
-
 --- a/drivers/bluetooth/btusb.c
 +++ b/drivers/bluetooth/btusb.c
-@@ -78,6 +78,7 @@
+@@ -121,6 +121,7 @@
  #define BTUSB_BROKEN_READ_LOCAL_NAME	BIT(32)
  #define BTUSB_NO_AUTOSUSPEND		BIT(33)
  #define BTUSB_HCI_IFACE_RECIPIENT   BIT(34)
 +#define BTUSB_BROKEN_EXT_CREATE_CONN	BIT(35)
  
  static const struct usb_device_id btusb_table[] = {
-     /* PS5 Pro Viola: MediaTek Bluetooth HCI on interface 3 */
-@@ -210,6 +211,8 @@
+ 	/*
+@@ -257,6 +258,8 @@
  	{ USB_DEVICE(0x1286, 0x2059),
  	  .driver_info = BTUSB_MARVELL |
  			 BTUSB_IFNUM_0 |
@@ -27,7 +26,7 @@ state after ps5-pro-bluetooth.patch (apply order: ...pro-bluetooth, then this on
  			 BTUSB_BROKEN_LE_DEFAULT_PHY |
  			 BTUSB_BROKEN_READ_LOCAL_NAME |
  			 BTUSB_NO_AUTOSUSPEND |
-@@ -4695,6 +4698,11 @@
+@@ -4699,6 +4702,11 @@
  	if (id->driver_info & BTUSB_BROKEN_READ_LOCAL_NAME)
  		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_READ_LOCAL_NAME);
  

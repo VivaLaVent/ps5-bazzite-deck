@@ -6,10 +6,12 @@ the driver fail to probe; it's returned to firmware auto). Kconfig: X86_PS5 also
 ps5.h: ps5_is_viola() (0x13da and 0x13dc).
 
 Adapted for this image (upstream defaults to its own kernel fan curve at boot):
- - pwm1_enable 2 = the console's own firmware fan control, the DEFAULT (what every release so
-   far did); 3 = the kernel's curve (pwm1_auto_point*), opt-in; 0 full, 1 manual as upstream
+ - pwm1_enable 0 full, 1 manual, 2 the kernel curve (pwm1_auto_point*), as upstream, so fan
+   tools work unchanged; 3 = the console's own firmware fan control, the DEFAULT, with the
+   MainSoC target at 80 C at boot as the old driver set it (without it the firmware's lower
+   target made the fan loud)
  - target_temp on the platform device (/sys/bus/platform/devices/ps5-fan/target_temp) kept, as
-   the old driver had it: ps5-perf's FAN_TARGET and the hwcon plugin write it
+   the old driver had it (ps5-perf's FAN_TARGET); writing it returns to firmware control
  - after an emergency (max fan) the driver returns to firmware control, not the curve
 hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_input, pwm1.
 ---
@@ -149,7 +151,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
  	if (ret)
  		pr_err("Error: %s: %d\n", __func__, ret);
  
-@@ -224,112 +213,664 @@
+@@ -224,114 +213,668 @@
  }
  EXPORT_SYMBOL(icc_fan_update_autoservo_param);
  
@@ -250,13 +252,14 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +#define PS5_CONTROL_INTERVAL msecs_to_jiffies(500)
 +#define PS5_PWM_FULL 0
 +#define PS5_PWM_MANUAL 1
++#define PS5_PWM_AUTO 2		/* the kernel curve (pwm1_auto_point*) */
 +/*
-+ * pwm1_enable 2 keeps the console's own firmware fan control (configured through
-+ * target_temp; the default); 3 is the kernel's curve
-+ * (pwm1_auto_point*), opt-in. Upstream has the curve at 2 and no firmware mode.
++ * The console's own firmware fan control with its MainSoC target (target_temp),
++ * 80 C at boot as before the hwmon driver. The default; writing target_temp
++ * returns to it, writing pwm1_enable 0-2 leaves it.
 + */
-+#define PS5_PWM_FIRMWARE 2
-+#define PS5_PWM_AUTO 3
++#define PS5_PWM_FIRMWARE 3
++#define PS5_FAN_BOOT_TARGET_TEMP 80
 +
 +/* ICC sensor per temp channel: fan zones 0-3, then sensor 18. */
 +static const u8 ps5_fan_temp_sensor[] = { 0, 1, 2, 3, 18 };
@@ -406,9 +409,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +static void ps5_fan_prepare_backup(struct ps5_fan_data *data)
 +{
 +	int block, zone, field;
- 
--	return icc_fan_txn(ICC_SERVICE_ID_FAN, PS5_FAN_MT_CURSET_SET,
--			   PS5_FAN_CURSET_SET_LEN, req, sizeof(req), NULL, 0);
++
 +	memcpy(data->backup, data->original, PS5_SERVO_SIZE);
 +	for (block = 0; block < 4; block++) {
 +		u8 *head = data->backup + block * 0x160;
@@ -427,7 +428,9 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +				ps5_fan_quiet_servo[field].value,
 +				record + ps5_fan_quiet_servo[field].offset);
 +	}
-+
+ 
+-	return icc_fan_txn(ICC_SERVICE_ID_FAN, PS5_FAN_MT_CURSET_SET,
+-			   PS5_FAN_CURSET_SET_LEN, req, sizeof(req), NULL, 0);
 +	put_unaligned_le16(0, data->backup + 0x583);
  }
  
@@ -537,8 +540,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +	if (ret && data->enable == PS5_PWM_FULL) {
 +		data->fault = true;
 +		return ps5_fan_set_mode(data, PS5_FAN_MODE_MAXIMUM);
- 	}
--	mutex_unlock(&fan_lock);
++	}
 +	if (ret)
 +		goto failed;
 +	if (!data->filtered_valid) {
@@ -581,7 +583,8 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +		ret = ps5_fan_write_pwm(data, pwm);
 +		if (ret)
 +			goto failed;
-+	}
+ 	}
+-	mutex_unlock(&fan_lock);
 +	data->fault = false;
 +	return 0;
 +failed:
@@ -614,7 +617,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +				     int channel)
 +{
 +	const struct ps5_fan_data *data = drvdata;
-+
+ 
 +	if (type == hwmon_pwm)
 +		return 0644;
 +	if (type == hwmon_temp &&
@@ -680,7 +683,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +		goto out;
 +	}
 +	if (attr == hwmon_pwm_enable) {
-+		if (value < 0 || value > PS5_PWM_AUTO) {
++		if (value < 0 || value > PS5_PWM_FIRMWARE) {
 +			ret = -EINVAL;
 +			goto out;
 +		}
@@ -837,7 +840,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +	u8 *req = kzalloc(PS5_FAN_REQ_SIZE + ICC_MSG_MIN_SIZE, GFP_KERNEL), *reply;
 +	u32 cs[PS5_CURSET_COUNT];
 +	int ret, i;
- 
++
 +	if (!req)
 +		return -ENOMEM;
 +	reply = req + PS5_FAN_REQ_SIZE;
@@ -859,28 +862,36 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +out:
 +	kfree(req);
 +	return ret;
- }
- 
--static ssize_t target_temp_store(struct device *dev,
--				 struct device_attribute *attr,
++}
++
 +static ssize_t target_temp_show(struct device *dev, struct device_attribute *attr, char *buf)
 +{
 +	u16 c;
 +	int ret = ps5_fan_get_target_temp(&c);
 +
 +	return ret ? ret : sysfs_emit(buf, "%u\n", c);
-+}
-+
+ }
+ 
+-static ssize_t target_temp_store(struct device *dev,
+-				 struct device_attribute *attr,
 +static ssize_t target_temp_store(struct device *dev, struct device_attribute *attr,
  				 const char *buf, size_t count)
  {
++	struct ps5_fan_data *data = dev_get_drvdata(dev);
  	u16 c;
-@@ -339,37 +880,225 @@
+ 	int ret;
+ 
+@@ -339,37 +882,233 @@
  		return -EINVAL;
  	if (c > 100)
  		return -ERANGE;
 -
 -	ret = fan_set_target_temp(PS5_ZONE_MAINSOC, 0, c);
++	if (data) {
++		mutex_lock(&data->lock);
++		data->enable = PS5_PWM_FIRMWARE;
++		mutex_unlock(&data->lock);
++	}
 +	ret = ps5_fan_set_target_temp(c);
  	return ret ? ret : count;
  }
@@ -966,10 +977,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +		dev_err(data->dev,
 +			"original fan state could not be fully restored\n");
 +}
- 
--	ret = fan_set_target_temp(PS5_ZONE_MAINSOC, 0, PS5_FAN_BOOT_TARGET_TEMP);
--	if (ret)
--		dev_warn(&pdev->dev, "boot target temp set failed: %d\n", ret);
++
 +static int ps5_fan_hwmon_probe(struct platform_device *pdev)
 +{
 +	struct ps5_fan_data *data;
@@ -977,6 +985,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +	unsigned int duty;
 +	int ret;
  
+-	ret = fan_set_target_temp(PS5_ZONE_MAINSOC, 0, PS5_FAN_BOOT_TARGET_TEMP);
 +	data = devm_kzalloc(&pdev->dev, sizeof(*data), GFP_KERNEL);
 +	if (!data)
 +		return -ENOMEM;
@@ -1020,8 +1029,12 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
 +						     ps5_curve_groups);
 +	if (IS_ERR(hwmon))
 +		return PTR_ERR(hwmon);
++	ret = ps5_fan_set_target_temp(PS5_FAN_BOOT_TARGET_TEMP);
+ 	if (ret)
+ 		dev_warn(&pdev->dev, "boot target temp set failed: %d\n", ret);
+-
 +	schedule_delayed_work(&data->work, PS5_CONTROL_INTERVAL);
-+	dev_info(&pdev->dev, "firmware fan control (pwm1_enable 2); the kernel curve is opt-in (3) through %s\n",
++	dev_info(&pdev->dev, "firmware fan control (pwm1_enable 3, target 80 C); the kernel curve is pwm1_enable 2 through %s\n",
 +		 dev_name(hwmon));
  	return 0;
  }
@@ -1113,7 +1126,7 @@ hwmon also exposes temp1..temp5 (fan zones + ICC sensor 18 as Local4), fan1_inpu
  	},
  };
  
-@@ -403,5 +1132,5 @@
+@@ -403,5 +1142,5 @@
  module_exit(ps5_fan_exit);
  
  MODULE_LICENSE("GPL");

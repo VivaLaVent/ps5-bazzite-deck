@@ -1,8 +1,6 @@
 [Unit]
 Description=PS5 Pro: Viola GPU firmware into the initrd
 After=local-fs.target
-ConditionPathExists=|/boot/efi/lib/firmware/amdgpu/viola_rlc.bin
-ConditionPathExists=|/efi/lib/firmware/amdgpu/viola_rlc.bin
 
 [Service]
 Type=oneshot

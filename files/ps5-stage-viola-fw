@@ -11,7 +11,14 @@ E=; for d in /boot/efi /efi; do [ -f "$d/initrd.img" ] && { E=$d; break; }; done
 [ -n "$E" ] || exit 0
 SRC=$E/lib/firmware/amdgpu
 FILES="viola_ce viola_me viola_mec viola_mec2 viola_pfp viola_rlc viola_sdma viola_sdma1"
-for f in $FILES; do [ -s "$SRC/$f.bin" ] || exit 0; done
+# Only on a PS5 Pro (GPU 1002:13da or 13dc); say so when the loader didn't dump the firmware.
+grep -qsiE '^0x13d[ac]$' /sys/bus/pci/devices/0000:20:00.0/device || exit 0
+missing=; for f in $FILES; do [ -s "$SRC/$f.bin" ] || missing="$missing $f.bin"; done
+if [ -n "$missing" ]; then
+    echo "PS5 Pro: the Viola GPU firmware isn't on the boot partition ($SRC):$missing"
+    echo "Your loader didn't dump it, so the GPU runs as a base PS5 (36 compute units). Use a loader that dumps the PS5 Pro GPU firmware."
+    exit 0
+fi
 command -v cpio >/dev/null || { echo "PS5 Pro: Viola firmware found, but cpio is missing: can't add it to the initrd"; exit 1; }
 STATE=/var/lib/ps5-bazzite-deck/viola-initrd.sha256
 cur=$(sha256sum "$E/initrd.img" | cut -d' ' -f1)

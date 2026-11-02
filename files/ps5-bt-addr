@@ -74,7 +74,7 @@ PY
     exit 0
 fi
 if [ "$id" = "0e8d:3605" ]; then
-    echo "PS5 Pro: the Linux-only Bluetooth address isn't supported on this chip yet; the controller keeps one pairing"
+    echo "PS5 Pro: the Linux-only Bluetooth address is set by ps5-bt-pro-addr once Bluetooth is up"
     exit 0
 fi
 if [ "$id" != "1286:2059" ]; then

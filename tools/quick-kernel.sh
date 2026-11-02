@@ -11,13 +11,26 @@ B=~/ps5-build-7.3; K=$B/work/linux73; O=$B/output/ps5-quick-$L; mkdir -p "$O"; r
 cd "$B"
 echo "==> kernel build (bzImage + modules, incremental)"
 docker run --rm -v "$K":/src -v "$B/work/ps5-linux-patches":/ps5-linux-patches:ro -v "$B/cache/ccache":/ccache \
-  ps5-kernel-builder bash -c 'export CCACHE_DIR=/ccache; make -s LOCALVERSION= -j$(nproc) bzImage modules && make -s LOCALVERSION= kernelrelease > /src/.quick-release && strip --strip-debug -o /src/.quick-amdgpu.ko drivers/gpu/drm/amd/amdgpu/amdgpu.ko'
+  ps5-kernel-builder bash -c 'export CCACHE_DIR=/ccache; make -s LOCALVERSION= -j$(nproc) bzImage modules && make -s LOCALVERSION= kernelrelease > /src/.quick-release && strip --strip-debug -o /src/.quick-amdgpu.ko drivers/gpu/drm/amd/amdgpu/amdgpu.ko && strip --strip-debug -o /src/.quick-btusb.ko drivers/bluetooth/btusb.ko'
 R=$(cat "$K/.quick-release"); rm -f "$K/.quick-release"
 echo "    kernel release: $R"
 cp "$K/arch/x86/boot/bzImage" "$O/bzImage"
 cp "$K/.quick-amdgpu.ko" "$O/amdgpu.ko"; rm -f "$K/.quick-amdgpu.ko"          # stripped, as the image's modules are
 zstd -q -f -19 -o "$O/amdgpu.ko.zst" "$O/amdgpu.ko"
 echo "    amdgpu.ko: $(du -h "$O/amdgpu.ko" | cut -f1) stripped, $(du -h "$O/amdgpu.ko.zst" | cut -f1) compressed"
+zstd -q -f -19 -o "$O/btusb.ko.zst" "$K/.quick-btusb.ko"; rm -f "$K/.quick-btusb.ko"   # Bluetooth is a module: ship it too
+# QUICK_FILES="name ...": scripts and services from files/ (or tools/), installed where the update bundle puts them
+SRC=$(cd "$(dirname "$0")/.." && pwd)
+if [ -n "${QUICK_FILES:-}" ]; then
+  mkdir -p "$O/files"; : > "$O/files/MAP"
+  for f in $QUICK_FILES; do
+    line=$(sed -n "/^cat > \"\$OUT\/FILES\" << 'L'$/,/^L$/p" "$SRC/tools/make-update-bundle.sh" | grep "^$f " | head -1)
+    [ -n "$line" ] || { echo "STOP: $f isn't in the update bundle's file list"; exit 1; }
+    src=$SRC/files/$f; [ -f "$src" ] || src=$SRC/tools/$f; [ -f "$src" ] || { echo "STOP: $f not found"; exit 1; }
+    cp "$src" "$O/files/$f"; echo "$line" >> "$O/files/MAP"
+  done
+  echo "    files: $QUICK_FILES"
+fi
 echo "$R" > "$O/KERNEL"; echo "$L" > "$O/LABEL"
 cat > "$O/install.sh" << 'EOI'
 #!/bin/bash
@@ -86,11 +99,26 @@ sudo rm -f "$EFI/initrd.img"
 if ! sudo cp "$W/initrd.img" "$EFI/initrd.img"; then echo "STOP: copy failed; restoring"; sudo cp "$BASE" "$EFI/initrd.img"; sudo cp "$BK/bzImage" "$EFI/"; sudo rm -rf "$W"; exit 1; fi
 sudo rm -rf "$W"
 echo "initrd: amdgpu replaced inside ($IP), $(sudo du -h "$EFI/initrd.img" | cut -f1), boot partition free: $(df -h "$EFI" | awk 'NR==2{print $4}')"
+BD=/usr/lib/modules/$K/kernel/drivers/bluetooth; BM=$(ls $BD/btusb.ko* 2>/dev/null | sed -n 1p)
+if [ -f btusb.ko.zst ] && [ -n "$BM" ]; then
+  sudo cp "$BM" "$BK/"; sudo install -m644 btusb.ko.zst "$BD/btusb.ko.zst"; [ "$BM" = "$BD/btusb.ko.zst" ] || sudo rm -f "$BM"
+  sudo depmod "$K"; echo "btusb: replaced"
+fi
+if [ -f files/MAP ]; then
+  while read -r f dest mode; do
+    sudo test -f "$dest" && { sudo mkdir -p "$BK/files"; sudo cp "$dest" "$BK/files/$f"; }
+    sudo install -D -m "${mode:-644}" "files/$f" "$dest"
+  done < files/MAP
+  sudo systemctl daemon-reload
+  grep -q "\.rules$" <(awk '{print $1}' files/MAP) && sudo udevadm control --reload
+  for u in $(awk '$1 ~ /\.service$/ {print $1}' files/MAP); do sudo systemctl enable "$u" >/dev/null 2>&1 || true; done
+  echo "files: $(awk '{print $1}' files/MAP | tr '\n' ' ')"
+fi
 echo "$(cat LABEL) (quick kernel)" | sudo tee /etc/ps5-bazzite-deck-version >/dev/null
 sync
 [ -e /etc/ps5-bazzite-deck/warm-reboot ] && sudo touch /run/ps5-reboot-to-ps5 && echo "note: warm reboot is on; the next restart goes through the PS5 system (cold), as a new kernel needs"
 echo "DONE: $(cat LABEL) installed. Power off and start with the loader (no warm reboot)."
-echo "undo: sudo cp $BK/bzImage $EFI/ && sudo cp $BASE $EFI/initrd.img && sudo cp $BK/$(basename "$M") $MD/ && sudo depmod $K && sudo cp $BK/ps5-bazzite-deck-version /etc/ && sync"
+echo "undo: sudo cp $BK/bzImage $EFI/ && sudo cp $BASE $EFI/initrd.img && sudo cp $BK/$(basename "$M") $MD/ && { [ -z \"$BM\" ] || sudo cp $BK/$(basename "${BM:-x}") $BD/; } && sudo depmod $K && sudo cp $BK/ps5-bazzite-deck-version /etc/ && sync   (scripts: $BK/files)"
 EOI
 chmod +x "$O/install.sh"
 tar -C "$B/output" -czf "$O.tar.gz" "$(basename "$O")"

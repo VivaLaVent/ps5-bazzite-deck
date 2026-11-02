@@ -48,7 +48,9 @@ other refresh rates) aren't offered: the HDMI chip only has setups for these.
 
 **PS5 Pro:** a first version (GPU with 60 compute units and its own firmware, Wi-Fi, Bluetooth; see
 [Features and your hardware](#features-and-your-hardware) for the exact split). It needs a loader that dumps the
-Pro's GPU firmware to the boot partition; without that the GPU runs as a base PS5 (38 CUs). After the first start,
+Pro's GPU firmware to the boot partition: the official [ps5-linux-loader](https://github.com/ps5-linux/ps5-linux-loader)
+from 2 November 2026 or later, on system software 13.20, 13.60 or 11.60 (earlier releases and rmux's fork, v3.5 and older,
+don't dump it). Without the dump the GPU runs as a base PS5 (36 CUs), and `journalctl -u ps5-stage-viola-fw` says so. After the first start,
 start Linux with the loader once more: that one uses the Pro's GPU firmware (`journalctl -u ps5-stage-viola-fw`
 says whether it was found and added). Not yet supported on the Pro: the 40-CU unlock (see below) and the
 Linux-only Bluetooth address. The same drive works in a Slim or original PS5 too; the Pro's firmware files on it are

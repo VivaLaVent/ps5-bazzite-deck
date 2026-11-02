@@ -2,7 +2,17 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.0.0] – 2026-11-02
+## [v2.0.1] – 2026-11-<DD> (pre-release)
+> Kernel, Bluetooth module and the changed scripts, as a quick package on top of v2.0.0.
+- **Fix: fan louder than before** (Shahine, Phat): v2.0.0's new fan driver no longer set the console's fan target to 80 °C at boot, as the old driver did, so the firmware used its own lower target. It's set again. And the fan modes now match upstream's, so fan tools work as intended: `pwm1_enable` 2 is the kernel curve (as hwcon and CoolerControl expect), 3 the console's firmware control (the default); writing `target_temp` returns to firmware control
+- **PS5 Pro: Bluetooth works from a cold boot** (mfoster978, PR #30): the first HCI Reset raced the controller becoming ready, which left a dead `hci0` until btusb was reloaded; it's retried a few times now (Pro chip only)
+- **PS5 Pro: GPU load in overlays** (after mfoster978's PR #29): with the Viola firmware, amdgpu's own `gpu_busy_percent` is no longer removed by a duplicate, and `gpu_metrics` is marked unsupported, so MangoHud stops replacing load and temperature with zeros
+- **PS5 Pro: one DualSense for the PS5 and Linux** (mfoster978, PR #31): the Linux-only Bluetooth address on the Pro, set once Bluetooth is up (`ps5-bt-pro-addr`)
+- **Fix: "not VRR capable" on TVs that had VRR before v1.8.6** (Verrek's Panasonic OLED): the TV announces HDMI VRR with a minimum (48 Hz) and no maximum, which the HDMI spec means as "up to the highest refresh rate"; it was read as "no HDMI VRR", so the TV looked FreeSync-only and was refused since v1.8.6. FreeSync-only monitors are still refused. The VRR range is also read from the newer EDID block (HF-SCDB) some TVs use
+- **PS5 Pro firmware:** the staging service says so when the loader didn't dump the Viola firmware (it was silently skipped). The README names the loaders that dump it: the official ps5-linux-loader built from its main branch (2 November or later) on 13.20, 13.60 or 11.60
+- `ps5-report`: counts the Pro's firmware files correctly (it read the root-only boot partition without root and always said 0)
+
+## [v2.0.0] – 2026-11-02 (pre-release)
 > Full build (image and update bundle). Everything since v1.8.4, the current Latest: the v1.8.5–v1.8.9 test kernels, today's upstream updates, and fixes for the reported Bluetooth and PS5 Pro problems. Untested parts are marked as such.
 
 **Controller / Bluetooth**
