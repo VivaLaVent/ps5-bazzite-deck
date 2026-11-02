@@ -1,20 +1,76 @@
-PS5: GPU load and temperature for overlays                [ps5-bazzite-deck]
+PS5: expose collision-free GPU telemetry                 [ps5-bazzite-deck]
 
-amdgpu reports GPU load and its hwmon sensors through the power-management
-firmware (SMU), which on the PS5 belongs to Sony's firmware, so overlays
-(MangoHud, Steam's performance overlay) show 0 % and 0 °C for the GPU.
+AMDGPU normally obtains GPU load and hwmon telemetry from the SMU. Sony's
+firmware does not provide the normal metrics table, so the PS5 overlay
+patch uses DRM GFX busy accounting for load and the shared SoC sensor for
+edge temperature.
 
-1. gpu_busy_percent: from the GFX busy time meower already provides for its
-   ps5-gpufreq governor (amdgpu_ps5_get_gfx_busy_ns: amdgpu's per-client
-   accounting, the fdinfo "drm-engine" usage nvtop shows), over the time
-   since the last reading, updated at most every 500 ms.
-2. hwmon "amdgpu" temp1 ("edge"): CPU and GPU are one die with one sensor;
-   read the register k10temp reports as Tctl (SMN 0x59800, same decoding),
-   so the GPU temperature shows the chip temperature too.
+Keep those fallbacks, but integrate them differently when Viola firmware is
+active on PS5 Pro:
+
+1. Move the bounded 500 ms busy-percentage calculation next to the existing
+   PS5 DRM busy-time helper so both reporting paths use the same value.
+2. Report AMDGPU_PP_SENSOR_GPU_LOAD from the Viola-selected Cyan Skillfish
+   sensor callback. AMDGPU can then own its standard gpu_busy_percent file.
+3. Do not register the display driver's custom gpu_busy_percent fallback on
+   Viola. Registering both files produces -EEXIST and removes AMDGPU's
+   attribute group during cleanup. Keep the custom fallback unchanged for
+   Cyan firmware, including base/Slim consoles and PS5 Pro fallback boots.
+4. Mark gpu_metrics unsupported only with Viola firmware. Otherwise, the
+   node opens successfully but every read returns -EOPNOTSUPP. MangoHud
+   0.8.4 then treats the empty table as valid and overwrites correct sysfs
+   load and temperature values with zero.
+
+The temperature implementation is unchanged. Non-Viola PS5 paths and
+non-PS5 AMDGPU devices keep their existing behavior.
 ---
-
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_fdinfo.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_fdinfo.c
+index 23eb228..1b0baa0 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_fdinfo.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_fdinfo.c
+@@ -129,6 +129,10 @@ void amdgpu_show_fdinfo(struct drm_printer *p, struct drm_file *file)
+ }
+ 
+ #ifdef CONFIG_X86_PS5
++static DEFINE_MUTEX(ps5_busy_lock);
++static ktime_t ps5_busy_last_t;
++static u64 ps5_busy_last_ns;
++static u32 ps5_busy_pct;
+ ktime_t amdgpu_ps5_get_gfx_busy_ns(struct pci_dev *pdev)
+ {
+ 	struct drm_device *ddev = pci_get_drvdata(pdev);
+@@ -154,4 +158,29 @@ ktime_t amdgpu_ps5_get_gfx_busy_ns(struct pci_dev *pdev)
+ 	return total;
+ }
+ EXPORT_SYMBOL_GPL(amdgpu_ps5_get_gfx_busy_ns);
++
++u32 amdgpu_ps5_get_gfx_busy_percent(struct pci_dev *pdev)
++{
++	ktime_t now = ktime_get();
++	u32 pct;
++
++	mutex_lock(&ps5_busy_lock);
++	if (!ps5_busy_last_t || ktime_ms_delta(now, ps5_busy_last_t) >= 500) {
++		u64 busy = ktime_to_ns(amdgpu_ps5_get_gfx_busy_ns(pdev));
++
++		if (ps5_busy_last_t) {
++			s64 dt = ktime_to_ns(ktime_sub(now, ps5_busy_last_t));
++			u64 db = busy > ps5_busy_last_ns ? busy - ps5_busy_last_ns : 0;
++
++			ps5_busy_pct = dt > 0 ?
++				min_t(u64, div64_u64(db * 100, dt), 100) : 0;
++		}
++		ps5_busy_last_t = now;
++		ps5_busy_last_ns = busy;
++	}
++	pct = ps5_busy_pct;
++	mutex_unlock(&ps5_busy_lock);
++
++	return pct;
++}
+ #endif
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-index ca87027a3..c83588cab 100644
+index 0354a8a..c9ba4ca 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 @@ -88,6 +88,8 @@
@@ -26,49 +82,22 @@ index ca87027a3..c83588cab 100644
  #include <linux/ps5.h>
  #endif
  
-@@ -464,6 +466,111 @@ static int amdgpu_dm_init_power_module(struct amdgpu_display_manager *dm)
+@@ -464,6 +466,84 @@ static int amdgpu_dm_init_power_module(struct amdgpu_display_manager *dm)
  	return 0;
  }
  
 +#ifdef CONFIG_X86_PS5
 +/*
-+ * gpu_busy_percent for the PS5: amdgpu normally reports GPU load through the
-+ * power-management firmware (SMU), which on the PS5 belongs to Sony's firmware,
-+ * so the file doesn't exist and overlays (MangoHud / Steam's performance
-+ * overlay) show 0 %. Here the load comes from amdgpu_ps5_get_gfx_busy_ns()
-+ * (meower; the per-client "drm-engine" accounting nvtop shows, and the load
-+ * source of the ps5-gpufreq governor): GFX busy time over the time since the
-+ * last reading, at most every 500 ms.
++ * gpu_busy_percent fallback for PS5 firmware without an SMU load sensor.
++ * Viola reports the same DRM-accounting load through AMDGPU's standard sensor
++ * path instead, so this custom attribute must not be created there.
 + */
-+static DEFINE_MUTEX(ps5_busy_lock);
-+static ktime_t ps5_busy_last_t;
-+static u64 ps5_busy_last_ns;
-+static int ps5_busy_pct;
 +
 +static ssize_t ps5_gpu_busy_percent_show(struct device *d, struct device_attribute *attr,
 +					 char *buf)
 +{
-+	ktime_t now = ktime_get();
-+	int pct;
-+
-+	mutex_lock(&ps5_busy_lock);
-+	if (!ps5_busy_last_t || ktime_ms_delta(now, ps5_busy_last_t) >= 500) {
-+		/* the same GFX busy time rmux's ps5-gpufreq governor uses */
-+		u64 busy = ktime_to_ns(amdgpu_ps5_get_gfx_busy_ns(to_pci_dev(d)));
-+
-+		if (ps5_busy_last_t) {
-+			s64 dt = ktime_to_ns(ktime_sub(now, ps5_busy_last_t));
-+			u64 db = busy > ps5_busy_last_ns ? busy - ps5_busy_last_ns : 0;
-+
-+			ps5_busy_pct = dt > 0 ? (int)min_t(u64, div64_u64(db * 100, dt), 100) : 0;
-+		}
-+		ps5_busy_last_t = now;
-+		ps5_busy_last_ns = busy;
-+	}
-+	pct = ps5_busy_pct;
-+	mutex_unlock(&ps5_busy_lock);
-+
-+	return sysfs_emit(buf, "%d\n", pct);
++	return sysfs_emit(buf, "%u\n",
++			  amdgpu_ps5_get_gfx_busy_percent(to_pci_dev(d)));
 +}
 +static struct device_attribute ps5_dev_attr_gpu_busy =
 +	__ATTR(gpu_busy_percent, 0444, ps5_gpu_busy_percent_show, NULL);
@@ -138,11 +167,12 @@ index ca87027a3..c83588cab 100644
  static int amdgpu_dm_init(struct amdgpu_device *adev)
  {
  	struct dc_init_data init_data;
-@@ -814,6 +921,18 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
+@@ -814,6 +894,19 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
  #ifdef CONFIG_X86_PS5
  	/* lets the HDMI bridge driver re-arm the output when the sink re-announces */
  	ps5_hdmi_register_drm(adev_to_drm(adev));
-+	if (device_create_file(adev->dev, &ps5_dev_attr_gpu_busy))
++	if (!amdgpu_ps5_viola_fw(adev) &&
++	    device_create_file(adev->dev, &ps5_dev_attr_gpu_busy))
 +		drm_info(adev_to_drm(adev), "PS5: gpu_busy_percent not created (already there?)\n");
 +	{
 +		long t;
@@ -157,11 +187,12 @@ index ca87027a3..c83588cab 100644
  #endif
  
  	if (amdgpu_dm_init_power_module(&adev->dm))
-@@ -868,6 +987,11 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
+@@ -868,6 +961,12 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
  
  #ifdef CONFIG_X86_PS5
  	ps5_hdmi_unregister_drm(adev_to_drm(adev));
-+	device_remove_file(adev->dev, &ps5_dev_attr_gpu_busy);
++	if (!amdgpu_ps5_viola_fw(adev))
++		device_remove_file(adev->dev, &ps5_dev_attr_gpu_busy);
 +	if (ps5_hwmon) {
 +		hwmon_device_unregister(ps5_hwmon);
 +		ps5_hwmon = NULL;
@@ -169,3 +200,43 @@ index ca87027a3..c83588cab 100644
  #endif
  
  	if (adev->dm.vblank_control_workqueue) {
+diff --git a/drivers/gpu/drm/amd/pm/amdgpu_pm.c b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
+index bb304f3..bc5ef75 100644
+--- a/drivers/gpu/drm/amd/pm/amdgpu_pm.c
++++ b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
+@@ -2702,7 +2702,8 @@ static int default_attr_update(struct amdgpu_device *adev, struct amdgpu_device_
+ 			dev_attr->store = NULL;
+ 		}
+ 	} else if (DEVICE_ATTR_IS(gpu_metrics)) {
+-		if (gc_ver < IP_VERSION(9, 1, 0))
++		if (amdgpu_ps5_viola_fw(adev) ||
++		    gc_ver < IP_VERSION(9, 1, 0))
+ 			*states = ATTR_STATE_UNSUPPORTED;
+ 	} else if (DEVICE_ATTR_IS(pp_power_profile_mode)) {
+ 		if (amdgpu_dpm_get_power_profile_mode(adev, NULL) == -EOPNOTSUPP)
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c b/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c
+index efb02b0..b23c15b 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c
+@@ -649,6 +649,9 @@ static int ps5_read_sensor(struct smu_context *smu,
+ 			return ret;
+ 		*value = temp;
+ 		break;
++	case AMDGPU_PP_SENSOR_GPU_LOAD:
++		*value = amdgpu_ps5_get_gfx_busy_percent(smu->adev->pdev);
++		break;
+ 	default:
+ 		return -EOPNOTSUPP;
+ 	}
+diff --git a/include/linux/ps5.h b/include/linux/ps5.h
+index 6de7bb8..d16f45f 100644
+--- a/include/linux/ps5.h
++++ b/include/linux/ps5.h
+@@ -158,6 +158,7 @@ int mp1_boost_exit(void);
+ extern struct mutex ps5_mp1_q0_lock;
+ 
+ ktime_t amdgpu_ps5_get_gfx_busy_ns(struct pci_dev *pdev);
++u32 amdgpu_ps5_get_gfx_busy_percent(struct pci_dev *pdev);
+ 
+ u64 svm_execute_guest(void *guest_func, u64 a0, u64 a1, u64 a2, u64 a3);
+ 
