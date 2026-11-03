@@ -1,0 +1,2 @@
+# The deck image's cmdline.txt, minus root=/rw, which bootc sets itself.
+kargs = ["rootwait", "console=ttyTitania0", "console=tty0", "mitigations=off", "idle=halt", "preempt=full"]

@@ -1,0 +1,20 @@
+[Unit]
+Description=Point the PS5 loader's boot partition at the current bootc deployment
+Documentation=file:///usr/bin/ps5-bootc-sync
+# Before= means our ExecStop runs after ostree-finalize-staged has written the
+# entry for a staged update.
+DefaultDependencies=no
+RequiresMountsFor=/boot /boot/efi
+After=local-fs.target
+Before=ostree-finalize-staged.service sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/ps5-bootc-sync --cmdline /proc/cmdline
+ExecStop=/usr/bin/ps5-bootc-sync
+TimeoutStopSec=5min
+
+[Install]
+WantedBy=sysinit.target

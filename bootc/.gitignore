@@ -1,0 +1,6 @@
+kernel/*
+!kernel/.gitkeep
+out/
+*.img
+*.raw
+cosign.key

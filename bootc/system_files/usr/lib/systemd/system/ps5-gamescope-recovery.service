@@ -1,0 +1,11 @@
+[Unit]
+Description=Fall back to Plasma if gamescope can't get a display (first boot)
+After=graphical.target
+ConditionFirstBoot=yes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ps5-gamescope-recovery
+
+[Install]
+WantedBy=graphical.target

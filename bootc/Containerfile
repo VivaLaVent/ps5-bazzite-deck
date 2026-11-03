@@ -1,0 +1,29 @@
+# Build from the repository root: podman build -f bootc/Containerfile .
+# Needs the linux-ps5 RPM in bootc/kernel/ (see docs/bootc.md).
+
+ARG BASE_IMAGE=ghcr.io/ublue-os/bazzite-deck
+ARG BASE_TAG=stable
+
+FROM scratch AS ctx
+COPY bootc/build_files/ /build_files/
+COPY bootc/kernel/ /kernel/
+COPY bootc/system_files/ /system_files/
+COPY files/ /deck/files/
+COPY tools/ /deck/tools/
+
+FROM ${BASE_IMAGE}:${BASE_TAG}
+ARG BASE_IMAGE
+ARG BASE_TAG
+ARG IMAGE_VERSION=dev
+ARG LOADER=unknown
+ARG DECK=unknown
+LABEL org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.source="https://github.com/VivaLaVent/ps5-bazzite-deck"
+
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=tmpfs,dst=/tmp \
+    BASE_IMAGE="${BASE_IMAGE}:${BASE_TAG}" IMAGE_VERSION="${IMAGE_VERSION}" LOADER="${LOADER}" DECK="${DECK}" \
+    /ctx/build_files/build.sh
+
+RUN --mount=type=tmpfs,target=/run --network=none \
+    bootc container lint

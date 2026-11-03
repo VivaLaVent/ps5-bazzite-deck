@@ -1,0 +1,63 @@
+name: Build bootc disk image
+# For X.Y releases: turns ghcr.io/<owner>/ps5-bazzite-bootc:stable into a flashable .img and
+# attaches it to that release (which must exist already).
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "release tag to attach the image to, e.g. v2.2"
+        required: true
+
+jobs:
+  disk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      packages: read
+    defaults:
+      run:
+        working-directory: bootc
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+
+      - name: Pull image
+        id: img
+        run: |
+          REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ps5-bazzite-bootc:stable
+          sudo podman pull "$REF"
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "digest=$(sudo podman image inspect "$REF" --format '{{.Digest}}')" >> "$GITHUB_OUTPUT"
+          echo "loader=$(sudo podman run --rm "$REF" sed -n 's/^loader=//p' /usr/share/ps5-bazzite-bootc/VERSION)" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ github.event.inputs.release }}" >> "$GITHUB_OUTPUT"
+
+      - name: bootc-image-builder
+        run: |
+          . ./pins.env
+          mkdir out
+          sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
+            -v "$PWD/bib/config.toml:/config.toml:ro" -v "$PWD/out:/output" \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            "$BIB_IMAGE" \
+            --type raw --rootfs ext4 --use-librepo=True "${{ steps.img.outputs.ref }}"
+
+      - name: Prepare the boot partition for the PS5 loader
+        run: |
+          sudo apt-get install -yq dosfstools
+          sudo tools/finish-disk-image.sh out/image/disk.raw
+
+      - name: Compress
+        run: |
+          N=ps5-bazzite-deck-bootc-${{ steps.img.outputs.tag }}.img
+          sudo mv out/image/disk.raw "out/$N"
+          cd out && 7z a -v1900m -mx=5 "$N.7z" "$N" >/dev/null && sha256sum "$N".7z.* > "$N.sha256"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.img.outputs.tag }}" out/*.7z.* out/*.sha256 --clobber
+          echo "Attached. Image: ${{ steps.img.outputs.ref }}@${{ steps.img.outputs.digest }}, loader: ${{ steps.img.outputs.loader }}"
