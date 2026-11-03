@@ -51,13 +51,13 @@ depmod -a "$KVER"
 # Oberon GPU firmware must not be xz-compressed: the amdgpu patches write into
 # the firmware buffer, and xz-loaded firmware is mapped read-only (oops in
 # gfx_v10_0_early_init). Same fix as ps5-linux-image@ed54e99.
+# Decompress to new files rather than with unxz: unxz skips symlinks (mec2 -> mec)
+# and files with more than one hard link, which ostree images are full of.
 cd /usr/lib/firmware/amdgpu
 for f in cyan_skillfish*.xz; do
-    if [ -L "$f" ]; then
-        tgt=$(readlink -f "$f"); rm "$f"; xz -dc "$tgt" > "${f%.xz}"
-    fi
+    xz -dc "$f" > "${f%.xz}"   # reads through symlinks
 done
-unxz cyan_skillfish*.xz
+rm -f cyan_skillfish*.xz
 cd /
 
 # --- PS5 files from ps5-bazzite-deck
