@@ -1,0 +1,13 @@
+# An /etc/fstab entry for /boot/efi takes precedence over this.
+[Unit]
+Description=PS5 boot partition
+Before=local-fs.target
+
+[Mount]
+What=/dev/ps5-boot
+Where=/boot/efi
+Type=vfat
+Options=umask=0077,shortname=winnt
+
+[Install]
+WantedBy=local-fs.target

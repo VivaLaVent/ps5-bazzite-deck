@@ -1,0 +1,15 @@
+# Overrides systemd's reboot.target: every reboot (Steam, the desktop, "sudo reboot") first loads
+# the kernel from the boot partition (ps5-kexec-prepare.service) and then goes through
+# ps5-reboot.service, which warm-reboots into Linux when a kernel is loaded.
+[Unit]
+Description=System Reboot
+Documentation=man:systemd.special(7)
+DefaultDependencies=no
+Requires=ps5-kexec-prepare.service ps5-reboot.service
+After=ps5-reboot.service
+AllowIsolate=yes
+JobTimeoutSec=30min
+JobTimeoutAction=reboot-force
+
+[Install]
+Alias=ctrl-alt-del.target

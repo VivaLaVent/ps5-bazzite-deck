@@ -1,0 +1,10 @@
+#!/bin/bash
+# ps5-linux-image's grow-rootfs for bootc: the root partition is /sysroot, mounted
+# read-only, so resize from a private mount namespace where it is writable (as ostree does).
+set -eu
+DEV=$(findmnt -no SOURCE /sysroot)
+DISK=/dev/$(lsblk -ndo PKNAME "$DEV")
+PART=$(cat "/sys/class/block/$(basename "$DEV")/partition")
+growpart "$DISK" "$PART" || true   # exits 1 when there is nothing to grow
+unshare -m sh -c "mount -o remount,rw /sysroot && resize2fs '$DEV'"
+mkdir -p /var/lib/ps5-bazzite-bootc && touch /var/lib/ps5-bazzite-bootc/root-grown

@@ -1,0 +1,6 @@
+# Keep the PS5's Bluetooth chips and the Salina xHCI out of runtime suspend.
+# The Bluetooth chip drops off the bus once its USB port goes to U3 and only comes back after a
+# full power-off; the Salina xHCI's setup doesn't survive D3 (found by Dasloh while doing s2idle).
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1286", ATTR{idProduct}=="2059", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0e8d", ATTR{idProduct}=="3603", TEST=="power/control", ATTR{power/control}="on"
+ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x104d", ATTR{device}=="0x9108", TEST=="power/control", ATTR{power/control}="on"

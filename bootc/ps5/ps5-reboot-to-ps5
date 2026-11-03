@@ -1,0 +1,4 @@
+#!/bin/sh
+# Reboot into the PS5 system (a normal reboot) instead of the warm reboot into Linux.
+touch /run/ps5-reboot-to-ps5 2>/dev/null || sudo touch /run/ps5-reboot-to-ps5
+exec systemctl reboot

@@ -1,0 +1,28 @@
+#!/bin/bash
+# IW620 consoles: after a warm reboot the chip's firmware is still running, the Wi-Fi driver
+# (moal) skips the download and fails ("WLAN FW already running" -> "Firmware Init Failed").
+# Unloading moal, a function-level reset of the Wi-Fi PCI function and loading moal again
+# downloads fresh firmware and brings Wi-Fi back (tested v1.4.0). Bluetooth on the same chip
+# doesn't come back that way: it drops off USB and needs a cold start (power off, loader).
+# Runs only after a warm reboot (flag set by ps5-kexec) and only if Wi-Fi actually failed.
+FLAG=/var/lib/ps5-bazzite-deck/warm-boot
+[ -e "$FLAG" ] || exit 0
+rm -f "$FLAG"
+for i in $(seq 1 45); do
+    ls /sys/class/net | grep -q '^wl' && { echo "Wi-Fi came up by itself after the warm reboot"; exit 0; }
+    journalctl -k -b --no-pager -q | grep -q "Firmware Init Failed" && break
+    sleep 2
+done
+journalctl -k -b --no-pager -q | grep -q "Firmware Init Failed" || { echo "no Wi-Fi failure seen, nothing to repair"; exit 0; }
+D=""
+for d in /sys/bus/pci/devices/*; do
+    [ "$(modprobe -R "$(cat "$d/modalias" 2>/dev/null)" 2>/dev/null)" = moal ] && D=$d && break
+done
+[ -n "$D" ] || { echo "Wi-Fi PCI device not found"; exit 0; }
+echo "Wi-Fi failed after the warm reboot (firmware still running): reloading the driver with a reset of $(basename "$D")"
+modprobe -r moal || { echo "could not unload moal"; exit 0; }
+[ -w "$D/reset" ] && echo 1 > "$D/reset"
+sleep 2
+modprobe moal
+for i in $(seq 1 15); do ls /sys/class/net | grep -q '^wl' && { echo "Wi-Fi is back ($(ls /sys/class/net | grep '^wl'))"; exit 0; }; sleep 2; done
+echo "Wi-Fi still missing: power off and run the loader"

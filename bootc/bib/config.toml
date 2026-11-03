@@ -1,0 +1,9 @@
+[[customizations.user]]
+# same login as the deck image
+name = "ps5"
+password = "ps5"
+groups = ["wheel"]
+
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"

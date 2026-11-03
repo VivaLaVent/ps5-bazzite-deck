@@ -1,0 +1,41 @@
+#!/bin/bash
+# PS5 Pro: put the Viola GPU firmware into the initrd, without rebuilding it on the console.
+# The loader dumps the 8 files to the boot partition (lib/firmware/amdgpu/viola_*.bin); amdgpu loads
+# from the initramfs, so they have to be in it. A small cpio archive with the files is appended to
+# initrd.img (the kernel unpacks concatenated archives); the original is kept as initrd.img.noviola.
+# Runs at every boot: does nothing without all 8 files (any console other than a Pro), or when the
+# current initrd already has them; after an update replaced initrd.img, it appends them again.
+# amdgpu uses the firmware from the next boot on (start Linux with the loader again).
+set -eu
+E=; for d in /boot/efi /efi; do [ -f "$d/initrd.img" ] && { E=$d; break; }; done
+[ -n "$E" ] || exit 0
+SRC=$E/lib/firmware/amdgpu
+FILES="viola_ce viola_me viola_mec viola_mec2 viola_pfp viola_rlc viola_sdma viola_sdma1"
+# Only on a PS5 Pro (GPU 1002:13da or 13dc); say so when the loader didn't dump the firmware.
+grep -qsiE '^0x13d[ac]$' /sys/bus/pci/devices/0000:20:00.0/device || exit 0
+missing=; for f in $FILES; do [ -s "$SRC/$f.bin" ] || missing="$missing $f.bin"; done
+if [ -n "$missing" ]; then
+    echo "PS5 Pro: the Viola GPU firmware isn't on the boot partition ($SRC):$missing"
+    echo "Your loader didn't dump it, so the GPU runs as a base PS5 (36 compute units). Use a loader that dumps the PS5 Pro GPU firmware."
+    exit 0
+fi
+command -v cpio >/dev/null || { echo "PS5 Pro: Viola firmware found, but cpio is missing: can't add it to the initrd"; exit 1; }
+STATE=/var/lib/ps5-bazzite-deck/viola-initrd.sha256
+cur=$(sha256sum "$E/initrd.img" | cut -d' ' -f1)
+[ -f "$STATE" ] && [ "$(cat "$STATE")" = "$cur" ] && exit 0
+T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+mkdir -p "$T/usr/lib/firmware/amdgpu"
+for f in $FILES; do cp "$SRC/$f.bin" "$T/usr/lib/firmware/amdgpu/"; done
+(cd "$T" && find usr | sort | cpio -o -H newc --quiet) > "$T/viola.cpio"
+cp -a "$E/initrd.img" "$E/initrd.img.noviola"
+# Each archive in a concatenated initramfs has to start on a 4-byte boundary (PR #32, mfoster978).
+base_size=$(stat -c %s "$E/initrd.img.noviola")
+padding=$(( (4 - (base_size % 4)) % 4 ))
+{
+  cat "$E/initrd.img.noviola"
+  [ "$padding" -ne 0 ] && dd if=/dev/zero bs=1 count="$padding" status=none
+  cat "$T/viola.cpio"
+} > "$E/initrd.img.new" && mv "$E/initrd.img.new" "$E/initrd.img"
+sync
+mkdir -p "$(dirname "$STATE")"; sha256sum "$E/initrd.img" | cut -d' ' -f1 > "$STATE"
+echo "PS5 Pro: Viola GPU firmware added to $E/initrd.img; it's used from the next start with the loader"

@@ -1,0 +1,10 @@
+[Unit]
+Description=Revive the Bluetooth adapter if it hangs after a warm reboot
+After=bluetooth.service ps5-bt-pro-addr.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps5-bt-revive
+
+[Install]
+WantedBy=multi-user.target

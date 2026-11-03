@@ -1,0 +1,91 @@
+name: Build image
+# Pushes ghcr.io/<owner>/ps5-bazzite-bootc:{stable,<date>} from main, nightly so Bazzite
+# updates come through, and builds pull requests without pushing.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+env:
+  IMAGE: ps5-bazzite-bootc
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Kernel RPM pinned in pins.env
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          . ./pins.env
+          gh release download kernel-latest --pattern "$KERNEL_RPM" --dir kernel
+          echo "$KERNEL_SHA256  kernel/$KERNEL_RPM" | sha256sum -c
+
+      - name: Build
+        id: build
+        run: |
+          . ./pins.env
+          REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE
+          VERSION=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
+          podman build --pull=newer --build-arg IMAGE_VERSION="$VERSION" --build-arg LOADER="$LOADER" \
+            -t "$REF:stable" .
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        id: push
+        env:
+          REF: ${{ steps.build.outputs.ref }}
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          echo "${{ github.token }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman push --digestfile digest "$REF:stable"
+          podman push "$REF:stable" "$REF:${VERSION%%.*}"
+          echo "digest=$(cat digest)" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@v3
+        if: github.event_name != 'pull_request'
+
+      # Consoles with the public key refuse unsigned images, so a key without a secret is an error.
+      - name: Sign
+        if: github.event_name != 'pull_request'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ""
+          REF: ${{ steps.build.outputs.ref }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            [ ! -f system_files/etc/pki/containers/ps5-bazzite-bootc.pub ] || { echo "SIGNING_SECRET is missing"; exit 1; }
+            echo "not signed: no SIGNING_SECRET"; exit 0
+          fi
+          echo "${{ github.token }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cosign sign -y --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST"
+
+      - name: Post to Discord
+        if: github.event_name != 'pull_request'
+        env:
+          HOOK: ${{ secrets.DISCORD_TESTING_WEBHOOK }}
+          REF: ${{ steps.build.outputs.ref }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          [ -n "$HOOK" ] || exit 0
+          jq -n --arg t "Image $VERSION" \
+                --arg d "\`$REF:stable\`\n\`$DIGEST\`\nOn the console: \`sudo bootc upgrade\`, then restart." \
+             '{embeds: [{title: $t, description: $d, color: 3447003}]}' |
+            curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"

@@ -1,0 +1,37 @@
+# Where build_files/build.sh installs the files vendored from ps5-bazzite-deck:
+# <file> <destination> [mode]. Paths are the deck's FILES list in
+# tools/make-update-bundle.sh with /usr/local moved to /usr.
+99-ps5-wifi.conf                        /etc/NetworkManager/conf.d/99-ps5-wifi.conf
+99-ps5-bt-phantom.rules                 /etc/udev/rules.d/99-ps5-bt-phantom.rules
+50-ps5-pro-bt-power.rules               /etc/udev/rules.d/50-ps5-pro-bt-power.rules
+btusb-ps5.conf                          /etc/modprobe.d/btusb-ps5.conf
+ps5-stage-firmware-no-default-deps.conf /etc/systemd/system/ps5-stage-firmware.service.d/10-no-default-deps.conf
+ps5-bt-addr                             /usr/bin/ps5-bt-addr 755
+ps5-bt-addr.service                     /etc/systemd/system/ps5-bt-addr.service
+ps5-bt-pro-addr                         /usr/bin/ps5-bt-pro-addr 755
+ps5-bt-pro-addr.service                 /etc/systemd/system/ps5-bt-pro-addr.service
+ps5-bt-connectable.service              /etc/systemd/system/ps5-bt-connectable.service
+99-ps5-bt-services.rules                /etc/udev/rules.d/99-ps5-bt-services.rules
+ps5-bt-revive                           /usr/bin/ps5-bt-revive 755
+ps5-bt-revive.service                   /etc/systemd/system/ps5-bt-revive.service
+ps5-hidp.conf                           /etc/modules-load.d/ps5-hidp.conf
+99-ps5-usb-power.rules                  /etc/udev/rules.d/99-ps5-usb-power.rules
+ps5-warm-reboot                         /usr/bin/ps5-warm-reboot 755
+ps5-bt-address                          /usr/bin/ps5-bt-address 755
+ps5-report.sh                           /usr/bin/ps5-report 755
+vrr-report.sh                           /usr/bin/vrr-report 755
+ps5-perf                                /usr/bin/ps5-perf 755
+ps5-perf.service                        /etc/systemd/system/ps5-perf.service
+ps5-stage-viola-fw                      /usr/bin/ps5-stage-viola-fw 755
+ps5-stage-viola-fw.service              /etc/systemd/system/ps5-stage-viola-fw.service
+ps5-wifi-powersave.service              /etc/systemd/system/ps5-wifi-powersave.service
+ps5-wifi-powersave.timer                /etc/systemd/system/ps5-wifi-powersave.timer
+ps5-wifi-repair                         /usr/bin/ps5-wifi-repair 755
+ps5-wifi-repair.service                 /etc/systemd/system/ps5-wifi-repair.service
+90-ps5-wifi-powersave                   /etc/NetworkManager/dispatcher.d/90-ps5-wifi-powersave 755
+ps5-kexec                               /usr/bin/ps5-kexec 755
+ps5-reboot-to-ps5                       /usr/bin/ps5-reboot-to-ps5 755
+ps5-kexec-prepare.service               /etc/systemd/system/ps5-kexec-prepare.service
+ps5-reboot.service                      /etc/systemd/system/ps5-reboot.service
+reboot.target                           /usr/share/ps5-bazzite-deck/reboot.target
+kexec-shim                              /usr/bin/ps5-kexec-shim 755

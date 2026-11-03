@@ -1,0 +1,11 @@
+[Unit]
+Description=Warm reboot into Linux: load the kernel from the boot partition before the reboot
+# Pulled in by reboot.target only (never by poweroff), while the boot partition is still mounted.
+DefaultDependencies=no
+Before=shutdown.target umount.target final.target ps5-reboot.service
+# off by default (v1.4): switch on with "ps5-warm-reboot on"
+ConditionPathExists=/etc/ps5-bazzite-deck/warm-reboot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps5-kexec load
