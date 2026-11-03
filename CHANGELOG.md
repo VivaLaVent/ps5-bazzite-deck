@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.2] – 2026-11-<DD>
+## [v2.1.2] – 2026-11-03
 > v2.1.1's image with the changed scripts installed into it, checked file by file. No kernel change.
 - **Warm restart fully opt-in:** the reboot override that runs every restart through the warm-restart path is only installed by `ps5-warm-reboot on` (and removed by `off`); with warm restart off, restarts go through plain systemd again
 - **Bluetooth:** one mechanism keeps the adapter connectable (the duplicate `bluetooth.service` drop-in is removed); the hung-adapter revive only acts on IW620 consoles (on others it would also reload a USB dongle's driver)
