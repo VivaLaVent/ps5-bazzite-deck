@@ -4,19 +4,32 @@
 # Runs every time the adapter appears (udev), and makes sure the kernel and bluetoothd use the new
 # address too: otherwise pairings are stored under the old address on some boots and under the new
 # one on others, and controllers have to be paired again.
+# The console's own Bluetooth adapter (IW620, Slim MediaTek, Pro MediaTek). A USB dongle can take
+# hci0, so look the adapter up by its USB ID instead of assuming hci0.
+ps5_hci() {
+    for h in /sys/class/bluetooth/hci*; do
+        [ -e "$h" ] || continue
+        u=$(readlink -f "$h/device/..")
+        case "$(cat "$u/idVendor" 2>/dev/null):$(cat "$u/idProduct" 2>/dev/null)" in
+            1286:2059|0e8d:3603|0e8d:3605) basename "$h"; return 0 ;;
+        esac
+    done
+    return 1
+}
 set -u
 command -v btmgmt >/dev/null && command -v python3 >/dev/null || { echo "btmgmt or python3 missing"; exit 0; }
 
 for _ in $(seq 30); do
-    [ -e /sys/class/bluetooth/hci0 ] && break
+    ps5_hci >/dev/null && break
     sleep 1
 done
-[ -e /sys/class/bluetooth/hci0 ] || { echo "no Bluetooth adapter found"; exit 0; }
+HCI=$(ps5_hci) || { echo "no PS5 Bluetooth adapter found"; exit 0; }; IDX=${HCI#hci}; export IDX
+[ "$HCI" = hci0 ] || echo "the PS5 adapter is $HCI (another adapter, e.g. a USB dongle, is hci0)"
 
-usb=$(readlink -f /sys/class/bluetooth/hci0/device/..)
+usb=$(readlink -f /sys/class/bluetooth/$HCI/device/..)
 id="$(cat "$usb/idVendor" 2>/dev/null):$(cat "$usb/idProduct" 2>/dev/null)"
 
-kernel_addr() { btmgmt --index 0 info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }'; }
+kernel_addr() { btmgmt --index $IDX info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }'; }
 
 if [ "$id" = "0e8d:3603" ] && [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
     echo "MediaTek: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on)"
@@ -39,19 +52,19 @@ if [ "$id" = "0e8d:3603" ]; then
     was_active=0
     [ "$(systemctl is-active bluetooth.service)" != inactive ] && was_active=1
     [ "$was_active" = 1 ] && systemctl stop bluetooth.service
-    btmgmt --index 0 power off >/dev/null
-    out=$(btmgmt --index 0 public-addr "$new" 2>&1)
-    btmgmt --index 0 power on >/dev/null
+    btmgmt --index $IDX power off >/dev/null
+    out=$(btmgmt --index $IDX public-addr "$new" 2>&1)
+    btmgmt --index $IDX power on >/dev/null
     for _ in 1 2 3 4 5 6; do kern=$(kernel_addr); [ "$kern" = "$new" ] && break; sleep 0.5; done
     if [ "$kern" != "$new" ]; then
         # v1.8.9: btmgmt's public-addr isn't applied on every MT7961 (hsgodd: "Set Public Address complete"
         # but the old address stayed). Fallback: MediaTek's own vendor command, the one the kernel's
         # btmtk_set_bdaddr sends (0xFC1A, the address little-endian), then a power cycle so the kernel
         # reads the new address back, as on the IW620 path.
-        python3 -I - "$new" <<'PY' && { btmgmt --index 0 power off >/dev/null; btmgmt --index 0 power on >/dev/null; }
-import socket, struct, sys
+        python3 -I - "$new" <<'PY' && { btmgmt --index $IDX power off >/dev/null; btmgmt --index $IDX power on >/dev/null; }
+import os, socket, struct, sys
 s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
-s.bind((0,))
+s.bind((int(os.environ["IDX"]),))
 s.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("<IIIHxx", 1 << 4, (1 << 0x0E) | (1 << 0x0F), 0, 0))
 s.settimeout(5)
 def command(opcode, params=b""):
@@ -90,16 +103,16 @@ if [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
     exit 0
 fi
 
-btmgmt --index 0 power on >/dev/null
+btmgmt --index $IDX power on >/dev/null
 
 SAVED=/etc/ps5-bazzite-deck/bt-address-value
 val=$(cat "$SAVED" 2>/dev/null || true)
 chip=$(python3 -I - "$val" <<'PY'
-import socket, struct, sys
+import os, socket, struct, sys
 
 def open_hci():
     s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
-    s.bind((0,))
+    s.bind((int(os.environ["IDX"]),))
     # struct hci_ufilter is 16 bytes with padding. The kernel rejects 14.
     s.setsockopt(socket.SOL_HCI, socket.HCI_FILTER,
                  struct.pack("<IIIHxx", 1 << 4, (1 << 0x0E) | (1 << 0x0F), 0, 0))
@@ -175,8 +188,8 @@ echo "kernel still uses $kern, re-initialising the adapter"
 was_active=0
 [ "$(systemctl is-active bluetooth.service)" != inactive ] && was_active=1	# active or still starting
 [ "$was_active" = 1 ] && systemctl stop bluetooth.service
-btmgmt --index 0 power off >/dev/null
-btmgmt --index 0 power on >/dev/null
+btmgmt --index $IDX power off >/dev/null
+btmgmt --index $IDX power on >/dev/null
 kern=$(kernel_addr)
 echo "kernel uses $kern now"
 if [ "$kern" != "$chip" ]; then

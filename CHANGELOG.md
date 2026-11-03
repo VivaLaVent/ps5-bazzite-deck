@@ -2,10 +2,11 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.2] – 2026-11-03
+## [v2.1.2] – 2026-11-<DD>
 > v2.1.1's image with the changed scripts installed into it, checked file by file. No kernel change.
 - **Warm restart fully opt-in:** the reboot override that runs every restart through the warm-restart path is only installed by `ps5-warm-reboot on` (and removed by `off`); with warm restart off, restarts go through plain systemd again
 - **Bluetooth:** one mechanism keeps the adapter connectable (the duplicate `bluetooth.service` drop-in is removed); the hung-adapter revive only acts on IW620 consoles (on others it would also reload a USB dongle's driver)
+- **Fix: the Linux-only Bluetooth address wasn't applied with a USB Bluetooth dongle plugged in** (xlxdlx): the scripts assumed the console's own adapter is `hci0`, but a dongle can take that number, so the address went to (or was refused by) the dongle. The console's adapter is now found by its USB ID; the connectable setting goes to every adapter
 - **Wi-Fi config renamed** to `99-ps5-wifi.conf`: it applies to every Wi-Fi chip, not only the IW620
 - `ps5-report`: the Linux-only Bluetooth address line showed `off/n.a.` on every console (it checked a flag from before v1.8.9); it now shows on/off and whether the address is applied, Pro included. `ps5-perf status` says the Pro's CPU clock is left to the console firmware
 - **README slimmed down to what the wiki doesn't cover:** what the project is, not affiliated with Bazzite, the wiki, Discord and Ko-fi. The docs (display recovery and logs, DualSense profiles) now live on [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu); the files here point there

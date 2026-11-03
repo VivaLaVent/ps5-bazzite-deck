@@ -29,7 +29,7 @@ else about Linux on the PS5.
 
 ## Like this project? Donate
 
-**[Ko-fi](https://ko-fi.com/vivalavent)**. It keeps the test consoles, drives and TVs coming. Thank you!
+[Buy me a coffee on Ko-fi](https://ko-fi.com/vivalavent).
 
 ## Credits
 
