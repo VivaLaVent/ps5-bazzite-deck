@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.6] – 2026-11-<DD>
+## [v2.1.6] – 2026-11-03
 > Kernel only, quick package on top of v2.1.5.
 - **Fix: fan briefly at full speed just before shutdown or reboot** (Verrek, xlxdlx, dreamer_599, loseheaven): the fan driver re-uploaded the original parameter table during cleanup, triggering a ramp-up before handing control back to the firmware's AUTO mode
 
