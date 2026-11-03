@@ -20,7 +20,25 @@ cur=$(sha256sum "$E/initrd.img" | cut -d' ' -f1)
 [ -f "$STATE" ] && [ "$(cat "$STATE")" = "$cur" ] && exit 0
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 mkdir -p "$T/usr/lib/firmware/amdgpu"
+# Sony's RLC and SDMA control the Pro's CU configuration; keep them.
+# The command-processor microcode (CE/ME/PFP/MEC/MEC2) from AMD's open-source
+# cyan_skillfish2 firmware fixes a D3D9 GPU hang (ring gfx timeout at DRAW_INDEX_2
+# in the GE, GRBM_STATUS 0xa061xxxx); the reporter confirmed 60 CU / 2350 MHz / no hang.
+CS2=/lib/firmware/amdgpu
+CP_FILES="viola_ce viola_me viola_mec viola_mec2 viola_pfp"
+SONY_FILES="viola_rlc viola_sdma viola_sdma1"
+use_cs2=1
+for f in $CP_FILES; do
+    cs2name="$CS2/cyan_skillfish2_${f#viola_}.bin"
+    [ -s "$cs2name" ] || { use_cs2=0; break; }
+done
 for f in $FILES; do cp "$SRC/$f.bin" "$T/usr/lib/firmware/amdgpu/"; done
+if [ "$use_cs2" = 1 ]; then
+    for f in $CP_FILES; do
+        cp "$CS2/cyan_skillfish2_${f#viola_}.bin" "$T/usr/lib/firmware/amdgpu/$f.bin"
+    done
+    echo "PS5 Pro: using cyan_skillfish2 CP microcode (CE/ME/PFP/MEC/MEC2) to fix D3D9 hang"
+fi
 (cd "$T" && find usr | sort | cpio -o -H newc --quiet) > "$T/viola.cpio"
 cp -a "$E/initrd.img" "$E/initrd.img.noviola"
 # Each archive in a concatenated initramfs has to start on a 4-byte boundary (PR #32, mfoster978).

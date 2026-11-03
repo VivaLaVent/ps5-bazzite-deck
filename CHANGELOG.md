@@ -2,7 +2,16 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.4] – 2026-11-03
+## [v2.1.6] – 2026-11-<DD>
+> Kernel only, quick package on top of v2.1.5.
+- **Fix: fan briefly at full speed just before shutdown or reboot** (Verrek, xlxdlx, dreamer_599, loseheaven): the fan driver re-uploaded the original parameter table during cleanup, triggering a ramp-up before handing control back to the firmware's AUTO mode
+
+## [v2.1.5] – 2026-11-<DD>
+> v2.1.4's image with the changed staging script and a cmdline.txt note for the M.2 write error.
+- **PS5 Pro: D3D9 games no longer hang at the first 3D frame** (ring gfx_0.0.0 timeout, GRBM_STATUS 0xa061xxxx, DRAW_INDEX_2 in the GE): Sony's CP microcode has a bug with DXVK's D3D9 command stream; the cyan_skillfish2 CE/ME/PFP/MEC/MEC2 firmware from linux-firmware drops in cleanly (same GFX1013 architecture), Sony's RLC and SDMA stay. Confirmed at 60 CU / 2350 MHz / 17.9 TFLOPS with Fable Anniversary and NFSU (reporter). amdgpu loads silently from the initrd on the next start
+- **PS5 Pro + M.2 NVMe: workaround for write errors under sustained load** (`I/O Error (sct 0x0 / sc 0x6)`, `<TAbort+`, ext4 emergency read-only): the NVMe's 64-bit DMA mask lets the kernel hand it pages in the DDR5 range (0x880000000+, ~36 GiB), which the southbridge can't handle. Add `mem=34G` to `cmdline.txt` to keep Linux below that range. Proper fix (DMA mask quirk for 40:02.5) needs the device ID; if you hit this send `lspci -nn | grep 02.5`
+
+## [v2.1.4] – 2026-11-<DD>
 > v2.1.3's image with the changed Bluetooth script installed into it, checked file by file.
 - **Fix: Bluetooth adapter gone after the Linux-only address is set on original PS5s (IW620)** (Storm): after the re-initialisation that makes the kernel pick up the new address, the chip needs a moment before it answers HCI commands; the retry came too fast and timed out, taking the adapter down. A `sleep 3` after the power cycle and `sleep 2` before the retry address it; the HCI socket timeout on the retry path also increased from 5 to 10 s
 
