@@ -1,0 +1,56 @@
+name: Discord release notification
+# Full releases -> the releases channel (1563882611309281430), pre-releases -> the pre-release
+# channel (1563882680314237008), each through that channel's webhook (repository secrets).
+on:
+  release:
+    # "published" fires for new releases and pre-releases; "released" also when a pre-release
+    # is turned into a full release. A new full release fires both: it's posted once, on "released".
+    types: [published, released]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Post to Discord
+        env:
+          ACTION: ${{ github.event.action }}
+          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          RELEASES_HOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK || secrets.DISCORD_WEBHOOK_RELEASES }}
+          PRERELEASE_HOOK: ${{ secrets.DISCORD_PRERELEASE_WEBHOOK || secrets.DISCORD_WEBHOOK_PRERELEASES }}
+          NAME: ${{ github.event.release.name || github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name }}
+          URL: ${{ github.event.release.html_url }}
+          BODY: ${{ github.event.release.body }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$ACTION" = "published" ] && [ "$IS_PRERELEASE" = "true" ]; then
+            HOOK="$PRERELEASE_HOOK"; LABEL="🧪 New prerelease"; COLOR=15105570
+          elif [ "$ACTION" = "released" ]; then
+            HOOK="$RELEASES_HOOK";   LABEL="🚀 New release";    COLOR=3066993
+          else
+            echo "full release on 'published': posted on 'released' instead"; exit 0
+          fi
+          [ -n "$HOOK" ] || { echo "no webhook secret for this kind of release, skipping"; exit 0; }
+
+          # a release created with a placeholder body (ps5-bazzite-deck's tools/release.sh does) gets
+          # its notes a moment later: wait for them, up to 5 minutes
+          for i in $(seq 1 20); do
+            case "$BODY" in *"Release notes follow"*|"") ;; *) break ;; esac
+            sleep 15
+            BODY=$(gh api "repos/$REPO/releases/tags/$TAG" --jq .body 2>/dev/null || printf '%s' "$BODY")
+          done
+
+          # the part people read first: everything before "## Updating" (What's new, VRR test),
+          # cut to fit Discord's 4096-character embed limit
+          DESC=$(printf '%s\n' "$BODY" | awk '/^## Updating/{exit} {print}' | head -c 3500)
+          [ -n "$DESC" ] || DESC=$(printf '%s' "$BODY" | head -c 3500)
+
+          jq -n --arg title "$LABEL: $NAME" --arg url "$URL" \
+                --arg desc "$DESC" --arg repo "$REPO" --arg tag "$TAG" \
+                --argjson color "$COLOR" \
+            '{embeds: [{title: $title, url: $url, description: $desc,
+                        color: $color, footer: {text: "\($repo) • \($tag)"}}]}' \
+          | curl -sSf -H "Content-Type: application/json" -d @- "$HOOK"

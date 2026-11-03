@@ -1,0 +1,8 @@
+#!/bin/sh
+# Minimal stand-in for kexec-tools' /usr/sbin/kexec, installed only when kexec-tools isn't:
+# systemd runs "kexec -e" at the end of a kexec reboot. ps5-kexec does the loading.
+case "$1" in
+    -e|--exec) exec /usr/local/sbin/ps5-kexec exec ;;
+    -u|--unload) exec /usr/local/sbin/ps5-kexec unload ;;
+    *) echo "this is the PS5 Bazzite Deck kexec stand-in (supports -e and -u); install kexec-tools for more" >&2; exit 1 ;;
+esac

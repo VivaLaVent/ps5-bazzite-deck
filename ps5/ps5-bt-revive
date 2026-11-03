@@ -1,0 +1,26 @@
+#!/bin/bash
+# The IW620's Bluetooth side can hang after a warm reboot ("hci0: command ... tx timeout") while
+# Wi-Fi keeps working. If the adapter isn't up and powered ~30 s after boot, reload btusb once:
+# that brings it back (and the address / connectable services run again when hci0 re-appears).
+set -u
+# Hung = no adapter at all, or not powered while the kernel logged command timeouts for it.
+# (Not powered without timeouts is a user who switched Bluetooth off: leave that alone.)
+healthy() {
+    [ -e /sys/class/bluetooth/hci0 ] || return 1
+    timeout 8 btmgmt --index 0 info 2>/dev/null | grep -q "current settings:.*powered" && return 0
+    ! journalctl -k -b --no-pager 2>/dev/null | grep -q "hci0: command 0x[0-9a-f]* tx timeout"
+}
+for _ in $(seq 6); do
+    healthy && { echo "Bluetooth adapter OK"; exit 0; }
+    sleep 5
+done
+echo "Bluetooth adapter not responding, reloading btusb"
+modprobe -r btusb 2>/dev/null || { echo "btusb can't be unloaded (built in?)"; exit 0; }
+sleep 2
+modprobe btusb
+for _ in $(seq 6); do
+    sleep 5
+    healthy && { echo "Bluetooth adapter back"; exit 0; }
+done
+echo "Bluetooth adapter still not responding; a cold start (power off, run the loader again) resets it"
+exit 0

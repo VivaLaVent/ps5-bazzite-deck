@@ -1,0 +1,214 @@
+#!/usr/bin/python3
+"""Keep the PS5 loader's boot partition in step with bootc.
+
+The PS5 Linux loader reads bzImage, initrd.img and cmdline.txt from the root of the
+FAT boot partition. bootc (through ostree) writes Boot Loader Spec entries to
+/boot/loader/entries instead. This script copies the default entry's kernel and
+initramfs to bzImage and initrd.img and rebuilds cmdline.txt from the entry's options.
+
+Why the root of the partition and not path-override.txt: the loader dumps the Wi-Fi
+and PS5 Pro GPU firmware next to the initrd it loaded, and ps5-stage-firmware and
+ps5-stage-viola-fw look for it under <boot>/lib/. Keeping the default at the root
+keeps all of that working unchanged.
+
+Other deployments ostree still lists (the rollback target) are kept in
+ostree/<id>/ with their own cmdline.txt; ROLLBACK.txt says how to boot one from a PC.
+
+cmdline.txt stays user-editable, as on the deck image: whatever the user added is
+kept, only the arguments that came from the previous BLS entry are replaced.
+
+    ps5-bootc-sync                              on the console
+    ps5-bootc-sync --boot DIR --esp DIR         on a mounted disk image
+"""
+import argparse, json, os, re, shutil, subprocess, sys
+
+STATE = ".ps5-bootc-sync.json"
+
+
+def log(msg):
+    print(f"ps5-bootc-sync: {msg}", flush=True)
+
+
+def read_entries(boot):
+    d = os.path.join(boot, "loader", "entries")
+    out = []
+    for name in os.listdir(d) if os.path.isdir(d) else []:
+        if not name.endswith(".conf"):
+            continue
+        e = {"file": name}
+        with open(os.path.join(d, name), encoding="utf-8") as f:
+            for line in f:
+                k, _, v = line.strip().partition(" ")
+                if k and not k.startswith("#"):
+                    e[k] = v.strip()
+        if "linux" in e and "initrd" in e:
+            out.append(e)
+    # ostree numbers entries so the highest version is the default
+    return sorted(out, key=lambda e: int(e.get("version", 0)), reverse=True)
+
+
+def entry_id(e):
+    m = re.search(r"-([0-9a-f]{64})/", e["linux"])
+    return m.group(1)[:12] if m else re.sub(r"\W", "", e["file"])[:12]
+
+
+def boot_path(boot, p):
+    p = p.lstrip("/")
+    return os.path.join(boot, p[len("boot/"):] if p.startswith("boot/") else p)
+
+
+def mount_esp():
+    for d in ("/boot/efi", "/efi"):
+        if os.path.ismount(d):
+            return d, False
+    d = "/run/ps5-bootc-sync"
+    os.makedirs(d, exist_ok=True)
+    if subprocess.run(["mount", "LABEL=boot", d]).returncode == 0:
+        return d, True
+    return None, False
+
+
+def same(a, b):
+    if not os.path.exists(b) or os.path.getsize(a) != os.path.getsize(b):
+        return False
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        while True:
+            x, y = fa.read(1 << 20), fb.read(1 << 20)
+            if x != y:
+                return False
+            if not x:
+                return True
+
+
+def put(src, dst, dry):
+    """Copy via a temporary file so a power cut never leaves a half-written kernel."""
+    if same(src, dst):
+        return False
+    log(f"{'would copy' if dry else 'copy'} {src} -> {dst}")
+    if not dry:
+        shutil.copyfile(src, dst + ".new")
+        os.replace(dst + ".new", dst)
+    return True
+
+
+def write(path, text, dry):
+    if os.path.exists(path) and open(path, encoding="utf-8").read() == text:
+        return False
+    log(f"{'would write' if dry else 'write'} {path}")
+    if not dry:
+        with open(path + ".new", "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+        os.replace(path + ".new", path)
+    return True
+
+
+def merge_cmdline(current, old_bls, new_bls):
+    """new BLS options + whatever the user added to the current cmdline.txt"""
+    old = set(old_bls.split())
+    user = [t for t in current.split() if t not in old and t not in new_bls.split()]
+    # root= and ostree= always come from the entry, even if the user typed their own
+    user = [t for t in user if not t.startswith(("root=", "ostree="))]
+    return " ".join(new_bls.split() + user)
+
+
+def sync(boot, esp, dry):
+    entries = read_entries(boot)
+    if not entries:
+        log(f"no boot entries in {boot}/loader/entries, nothing to do")
+        return 0
+
+    state_file = os.path.join(esp, STATE)
+    try:
+        state = json.load(open(state_file))
+    except (OSError, ValueError):
+        state = {}
+
+    default, others = entries[0], entries[1:]
+
+    # rollback targets: ostree/<id>/{vmlinuz,initramfs.img,cmdline.txt}
+    keep = set()
+    for e in others:
+        d = os.path.join(esp, "ostree", entry_id(e))
+        keep.add(entry_id(e))
+        if not dry:
+            os.makedirs(d, exist_ok=True)
+        put(boot_path(boot, e["linux"]), os.path.join(d, "vmlinuz"), dry)
+        put(boot_path(boot, e["initrd"].split()[0]), os.path.join(d, "initramfs.img"), dry)
+        write(os.path.join(d, "cmdline.txt"), e.get("options", "") + "\n", dry)
+    odir = os.path.join(esp, "ostree")
+    for name in os.listdir(odir) if os.path.isdir(odir) else []:
+        if name not in keep:
+            log(f"{'would remove' if dry else 'remove'} {odir}/{name}")
+            if not dry:
+                shutil.rmtree(os.path.join(odir, name))
+
+    # the default: root of the partition, where the loader and the deck's scripts look.
+    # Only replaced when the default changes: ps5-stage-viola-fw appends to initrd.img
+    # on a PS5 Pro, and that must survive later runs.
+    if state.get("default") != entry_id(default) or not os.path.exists(os.path.join(esp, "bzImage")):
+        put(boot_path(boot, default["linux"]), os.path.join(esp, "bzImage"), dry)
+        put(boot_path(boot, default["initrd"].split()[0]), os.path.join(esp, "initrd.img"), dry)
+        stale = os.path.join(esp, "initrd.img.noviola")
+        if os.path.exists(stale) and not dry:
+            os.remove(stale)
+
+    cmd_file = os.path.join(esp, "cmdline.txt")
+    current = open(cmd_file, encoding="utf-8").read().strip() if os.path.exists(cmd_file) else ""
+    cmdline = merge_cmdline(current, state.get("options", ""), default.get("options", ""))
+    write(cmd_file, cmdline + "\n", dry)
+
+    lines = [
+        "This partition is kept up to date by ps5-bootc-sync. Normally you never touch it,",
+        "except to add kernel options to cmdline.txt: those are kept across updates.",
+        "",
+        f"Boots now: {default.get('title', default['file'])}",
+        "",
+    ]
+    for e in others:
+        i = entry_id(e)
+        lines += [
+            f"Previous: {e.get('title', e['file'])}  (ostree/{i}/)",
+            "  To boot it when Linux won't start, from a PC:",
+            "  1. copy cmdline.txt to cmdline.txt.bak",
+            f"  2. create path-override.txt with these two lines:",
+            f"       bzImage=ostree/{i}/vmlinuz",
+            f"       initrd.img=ostree/{i}/initramfs.img",
+            f"  3. replace cmdline.txt with ostree/{i}/cmdline.txt (plus any options of yours)",
+            "  4. once it's running: sudo bootc rollback, delete path-override.txt,",
+            "     restore cmdline.txt.bak, then sudo ps5-bootc-sync",
+            "",
+        ]
+    write(os.path.join(esp, "ROLLBACK.txt"), "\n".join(lines), dry)
+
+    if not dry:
+        write(state_file, json.dumps({"default": entry_id(default),
+                                      "options": default.get("options", "")}, indent=1) + "\n", dry)
+        os.sync()
+    log(f"boot partition points at {entry_id(default)}")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--boot", default="/boot", help="ostree /boot, holds loader/entries")
+    ap.add_argument("--esp", help="the FAT partition the PS5 loader reads (found by itself)")
+    ap.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args()
+
+    if os.path.exists(os.path.join(a.esp or "/boot/efi", "path-override.txt")):
+        log("path-override.txt is present: a manual rollback is in progress, leaving the partition alone")
+        return 0
+
+    esp, mounted = (a.esp, False) if a.esp else mount_esp()
+    if not esp:
+        log("boot partition (FAT, label 'boot') not found")
+        return 1
+    try:
+        return sync(a.boot, esp, a.dry_run)
+    finally:
+        if mounted:
+            subprocess.run(["umount", esp])
+
+
+if __name__ == "__main__":
+    sys.exit(main())

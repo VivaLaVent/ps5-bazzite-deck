@@ -1,0 +1,4 @@
+# PS5 Pro (Viola) internal MediaTek Bluetooth 0e8d:3605 (from QuartConz/ps5-pro-viola-bluetooth)
+# Disable USB runtime autosuspend. On suspend the Salina xHCI (40:00.6) dies
+# ("HC died", endless "Host Controller Error") and only a cold boot recovers.
+ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="0e8d", ATTR{idProduct}=="3605", ATTR{power/autosuspend_delay_ms}="-1", ATTR{power/control}="on"

@@ -1,0 +1,78 @@
+name: Build image
+# Pushes ghcr.io/<owner>/ps5-bazzite-bootc:{stable,<date>} from main, nightly so Bazzite
+# updates come through, and :pr-<n> builds (not pushed) for pull requests.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**"]
+  pull_request:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+env:
+  IMAGE: ps5-bazzite-bootc
+
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kernel RPM from the kernel-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download kernel-latest --pattern 'linux-ps5-*.rpm' --dir kernel
+
+      - name: Metadata
+        id: meta
+        run: |
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "version=$(date -u +%Y%m%d).${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            echo "tags=pr-${{ github.event.number }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tags=stable $(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: ${{ env.IMAGE }}
+          tags: ${{ steps.meta.outputs.tags }}
+          containerfiles: Containerfile
+          build-args: IMAGE_VERSION=${{ steps.meta.outputs.version }}
+          oci: false
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        id: push
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: ghcr.io/${{ steps.meta.outputs.owner }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Post to Discord
+        if: github.event_name != 'pull_request'
+        env:
+          HOOK: ${{ secrets.DISCORD_TESTING_WEBHOOK }}
+          REF: ghcr.io/${{ steps.meta.outputs.owner }}/${{ env.IMAGE }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          [ -n "$HOOK" ] || exit 0
+          jq -n --arg t "Image $VERSION" \
+                --arg d "\`$REF:stable\`\n\`$DIGEST\`\nOn the console: \`sudo bootc upgrade\`, then restart." \
+             '{embeds: [{title: $t, description: $d, color: 3447003}]}' |
+            curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"

@@ -1,0 +1,10 @@
+# bootc-image-builder settings for the flashable .img
+[[customizations.user]]
+# same account as the deck image, so its docs keep working
+name = "ps5"
+password = "ps5"
+groups = ["wheel"]
+
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "20 GiB"

@@ -1,0 +1,74 @@
+#!/usr/bin/python3
+# Warm reboot into Linux: load the kernel from the boot partition with the kexec_file_load
+# system call (no kexec-tools needed), unload it, or execute it. Used by ps5-kexec-prepare.service
+# (started by reboot.target, so cmdline.txt and a freshly updated kernel are always current) and
+# by the /usr/sbin/kexec shim systemd runs at the end of a kexec reboot.
+import ctypes, os, subprocess, sys
+
+SYS_kexec_file_load = 320          # x86_64
+KEXEC_FILE_UNLOAD = 0x1
+LINUX_REBOOT_CMD_KEXEC = 0x45584543
+libc = ctypes.CDLL(None, use_errno=True)
+
+def boot_dir():
+    for d in ("/efi", "/boot/efi"):
+        if os.path.isfile(f"{d}/bzImage") and os.path.isfile(f"{d}/cmdline.txt"):
+            return d, False
+    d = "/run/ps5-boot"
+    os.makedirs(d, exist_ok=True)
+    if subprocess.run(["mount", "-o", "ro", "LABEL=boot", d], capture_output=True).returncode == 0 \
+       and os.path.isfile(f"{d}/bzImage"):
+        return d, True
+    return None, False
+
+def load():
+    if os.path.exists("/run/ps5-reboot-to-ps5"):
+        print("reboot to the PS5 system requested: not loading a kernel")
+        return 0
+    # v1.8.9: on IW620 consoles the Linux-only Bluetooth address and a warm restart don't go together
+    # (the chip came back hung, Bluetooth and Wi-Fi gone; Max). With the address on, restart normally.
+    if not os.path.exists("/etc/ps5-bazzite-deck/bt-address-off") and any(
+            open(f).read().strip() == "1286" for f in __import__("glob").glob("/sys/bus/usb/devices/*/idVendor")):
+        print("IW620 with the Linux-only Bluetooth address on: normal restart instead of a warm one")
+        return 0
+    d, mounted = boot_dir()
+    if not d:
+        print("boot partition not found: normal reboot")
+        return 0
+    try:
+        cmdline = open(f"{d}/cmdline.txt").read().strip().encode() + b"\0"
+        kfd = os.open(f"{d}/bzImage", os.O_RDONLY)
+        ifd = os.open(f"{d}/initrd.img", os.O_RDONLY)
+        r = libc.syscall(SYS_kexec_file_load, ctypes.c_int(kfd), ctypes.c_int(ifd),
+                         ctypes.c_ulong(len(cmdline)), ctypes.c_char_p(cmdline), ctypes.c_ulong(0))
+        if r != 0:
+            e = ctypes.get_errno()
+            print(f"kexec_file_load failed: {os.strerror(e)} (errno {e}); normal reboot")
+            return 0
+        print(f"warm reboot ready: {d}/bzImage + initrd.img, cmdline from {d}/cmdline.txt")
+        try:   # tells ps5-wifi-repair at the next boot that it was a warm one
+            os.makedirs("/var/lib/ps5-bazzite-deck", exist_ok=True)
+            open("/var/lib/ps5-bazzite-deck/warm-boot", "w").close()
+        except OSError:
+            pass
+    finally:
+        if mounted:
+            subprocess.run(["umount", d], capture_output=True)
+    return 0
+
+def unload():
+    libc.syscall(SYS_kexec_file_load, ctypes.c_int(-1), ctypes.c_int(-1), ctypes.c_ulong(0),
+                 ctypes.c_char_p(None), ctypes.c_ulong(KEXEC_FILE_UNLOAD))
+    return 0
+
+def execute():
+    if open("/sys/kernel/kexec_loaded").read().strip() != "1":
+        print("no kernel loaded")
+        return 1
+    libc.sync()
+    libc.reboot(LINUX_REBOOT_CMD_KEXEC)
+    print(f"kexec reboot failed: {os.strerror(ctypes.get_errno())}")
+    return 1
+
+cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+sys.exit({"load": load, "unload": unload, "exec": execute}.get(cmd, lambda: (print("usage: ps5-kexec load|unload|exec"), 2)[1])())

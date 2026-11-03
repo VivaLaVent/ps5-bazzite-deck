@@ -1,0 +1,10 @@
+[Unit]
+Description=PS5: CPU boost and fan target (ps5-perf)
+After=systemd-modules-load.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps5-perf apply
+
+[Install]
+WantedBy=multi-user.target

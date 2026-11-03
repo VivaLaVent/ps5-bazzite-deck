@@ -1,0 +1,11 @@
+#!/bin/bash
+# First boot only: if gamescope hasn't got a display after 60 s, the screen is black.
+# Fall back to Plasma so there is something to work with (from ps5-linux-image).
+for _ in $(seq 1 60); do
+    sleep 1
+    pgrep -x gamescope >/dev/null && exit 0
+done
+logger -t ps5-gamescope-recovery "gamescope didn't start within 60s, switching to plasma"
+runuser -u ps5 -- steamos-session-select plasma 2>/dev/null \
+    || sed -i 's/^Session=.*/Session=plasma/' /etc/sddm.conf.d/autologin.conf
+systemctl restart sddm

@@ -1,0 +1,11 @@
+[Unit]
+Description=Repair Wi-Fi after a warm reboot (IW620: firmware still running)
+After=systemd-modules-load.service systemd-udev-settle.service
+Before=NetworkManager-wait-online.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps5-wifi-repair
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+#!/bin/sh
+# NetworkManager dispatcher: when a Wi-Fi interface comes up, ps5-perf switches its power saving off
+# (one implementation, respects WIFI_POWERSAVE in /etc/ps5-bazzite-deck/perf.conf).
+[ "$2" = "up" ] && [ -d "/sys/class/net/$1/wireless" ] || exit 0
+exec /usr/local/sbin/ps5-perf wifi

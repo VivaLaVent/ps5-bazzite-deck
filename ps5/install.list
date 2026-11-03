@@ -1,0 +1,45 @@
+# Files vendored unchanged from VivaLaVent/ps5-bazzite-deck (files/ and tools/), and where
+# build_files/build.sh installs them in the image: <file> <destination> [mode, default 644]
+#
+# Differences from the deck image, all applied by build.sh rather than by editing these files:
+#   /usr/local/{s,}bin -> /usr/bin   /usr/local is /var/usrlocal on bootc, and /var is never
+#                                    updated after install, so nothing may ship there
+#   units stay in /etc/systemd/system, as on the deck image: bootc merges /etc on every update
+#
+# To refresh: copy the newer files over these, adjust this list if the deck's
+# tools/make-update-bundle.sh FILES list changed.
+99-ps5-iw620.conf                       /etc/NetworkManager/conf.d/99-ps5-iw620.conf
+99-ps5-bt-phantom.rules                 /etc/udev/rules.d/99-ps5-bt-phantom.rules
+50-ps5-pro-bt-power.rules               /etc/udev/rules.d/50-ps5-pro-bt-power.rules
+99-ps5-usb-power.rules                  /etc/udev/rules.d/99-ps5-usb-power.rules
+99-ps5-bt-services.rules                /etc/udev/rules.d/99-ps5-bt-services.rules
+btusb-ps5.conf                          /etc/modprobe.d/btusb-ps5.conf
+ps5-hidp.conf                           /etc/modules-load.d/ps5-hidp.conf
+ps5-stage-firmware-no-default-deps.conf /etc/systemd/system/ps5-stage-firmware.service.d/10-no-default-deps.conf
+bluetooth-ps5-connectable.conf          /etc/systemd/system/bluetooth.service.d/10-ps5-connectable.conf
+90-ps5-wifi-powersave                   /etc/NetworkManager/dispatcher.d/90-ps5-wifi-powersave 755
+ps5-bt-addr                             /usr/bin/ps5-bt-addr 755
+ps5-bt-addr.service                     /etc/systemd/system/ps5-bt-addr.service
+ps5-bt-pro-addr                         /usr/bin/ps5-bt-pro-addr 755
+ps5-bt-pro-addr.service                 /etc/systemd/system/ps5-bt-pro-addr.service
+ps5-bt-connectable.service              /etc/systemd/system/ps5-bt-connectable.service
+ps5-bt-revive                           /usr/bin/ps5-bt-revive 755
+ps5-bt-revive.service                   /etc/systemd/system/ps5-bt-revive.service
+ps5-bt-address                          /usr/bin/ps5-bt-address 755
+ps5-warm-reboot                         /usr/bin/ps5-warm-reboot 755
+ps5-report.sh                           /usr/bin/ps5-report 755
+vrr-report.sh                           /usr/bin/vrr-report 755
+ps5-perf                                /usr/bin/ps5-perf 755
+ps5-perf.service                        /etc/systemd/system/ps5-perf.service
+ps5-stage-viola-fw                      /usr/bin/ps5-stage-viola-fw 755
+ps5-stage-viola-fw.service              /etc/systemd/system/ps5-stage-viola-fw.service
+ps5-wifi-powersave.service              /etc/systemd/system/ps5-wifi-powersave.service
+ps5-wifi-powersave.timer                /etc/systemd/system/ps5-wifi-powersave.timer
+ps5-wifi-repair                         /usr/bin/ps5-wifi-repair 755
+ps5-wifi-repair.service                 /etc/systemd/system/ps5-wifi-repair.service
+ps5-kexec                               /usr/bin/ps5-kexec 755
+ps5-kexec-prepare.service               /etc/systemd/system/ps5-kexec-prepare.service
+ps5-reboot-to-ps5                       /usr/bin/ps5-reboot-to-ps5 755
+ps5-reboot.service                      /etc/systemd/system/ps5-reboot.service
+reboot.target                           /etc/systemd/system/reboot.target
+kexec-shim                              /usr/bin/ps5-kexec-shim 755

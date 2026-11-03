@@ -1,0 +1,187 @@
+#!/bin/bash
+# Gives the IW620 Bluetooth chip a Linux-only address (PR #9 by Dasloh). See docs/dualsense-profiles.md.
+# Runs every time the adapter appears (udev), and makes sure the kernel and bluetoothd use the new
+# address too: otherwise pairings are stored under the old address on some boots and under the new
+# one on others, and controllers have to be paired again.
+set -u
+command -v btmgmt >/dev/null && command -v python3 >/dev/null || { echo "btmgmt or python3 missing"; exit 0; }
+
+for _ in $(seq 30); do
+    [ -e /sys/class/bluetooth/hci0 ] && break
+    sleep 1
+done
+[ -e /sys/class/bluetooth/hci0 ] || { echo "no Bluetooth adapter found"; exit 0; }
+
+usb=$(readlink -f /sys/class/bluetooth/hci0/device/..)
+id="$(cat "$usb/idVendor" 2>/dev/null):$(cat "$usb/idProduct" 2>/dev/null)"
+
+kernel_addr() { btmgmt --index 0 info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }'; }
+
+if [ "$id" = "0e8d:3603" ] && [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
+    echo "MediaTek: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on)"
+    exit 0
+fi
+if [ "$id" = "0e8d:3603" ]; then
+    # MediaTek: the kernel can set this chip's address itself (btmgmt public-addr, powered off),
+    # so the new address is known to kernel and bluetoothd right away. v1.8.9: reuse the address
+    # saved on first run (same reasoning as IW620 below: a freshly derived address isn't guaranteed
+    # stable across cold boots on every unit).
+    SAVED=/etc/ps5-bazzite-deck/bt-address-value
+    cur=$(kernel_addr); first=$((16#${cur%%:*}))
+    new=$(cat "$SAVED" 2>/dev/null || true)
+    if [ -z "$new" ]; then
+        if [ $((first & 2)) -ne 0 ]; then echo "chip already uses the Linux address $cur"; exit 0; fi
+        new=$(printf '%02X' $((first | 2)))${cur#??}
+    elif [ "$cur" = "$new" ]; then
+        echo "chip already uses the saved address $cur"; exit 0
+    fi
+    was_active=0
+    [ "$(systemctl is-active bluetooth.service)" != inactive ] && was_active=1
+    [ "$was_active" = 1 ] && systemctl stop bluetooth.service
+    btmgmt --index 0 power off >/dev/null
+    out=$(btmgmt --index 0 public-addr "$new" 2>&1)
+    btmgmt --index 0 power on >/dev/null
+    for _ in 1 2 3 4 5 6; do kern=$(kernel_addr); [ "$kern" = "$new" ] && break; sleep 0.5; done
+    if [ "$kern" != "$new" ]; then
+        # v1.8.9: btmgmt's public-addr isn't applied on every MT7961 (hsgodd: "Set Public Address complete"
+        # but the old address stayed). Fallback: MediaTek's own vendor command, the one the kernel's
+        # btmtk_set_bdaddr sends (0xFC1A, the address little-endian), then a power cycle so the kernel
+        # reads the new address back, as on the IW620 path.
+        python3 -I - "$new" <<'PY' && { btmgmt --index 0 power off >/dev/null; btmgmt --index 0 power on >/dev/null; }
+import socket, struct, sys
+s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
+s.bind((0,))
+s.setsockopt(socket.SOL_HCI, socket.HCI_FILTER, struct.pack("<IIIHxx", 1 << 4, (1 << 0x0E) | (1 << 0x0F), 0, 0))
+s.settimeout(5)
+def command(opcode, params=b""):
+    s.send(bytes([0x01]) + struct.pack("<HB", opcode, len(params)) + params)
+    while True:
+        pkt = s.recv(260)
+        if pkt[1] == 0x0E and struct.unpack("<H", pkt[4:6])[0] == opcode:
+            return pkt[6]
+        if pkt[1] == 0x0F and struct.unpack("<H", pkt[5:7])[0] == opcode:
+            return pkt[3]
+status = command(0xFC1A, bytes(int(x, 16) for x in reversed(sys.argv[1].split(":"))))
+sys.exit(f"MediaTek vendor command refused (status 0x{status:02x})" if status else 0)
+PY
+        for _ in 1 2 3 4 5 6; do kern=$(kernel_addr); [ "$kern" = "$new" ] && break; sleep 0.5; done
+    fi
+    if [ "$kern" = "$new" ]; then
+        echo "changing Bluetooth address $cur -> $new (MediaTek); kernel uses $kern"
+        mkdir -p /etc/ps5-bazzite-deck; echo "$new" > "$SAVED" 2>/dev/null || true
+    else echo "MediaTek address change not possible ($out); staying on $cur"; fi
+    [ "$was_active" = 1 ] && systemctl start --no-block bluetooth.service
+    exit 0
+fi
+if [ "$id" = "0e8d:3605" ]; then
+    echo "PS5 Pro: the Linux-only Bluetooth address is set by ps5-bt-pro-addr once Bluetooth is up"
+    exit 0
+fi
+if [ "$id" != "1286:2059" ]; then
+    echo "Bluetooth chip $id is not one the Linux-only address works with, nothing to do"
+    exit 0
+fi
+# IW620: on by default from v1.8.9 ("ps5-bt-address off" switches it off). The address change is a vendor
+# command to the Wi-Fi/Bluetooth combo chip; it doesn't survive a warm restart (chip hung), so while it's on,
+# warm restarts become normal ones (ps5-kexec).
+if [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
+    echo "IW620: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on); the controller keeps one pairing"
+    exit 0
+fi
+
+btmgmt --index 0 power on >/dev/null
+
+SAVED=/etc/ps5-bazzite-deck/bt-address-value
+val=$(cat "$SAVED" 2>/dev/null || true)
+chip=$(python3 -I - "$val" <<'PY'
+import socket, struct, sys
+
+def open_hci():
+    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)
+    s.bind((0,))
+    # struct hci_ufilter is 16 bytes with padding. The kernel rejects 14.
+    s.setsockopt(socket.SOL_HCI, socket.HCI_FILTER,
+                 struct.pack("<IIIHxx", 1 << 4, (1 << 0x0E) | (1 << 0x0F), 0, 0))
+    s.settimeout(5)
+    return s
+
+def command(s, opcode, params=b""):
+    s.send(bytes([0x01]) + struct.pack("<HB", opcode, len(params)) + params)
+    while True:
+        pkt = s.recv(260)
+        if pkt[1] == 0x0E and struct.unpack("<H", pkt[4:6])[0] == opcode:
+            return pkt[6], pkt[7:]
+        if pkt[1] == 0x0F and struct.unpack("<H", pkt[5:7])[0] == opcode:
+            return pkt[3], b""
+
+def chip_address(s):
+    status, ret = command(s, 0x1009)  # Read BD_ADDR
+    if status != 0:
+        sys.exit(f"could not read the chip address (status 0x{status:02x})")
+    return ":".join(f"{b:02X}" for b in reversed(ret[:6]))
+
+s = open_hci()
+cur = chip_address(s)
+
+# v1.8.9: use the address saved on first run, not one derived fresh from the chip's power-on
+# default -- that default isn't fixed in hardware on every IW620 and can read differently after
+# a cold boot, which changed our derived address too and broke the controller's stored pairing.
+saved = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None
+if saved:
+    new = saved
+elif int(cur[:2], 16) & 0x02:
+    print(f"chip already uses the Linux address {cur}", file=sys.stderr)
+    print(cur)
+    sys.exit(0)
+else:
+    new = f"{int(cur[:2], 16) | 0x02:02X}" + cur[2:]
+
+if cur == new:
+    print(f"chip already uses the saved address {cur}", file=sys.stderr)
+    print(cur)
+    sys.exit(0)
+print(f"changing Bluetooth address {cur} -> {new}", file=sys.stderr)
+
+raw = bytes(int(x, 16) for x in reversed(new.split(":")))
+status, _ = command(s, 0xFC22, bytes([0xFE, 6]) + raw)  # Marvell: set BD address
+if status != 0:
+    sys.exit(f"chip refused the address change (status 0x{status:02x})")
+
+now = chip_address(s)
+if now != new:
+    sys.exit(f"address change failed, chip still uses {now}")
+print(f"chip address is now {now}", file=sys.stderr)
+print(now)
+PY
+) || exit 0
+sudo_mkdir_saved() { mkdir -p /etc/ps5-bazzite-deck; }
+sudo_mkdir_saved
+echo "$chip" > "$SAVED" 2>/dev/null || true
+
+kern=$(kernel_addr)
+if [ "$kern" = "$chip" ]; then
+    echo "kernel uses $kern too"
+    exit 0
+fi
+if [ "${PS5_BT_NO_REINIT:-0}" = 1 ]; then
+    echo "kernel uses $kern (left as is)"
+    exit 0
+fi
+
+# The kernel (and bluetoothd) still have the old address: re-initialise the adapter so the kernel
+# reads the new one, with bluetoothd stopped so it registers the adapter under the new address.
+echo "kernel still uses $kern, re-initialising the adapter"
+was_active=0
+[ "$(systemctl is-active bluetooth.service)" != inactive ] && was_active=1	# active or still starting
+[ "$was_active" = 1 ] && systemctl stop bluetooth.service
+btmgmt --index 0 power off >/dev/null
+btmgmt --index 0 power on >/dev/null
+kern=$(kernel_addr)
+echo "kernel uses $kern now"
+if [ "$kern" != "$chip" ]; then
+    # the chip lost the address when it was re-initialised: set it again, without re-initialising
+    echo "the chip went back to $kern, setting the Linux address again"
+    PS5_BT_NO_REINIT=1 "$0"
+fi
+[ "$was_active" = 1 ] && systemctl start --no-block bluetooth.service
+exit 0

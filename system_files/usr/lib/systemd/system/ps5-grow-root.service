@@ -1,0 +1,11 @@
+[Unit]
+Description=Grow the root filesystem to fill the drive
+ConditionFirstBoot=yes
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ps5-grow-root
+
+[Install]
+WantedBy=multi-user.target

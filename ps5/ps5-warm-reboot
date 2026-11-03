@@ -1,0 +1,10 @@
+#!/bin/sh
+# Warm reboot into Linux (restart without the PS5 system and the loader): off by default.
+#   ps5-warm-reboot on | off | status
+F=/etc/ps5-bazzite-deck/warm-reboot
+case "$1" in
+    on)  sudo mkdir -p /etc/ps5-bazzite-deck && sudo touch "$F" && echo "warm reboot on: restarts go straight back into Linux"
+         grep -qs 1286 /sys/bus/usb/devices/*/idVendor && echo "note: this console has the IW620 Wi-Fi/Bluetooth chip. Wi-Fi is repaired automatically after a warm restart; if Bluetooth is ever missing after one, power off and run the loader." ;;
+    off) sudo rm -f "$F" && echo "warm reboot off: restarts go through the PS5 system" ;;
+    *)   [ -e "$F" ] && echo "warm reboot: on" || echo "warm reboot: off (ps5-warm-reboot on to enable)" ;;
+esac
