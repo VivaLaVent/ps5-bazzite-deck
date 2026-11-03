@@ -35,6 +35,8 @@ HEADER_HASHES=$(find "$WORK/loader" -path '*/shellcode_*/*.h' | sort | xargs sha
 make -C "$WORK/loader" clean 2>/dev/null || true
 
 echo "--- patches 0001-0006"
+git -C "$WORK/loader" config user.email "ci@ps5-bazzite-deck"
+git -C "$WORK/loader" config user.name "PS5 Bazzite Deck CI"
 for n in 0001 0002 0003 0004 0005 0006; do
   p=$(ls "$SRC/loader/patches/${n}"-*.patch)
   git -C "$WORK/loader" am --no-gpg-sign "$p"
