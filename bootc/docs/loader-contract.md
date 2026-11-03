@@ -1,6 +1,6 @@
 # What the loader reads from the USB drive
 
-The [PS5 Linux loader](https://github.com/VivaLaVent/ps5-linux-loader) doesn't know about bootc. It looks for
+The [PS5 Linux loader](https://github.com/ps5-linux/ps5-linux-loader) doesn't know about bootc. It looks for
 fixed file names on the USB drive's FAT partition (the EFI partition of this image, labelled `boot`), in
 `/mnt/usb0/` to `/mnt/usb3/` and their `PS5/Linux/` subfolders. Everything below is written by
 `ps5-bootc-sync`, at every start and at every shutdown (after ostree has finished a staged update).

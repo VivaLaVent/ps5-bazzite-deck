@@ -2,6 +2,7 @@
 *.img
 *.img.xz
 *.part-*
+__pycache__/
+loader/output/
 output/
 work/
-__pycache__/

@@ -15,7 +15,7 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 
 ## Install
 
-You need a PS5 that runs the [PS5 Linux loader](https://github.com/VivaLaVent/ps5-linux-loader) (firmware 3.00 to 13.60;
+You need a PS5 that runs the [PS5 Linux loader](https://github.com/ps5-linux/ps5-linux-loader) (firmware 3.00 to 13.60;
 each release says which loader it was tested with) and a USB drive of at least 32 GB (an SSD is much faster). Use a different drive from your PS5 Bazzite Deck one, so you can always swap back.
 
 1. Download all `ps5-bazzite-deck-bootc-*.img.7z` parts of the newest X.Y release (v2.2, v2.3, …) from the

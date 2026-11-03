@@ -22,12 +22,6 @@ on your console, and how to fix problems.
 **Latest**; releases marked **Pre-release** are test builds, even when their number is higher. What changed in which
 version is in the [changelog](CHANGELOG.md).
 
-## New: the bootc version (experimental)
-
-The same system built the way Bazzite itself is built: it updates from Steam's update button and a bad update is
-undone with one command. New installs only, from the `ps5-bazzite-deck-bootc` image on X.Y releases:
-[how to install it](bootc/README.md). Existing installs keep getting kernel updates as before.
-
 ## Join the PS5 Linux community on Discord
 
 **[discord.gg/ps5linux](https://discord.gg/ps5linux)**: help in `#bazzite-problems`, test builds, and everything

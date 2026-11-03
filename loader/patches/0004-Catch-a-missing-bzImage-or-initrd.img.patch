@@ -1,0 +1,55 @@
+From f281b32f5e3c048f7faf08f7fa712a5a821aeaa6 Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 17:15:08 +0100
+Subject: [PATCH 4/8] Catch a missing bzImage or initrd.img
+
+The sizes were size_t, so the < 0 checks never fired, and the initrd check tested bzimage_size. A missing file now aborts with its own message instead of failing later in mmap or read.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/loader.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/source/loader.c b/source/loader.c
+index d6a45ac..3ffee8b 100644
+--- a/source/loader.c
++++ b/source/loader.c
+@@ -132,7 +132,7 @@ static int find_bls_entry(struct bls_entry *entry, const char **root) {
+ }
+ 
+ static int find_bls_file(const char *root, const char *file, char *path,
+-                         size_t path_size, size_t *size) {
++                         size_t path_size, long *size) {
+   struct stat st;
+ 
+   while (*file == '/')
+@@ -165,7 +165,7 @@ int fetch_linux(struct linux_info *info) {
+     notify("Booting '%s' from %s\n", entry.title[0] ? entry.title : entry.id,
+            bls_root);
+ 
+-  size_t bzimage_size;
++  long bzimage_size;
+   if (!bls)
+     bzimage_size = find_and_get_size_of_file("bzImage", bzimage_path);
+   else if (find_bls_file(bls_root, entry.kernel, bzimage_path,
+@@ -191,14 +191,14 @@ int fetch_linux(struct linux_info *info) {
+     return -1;
+   }
+ 
+-  size_t initrd_size;
++  long initrd_size;
+   if (!bls)
+     initrd_size = find_and_get_size_of_file("initrd.img", initrd_path);
+   else if (find_bls_file(bls_root, entry.initrd, initrd_path,
+                          sizeof(initrd_path), &initrd_size) < 0)
+     return -1;
+-  if (bzimage_size < 0) {
+-    notify("File bzImage not found at default paths - Aborting\n");
++  if (initrd_size < 0) {
++    notify("File initrd.img not found at default paths - Aborting\n");
+     return -1;
+   }
+ 
+-- 
+2.43.0
+

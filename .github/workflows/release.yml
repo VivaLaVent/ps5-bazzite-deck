@@ -1,0 +1,157 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  loader:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Dependencies
+        run: sudo apt-get install -y clang-18 lld-18 build-essential binutils xxd
+      - name: Build loader
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash loader/build.sh "${{ github.event.release.tag_name }}"
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          gh release upload "$TAG" \
+            loader/output/ps5-linux-loader-${TAG}.elf \
+            loader/output/ps5-linux-loader-${TAG}.elf.sha256
+
+  bootc-image:
+    runs-on: ubuntu-24.04
+    needs: loader
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push bootc image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: bootc
+          push: true
+          tags: |
+            ghcr.io/vivalavent/ps5-bazzite-bootc:${{ github.event.release.tag_name }}
+            ${{ !github.event.release.prerelease && 'ghcr.io/vivalavent/ps5-bazzite-bootc:stable' || '' }}
+      - name: Sign image
+        if: env.SIGNING_SECRET != ''
+        env:
+          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ''
+        run: cosign sign --yes --key env://COSIGN_PRIVATE_KEY ghcr.io/vivalavent/ps5-bazzite-bootc@${{ steps.build.outputs.digest }}
+      - name: Append image digest to release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          DIGEST=${{ steps.build.outputs.digest }}
+          LOADER_COMMIT=$(. loader/pins.env && echo "$LOADER_COMMIT")
+          PATCHES_SHA=$(cat loader/patches/0001-*.patch loader/patches/0002-*.patch loader/patches/0003-*.patch loader/patches/0004-*.patch loader/patches/0005-*.patch loader/patches/0006-*.patch | sha256sum | cut -c1-12)
+          ELF_SHA=$(cat loader/output/ps5-linux-loader-${TAG}.elf.sha256)
+          NOTE=$'\n\n---\n**Artifacts**\n'
+          NOTE+="bootc image: \`ghcr.io/vivalavent/ps5-bazzite-bootc@${DIGEST}\`\n"
+          NOTE+="loader: \`ps5-linux/ps5-linux-loader@${LOADER_COMMIT}+bls-${PATCHES_SHA}\` sha256 \`${ELF_SHA}\`"
+          gh release edit "$TAG" --notes "$(gh release view "$TAG" --json body -q .body)${NOTE}"
+
+  bootc-disk:
+    runs-on: ubuntu-24.04
+    needs: bootc-image
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build disk image
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          . bootc/pins.env
+          sudo podman run --rm --privileged \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            -v $PWD/bootc/bib:/config \
+            -v $PWD/output:/output \
+            "${BIB_IMAGE}" \
+            --type raw \
+            ghcr.io/vivalavent/ps5-bazzite-bootc:${TAG}
+          sudo bash bootc/tools/finish-disk-image.sh output/image/disk.raw
+          sudo mv output/image/disk.raw ps5-bazzite-deck-bootc-${TAG}.img
+          7z a -v2g ps5-bazzite-deck-bootc-${TAG}.img.7z ps5-bazzite-deck-bootc-${TAG}.img
+          sha256sum ps5-bazzite-deck-bootc-${TAG}.img.7z.* > ps5-bazzite-deck-bootc-${TAG}.sha256
+          gh release upload "$TAG" \
+            ps5-bazzite-deck-bootc-${TAG}.img.7z.* \
+            ps5-bazzite-deck-bootc-${TAG}.sha256
+
+  notify-prerelease:
+    runs-on: ubuntu-24.04
+    needs: [loader, bootc-disk]
+    if: github.event.release.prerelease
+    steps:
+      - name: Discord pre-release notification
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_PRERELEASE_WEBHOOK }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
+          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
+            -d "{\"content\":\"**New pre-release: ${TAG}**\n${URL}\"}"
+      - name: Discord bootc-testing notification
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
+          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
+            -d "{\"content\":\"**New bootc test build: ${TAG}**\nBootc disk image and loader attached.\n${URL}\"}"
+
+  notify-stable:
+    runs-on: ubuntu-24.04
+    needs: [loader, bootc-disk]
+    if: "!github.event.release.prerelease"
+    steps:
+      - name: Discord stable notification
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
+          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
+            -d "{\"content\":\"**New release: ${TAG}**\n${URL}\"}"
+      - name: Discord bootc-testing notification
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
+        run: |
+          TAG=${{ github.event.release.tag_name }}
+          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
+          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
+            -d "{\"content\":\"**New stable release: ${TAG}** — includes fresh bootc image \`:stable\` and disk image\n${URL}\"}"
