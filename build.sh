@@ -98,6 +98,7 @@ git -C work/linux73 apply "$SRC/patches/ps5-pro-upstream66.patch"          # PS5
 git -C work/linux73 apply "$SRC/patches/ps5-vrr-hdmi-range.patch"         # HDMI VRR with an open-ended VRRmax, and the HF-SCDB
 git -C work/linux73 apply "$SRC/patches/ps5-pro-gpu-telemetry.patch"      # PS5 Pro: GPU load and metrics with the Viola firmware (after PR #29)
 git -C work/linux73 apply "$SRC/patches/ps5-cpufreq-boost.patch"           # CPU boost off really off, cpufreq stats (rmux b465697)
+git -C work/linux73 apply "$SRC/patches/ps5-icc-device-power-debugfs.patch"   # test: ICC device power in debugfs (issue #36)
 cp work/ps5-linux-patches/.config work/linux73/.config
 cp -r work/ps5-linux-patches work/linux73/ps5-linux-patches
 grep -E '^CONFIG_LSM=|^CONFIG_DEBUG_INFO_BTF=|^CONFIG_MT7921E=|^CONFIG_MODULE_ALLOW_BTF_MISMATCH=' work/linux73/.config

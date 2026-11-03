@@ -1,6 +1,5 @@
 #!/bin/bash
-# vrr-report: one file per VRR test run, so results are comparable. Run it right after a test,
-# in the same boot (the kernel log is per boot). Read-only. Saves ~/vrr-report-<date>.txt.
+# Read-only, one file per VRR test; run it in the same boot as the test (the kernel log is per boot).
 #   bash <(curl -fsSL https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/vrr-report.sh)
 OUT=~/vrr-report-$(date +%Y%m%d-%H%M).txt
 sudo -v || true

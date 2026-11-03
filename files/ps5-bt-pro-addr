@@ -1,8 +1,6 @@
 #!/bin/bash
-# Give the PS5 Pro 0e8d:3605 adapter a volatile Linux-only public address.
-# The Pro needs Bluetooth fully started before its address can be changed safely.
-# The console's own Bluetooth adapter (IW620, Slim MediaTek, Pro MediaTek). A USB dongle can take
-# hci0, so look the adapter up by its USB ID instead of assuming hci0.
+# PS5 Pro: volatile Linux-only address; Bluetooth must be fully up before it can be changed safely.
+# A USB dongle can take hci0: find the console's adapter by USB ID.
 ps5_hci() {
     for h in /sys/class/bluetooth/hci*; do
         [ -e "$h" ] || continue

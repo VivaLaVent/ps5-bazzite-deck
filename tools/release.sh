@@ -1,14 +1,9 @@
 #!/bin/bash
-# Build, test and publish a release in one go:
-#   bash tools/release.sh vX.Y "release title"                         stable 1.X: image + update bundle
-#   PRERELEASE=1 BUNDLE_ONLY=1 bash tools/release.sh vX.Y.Z "title"  pre-release 1.X.Y: update bundle only
-#   NO_DEPLOY=1 ...: skip the test install on the PS5 and the publish question
-#   FRESH=1 ...: a from-scratch build first (build.sh: fresh clone of builder, kernel and patches, every
-#     patch applied in order), instead of reusing ~/ps5-build-7.3; the previous build dir is moved aside
-# (BUNDLE_ONLY still builds the image, the bundle's initrd comes from it, but skips the
-# 7-Zip volumes and their upload.) Uses the kernel tree in ~/ps5-build-7.3/work/linux73 as it is (apply any delta first),
-# rebuilds the image and the update bundle, installs the bundle on the PS5 ($PS5), and
-# only publishes after you confirm that the PS5 works.
+# Build, test and publish a release:
+#   bash tools/release.sh vX.Y "title"                                stable: image + update bundle
+#   PRERELEASE=1 BUNDLE_ONLY=1 bash tools/release.sh vX.Y.Z "title"  pre-release: bundle only
+#   NO_DEPLOY=1: no test install or publish question · FRESH=1: from-scratch build.sh first
+# Uses ~/ps5-build-7.3/work/linux73 as it is; publishes only after you confirm the PS5 works.
 set -euo pipefail
 V=${1:?usage: release.sh vX.Y.Z "title"}
 TITLE=${2:?usage: release.sh vX.Y.Z "title"}
@@ -30,7 +25,7 @@ if [ -n "${FRESH:-}" ]; then
 else
 echo "==> build image + update bundle ($V)"
 cd "$B"
-# old kernel packages aside (root-owned: sudo), or the builder reuses them instead of building
+# root-owned; the builder would reuse them instead of building
 sudo mkdir -p linux-bin-prev && (sudo mv linux-bin/*.rpm linux-bin-prev/ 2>/dev/null || true)
 [ "$(ls linux-bin/*.rpm 2>/dev/null | wc -l)" = 0 ] || { echo "STOP: old kernel packages still in linux-bin"; exit 1; }
 sudo rm -rf work/chroot

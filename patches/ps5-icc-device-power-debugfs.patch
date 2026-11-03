@@ -1,0 +1,96 @@
+PS5 ICC: debugfs interface for the system controller's device power service (test)
+
+/sys/kernel/debug/ps5_icc/device_power: reading lists the power state of devices 0-31 on
+the ICC device service (read-only queries; the Blu-ray driver uses this service for device 1),
+writing "<device> <state>" switches one device. For finding the wireless module's device
+number, so the Slim's MediaTek Bluetooth can be power-cycled after a warm restart (issue #36).
+---
+
+--- a/drivers/ps5/spcie.c
++++ b/drivers/ps5/spcie.c
+@@ -12,6 +12,8 @@
+ #include <linux/kfifo.h>
+ #include <linux/pm_wakeup.h>
+ #include <linux/suspend.h>
++#include <linux/debugfs.h>
++#include <linux/seq_file.h>
+ 
+ #define PCI_DEVICE_ID_SPCIE	0x9107
+ #define SPCIE_SUBFUNC_ICC	12
+@@ -455,6 +457,76 @@
+ }
+ EXPORT_SYMBOL(icc_device_power_get);
+ 
++#ifdef CONFIG_DEBUG_FS
++/*
++ * debugfs: /sys/kernel/debug/ps5_icc/device_power
++ * Reading asks the system controller for the power state of devices 0-31 on the ICC device
++ * service (the service the Blu-ray driver uses for device 1); it only reads. Writing
++ * "<device> <state>" switches one device. For finding the wireless module's device number;
++ * no device numbers other than the Blu-ray drive's are known.
++ */
++static int icc_devpow_show(struct seq_file *m, void *v)
++{
++	u8 dev, state;
++	int ret;
++
++	if (!icc_dev)
++		return -ENODEV;
++	for (dev = 0; dev < 32; dev++) {
++		state = 0xff;
++		ret = icc_device_power_get(dev, &state);
++		if (ret)
++			seq_printf(m, "%2u: error %d\n", dev, ret);
++		else
++			seq_printf(m, "%2u: %u\n", dev, state);
++	}
++	return 0;
++}
++
++static ssize_t icc_devpow_write(struct file *file, const char __user *ubuf,
++				size_t len, loff_t *ppos)
++{
++	char buf[16] = {};
++	unsigned int dev, state;
++	int ret;
++
++	if (!icc_dev)
++		return -ENODEV;
++	if (len >= sizeof(buf))
++		return -EINVAL;
++	if (copy_from_user(buf, ubuf, len))
++		return -EFAULT;
++	if (sscanf(buf, "%u %u", &dev, &state) != 2 || dev > 31 || state > 255)
++		return -EINVAL;
++	ret = icc_device_power_control(dev, state);
++	pr_info("ps5 icc: device %u power %u: %d\n", dev, state, ret);
++	return ret ? ret : len;
++}
++
++static int icc_devpow_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, icc_devpow_show, NULL);
++}
++
++static const struct file_operations icc_devpow_fops = {
++	.owner		= THIS_MODULE,
++	.open		= icc_devpow_open,
++	.read		= seq_read,
++	.llseek		= seq_lseek,
++	.release	= single_release,
++	.write		= icc_devpow_write,
++};
++
++static int __init icc_devpow_debugfs_init(void)
++{
++	struct dentry *d = debugfs_create_dir("ps5_icc", NULL);
++
++	debugfs_create_file("device_power", 0600, d, NULL, &icc_devpow_fops);
++	return 0;
++}
++late_initcall(icc_devpow_debugfs_init);
++#endif
++
+ static int __icc_indicator_set_led(const u8 setting[], size_t setting_size)
+ {
+ 	u8 buf[ICC_MSG_MAX_SIZE] = {};

@@ -1,10 +1,6 @@
 #!/bin/bash
-# IW620 consoles: after a warm reboot the chip's firmware is still running, the Wi-Fi driver
-# (moal) skips the download and fails ("WLAN FW already running" -> "Firmware Init Failed").
-# Unloading moal, a function-level reset of the Wi-Fi PCI function and loading moal again
-# downloads fresh firmware and brings Wi-Fi back (tested v1.4.0). Bluetooth on the same chip
-# doesn't come back that way: it drops off USB and needs a cold start (power off, loader).
-# Runs only after a warm reboot (flag set by ps5-kexec) and only if Wi-Fi actually failed.
+# IW620 after a warm reboot: moal skips the firmware download and fails ("WLAN FW already running");
+# reload it around a function-level reset. Bluetooth on the same chip still needs a cold start.
 FLAG=/var/lib/ps5-bazzite-deck/warm-boot
 [ -e "$FLAG" ] || exit 0
 rm -f "$FLAG"

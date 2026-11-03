@@ -1,17 +1,12 @@
 #!/bin/bash
-# PS5 Pro: put the Viola GPU firmware into the initrd, without rebuilding it on the console.
-# The loader dumps the 8 files to the boot partition (lib/firmware/amdgpu/viola_*.bin); amdgpu loads
-# from the initramfs, so they have to be in it. A small cpio archive with the files is appended to
-# initrd.img (the kernel unpacks concatenated archives); the original is kept as initrd.img.noviola.
-# Runs at every boot: does nothing without all 8 files (any console other than a Pro), or when the
-# current initrd already has them; after an update replaced initrd.img, it appends them again.
-# amdgpu uses the firmware from the next boot on (start Linux with the loader again).
+# PS5 Pro: amdgpu loads the Viola firmware from the initramfs, so the loader's 8 dumped files are appended
+# to initrd.img as a cpio (original kept as initrd.img.noviola). Used from the next start.
 set -eu
 E=; for d in /boot/efi /efi; do [ -f "$d/initrd.img" ] && { E=$d; break; }; done
 [ -n "$E" ] || exit 0
 SRC=$E/lib/firmware/amdgpu
 FILES="viola_ce viola_me viola_mec viola_mec2 viola_pfp viola_rlc viola_sdma viola_sdma1"
-# Only on a PS5 Pro (GPU 1002:13da or 13dc); say so when the loader didn't dump the firmware.
+# Pro only (1002:13da/13dc); say so when the loader didn't dump the firmware.
 grep -qsiE '^0x13d[ac]$' /sys/bus/pci/devices/0000:20:00.0/device || exit 0
 missing=; for f in $FILES; do [ -s "$SRC/$f.bin" ] || missing="$missing $f.bin"; done
 if [ -n "$missing" ]; then

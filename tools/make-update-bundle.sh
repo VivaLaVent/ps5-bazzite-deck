@@ -1,7 +1,5 @@
 #!/bin/bash
-# Builds the in-place update bundle from a finished image (run on the build PC):
-#   bash tools/make-update-bundle.sh v1.0.6
-# Output: ~/ps5-build-7.3/output/ps5-bazzite-deck-<version>-update.tar.xz (+ .sha256)
+# Update bundle from a finished image:   bash tools/make-update-bundle.sh vX.Y.Z
 set -euo pipefail
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 REL=${1:?usage: make-update-bundle.sh v1.0.6}

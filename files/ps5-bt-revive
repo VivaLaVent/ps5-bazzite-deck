@@ -1,12 +1,9 @@
 #!/bin/bash
-# The IW620's Bluetooth side can hang after a warm reboot ("hci0: command ... tx timeout") while
-# Wi-Fi keeps working. If the adapter isn't up and powered ~30 s after boot, reload btusb once:
-# that brings it back (and the address / connectable services run again when hci0 re-appears).
+# IW620: Bluetooth can hang after a warm reboot while Wi-Fi works; reload btusb once if it's down after ~30 s.
 set -u
 # Only for the IW620 (original PS5); elsewhere it would reload btusb under USB dongles too.
 grep -qs 1286 /sys/bus/usb/devices/*/idVendor || exit 0
-# Hung = no adapter at all, or not powered while the kernel logged command timeouts for it.
-# (Not powered without timeouts is a user who switched Bluetooth off: leave that alone.)
+# Not powered without timeouts means the user switched Bluetooth off.
 healthy() {
     H=$(for h in /sys/class/bluetooth/hci*; do u=$(readlink -f $h/device/..); [ "$(cat $u/idVendor 2>/dev/null)" = 1286 ] && basename $h && break; done)
     [ -n "$H" ] || return 1

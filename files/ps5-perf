@@ -1,18 +1,12 @@
 #!/bin/sh
-# CPU boost, fan target and Wi-Fi power saving, applied at boot (v1.5; request: moonman7299, values
-# after the ps5-hwcon-plugin by NotHavocc). Settings in /etc/ps5-bazzite-deck/perf.conf:
-#   CPU_BOOST=1        allow the CPU's boost clocks (up to 3.5 GHz under load; the governor still idles down)
-#   FAN_TARGET=        fan target in °C (40-90; lower = fan earlier and louder); empty = the console's own (default)
-#   WIFI_POWERSAVE=0   keep Wi-Fi power saving off (Steam's developer toggle turns it back on; 1 = leave it alone)
-#   ps5-perf status | on | off | apply | wifi   (off = boost as the kernel set it, the console's own fan target)
+# Settings in /etc/ps5-bazzite-deck/perf.conf: CPU_BOOST=1, FAN_TARGET= (°C; empty = the console's own),
+# WIFI_POWERSAVE=0.   ps5-perf status | on | off | apply | wifi
 CONF=/etc/ps5-bazzite-deck/perf.conf
 FAN=/sys/bus/platform/devices/ps5-fan/target_temp
 ORIG=/var/lib/ps5-bazzite-deck/fan-target.orig
 [ -f "$CONF" ] && . "$CONF"
 CPU_BOOST=${CPU_BOOST:-1}; FAN_TARGET=${FAN_TARGET:-}; ENABLED=${ENABLED:-1}; WIFI_POWERSAVE=${WIFI_POWERSAVE:-0}
-# Wi-Fi power saving off on every wireless interface (wlan*, wlp*, the IW620's mlan*): up to ~700
-# instead of ~100 Mbit/s. Called at boot, by the NetworkManager dispatcher when Wi-Fi comes up, and
-# by a timer, because Steam's developer toggle switches it back on. Only acts when something is on.
+# Also run by the NetworkManager dispatcher and a timer: Steam's developer toggle turns power saving back on.
 wifi_off() {
     [ "$WIFI_POWERSAVE" = 0 ] || return 0
     for d in /sys/class/net/*; do

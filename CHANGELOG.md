@@ -2,9 +2,10 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.3] – 2026-11-03
+## [v2.1.3] – 2026-11-<DD>
 > v2.1.2's image with the changed Bluetooth scripts installed into it, checked file by file. No kernel change.
 - **Fix: the Linux-only Bluetooth address wasn't applied with a USB Bluetooth dongle plugged in** (xlxdlx): the scripts assumed the console's own adapter is `hci0`, but a dongle can take that number, so the address went to (or was refused by) the dongle. The console's adapter is now found by its USB ID; the connectable setting goes to every adapter
+- Scripts and services: comments trimmed to the reasons behind the code; no change in behaviour
 
 ## [v2.1.2] – 2026-11-03
 > v2.1.1's image with the changed scripts installed into it, checked file by file. No kernel change.

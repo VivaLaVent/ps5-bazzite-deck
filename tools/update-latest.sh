@@ -1,8 +1,6 @@
 #!/bin/bash
-# In-place update of a PS5 Bazzite Deck install (v1.0.3 or newer) to the latest release,
-# or to a given version or test build. Run on the PS5 (terminal or SSH):
-#   bash <(curl -fsSL https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/update-latest.sh)
-#   bash <(curl -fsSL https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/update-latest.sh) v1.2.0
+# In-place update to the latest release, or to a given version. On the PS5:
+#   bash <(curl -fsSL https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/update-latest.sh) [vX.Y.Z]
 set -euo pipefail
 REPO=VivaLaVent/ps5-bazzite-deck
 V=${1:-}

@@ -1,6 +1,5 @@
 #!/bin/bash
-# ps5-report: one hardware + health report for bug reports and the tester list.
-# Read-only. Works on any ps5-bazzite-deck version. Saves ~/ps5-report-<date>.txt.
+# Read-only report for bug reports; saves ~/ps5-report-<date>.txt.
 #   bash <(curl -fsSL https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/ps5-report.sh)
 OUT=~/ps5-report-$(date +%Y%m%d-%H%M).txt
 sudo -v || true

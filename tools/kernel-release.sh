@@ -1,13 +1,8 @@
 #!/bin/bash
-# Kernel-only stable release in one go, when only the built-in kernel (bzImage) changes:
+# Kernel-only release: apply the named patches, build, test on the PS5, publish.
 #   bash tools/kernel-release.sh vNEW vPREV patch-name...
-# Applies the named patches to the kernel tree, builds, installs on the PS5, asks, then takes the
-# vPREV image and update bundle from ~/ps5-build-7.3/output, swaps in the new kernel and version
-# (bundle's inner SHA256SUMS regenerated and checked), and publishes vNEW as the latest release.
-#   TITLE="vNEW – ..." sets the release title (default: the version); list it in tools/release-titles.tsv too
-#   PROMOTE=1 vNEW vPREV: vNEW is already out as a quick-kernel pre-release built from this kernel tree; skip
-#     the build and questions, swap that kernel into the vPREV image and bundle, add them to vNEW, make it latest
-#   PRERELEASE=1 ...: publish vNEW as a pre-release with only the quick kernel package (no image or bundle)
+#   PRERELEASE=1: quick package only · PROMOTE=1: swap a published quick kernel into vPREV's image and bundle
+#   TITLE="..." (keep tools/release-titles.tsv in sync)
 set -euo pipefail
 V=${1:?vNEW}; PREV=${2:?vPREV}; shift 2
 B=~/ps5-build-7.3; O=$B/output; K=$B/work/linux73; SRC=~/ps5-bazzite-deck; P=$SRC/patches

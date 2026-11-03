@@ -1,8 +1,5 @@
 #!/usr/bin/python3
-# Warm reboot into Linux: load the kernel from the boot partition with the kexec_file_load
-# system call (no kexec-tools needed), unload it, or execute it. Used by ps5-kexec-prepare.service
-# (started by reboot.target, so cmdline.txt and a freshly updated kernel are always current) and
-# by the /usr/sbin/kexec shim systemd runs at the end of a kexec reboot.
+# Warm reboot: load (kexec_file_load, no kexec-tools needed), unload or execute the boot partition's kernel.
 import ctypes, os, subprocess, sys
 
 SYS_kexec_file_load = 320          # x86_64
@@ -25,8 +22,7 @@ def load():
     if os.path.exists("/run/ps5-reboot-to-ps5"):
         print("reboot to the PS5 system requested: not loading a kernel")
         return 0
-    # v1.8.9: on IW620 consoles the Linux-only Bluetooth address and a warm restart don't go together
-    # (the chip came back hung, Bluetooth and Wi-Fi gone; Max). With the address on, restart normally.
+    # IW620: the Linux-only address doesn't survive a warm restart (the chip hangs), so restart normally.
     if not os.path.exists("/etc/ps5-bazzite-deck/bt-address-off") and any(
             open(f).read().strip() == "1286" for f in __import__("glob").glob("/sys/bus/usb/devices/*/idVendor")):
         print("IW620 with the Linux-only Bluetooth address on: normal restart instead of a warm one")
