@@ -16,7 +16,7 @@ rm -rf /usr/lib/modules/*
 # /usr/local links to /var/usrlocal, which doesn't exist until install.
 # --noscripts: the RPM's %post builds an initrd and copies it to /boot/efi.
 mkdir -p /var/usrlocal/bin /var/usrlocal/sbin
-rpm -i --nodeps --noscripts --replacefiles "$CTX"/kernel/linux-ps5-*.rpm
+rpm -i --nodeps --noscripts --nosignature --replacefiles "$CTX"/kernel/linux-ps5-*.rpm
 KVER=$(ls /usr/lib/modules)
 [ "$(echo "$KVER" | wc -l)" = 1 ] || { echo "expected one kernel, got: $KVER"; exit 1; }
 
