@@ -73,7 +73,9 @@ def render(tag, tmp):
         versions = "## Versions\n" + "\n".join(l for l in v if l.startswith("|")) + "\n"
     issues = [l[2:] for l in section(per, "Known issues").splitlines() if l.startswith("- ")]
     vrr = section(per, "VRR test")
-    extra = "".join(f"## {name}\n{body}\n" for name in ("What to test", "Testing", "Sharing logs")
+    extra = "".join(f"## {name}\n{body}\n" for name in
+                    ("What to test", "Testing", "Sharing logs",
+                     "Already running", "New installs", "Trying the bootc image")
                     if (body := section(per, name)))
     parts = ["## What's new\n" + section(per, "What's new") + "\n",
              ("## VRR test\n" + vrr + "\n") if vrr else "", extra, upd + "\n",
