@@ -27,9 +27,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$ACTION" = "published" ] && [ "$IS_PRERELEASE" = "true" ]; then
-            HOOK="$PRERELEASE_HOOK"; LABEL="🧪 New prerelease"; COLOR=15105570
+            HOOK="$PRERELEASE_HOOK"; LABEL="New prerelease"; COLOR=15105570
           elif [ "$ACTION" = "released" ]; then
-            HOOK="$RELEASES_HOOK";   LABEL="🚀 New release";    COLOR=3066993
+            HOOK="$RELEASES_HOOK";   LABEL="New release";    COLOR=3066993
           else
             echo "full release on 'published': posted on 'released' instead"; exit 0
           fi

@@ -1,0 +1,10 @@
+[Unit]
+Description=PS5 Pro defaults: VRAM and GPU temperature limit
+After=local-fs.target boot-efi.mount
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps5-console-defaults
+
+[Install]
+WantedBy=multi-user.target

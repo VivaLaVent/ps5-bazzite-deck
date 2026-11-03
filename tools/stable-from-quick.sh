@@ -4,7 +4,7 @@
 #   QUICK_FILES="..." QUICK_REMOVE="..." BASE_IMG=... UNPRERELEASE="..." bash tools/stable-from-quick.sh vNEW vPREV
 set -euo pipefail
 V=${1:?vNEW}; PREV=${2:?vPREV}
-B=~/ps5-build-7.3; O=$B/output; K=$B/work/linux73; SRC=~/ps5-bazzite-deck; R=VivaLaVent/ps5-bazzite-deck
+B=~/ps5-build-7.3; O=$B/output; SRC=~/ps5-bazzite-deck; R=VivaLaVent/ps5-bazzite-deck
 IMG0=${BASE_IMG:-$O/ps5-bazzite-deck.img}; IMG=$O/ps5-bazzite-deck-$V.img; Q=$O/ps5-quick-$V; N=ps5-bazzite-deck-$V-update
 MNT=/mnt/stable-$V
 step() { echo "== $*"; }
@@ -60,7 +60,7 @@ MD=$MNT/usr/lib/modules/$KV/kernel
 same "$MNT/boot/efi/bzImage" "$Q/bzImage"
 same "$MD/drivers/gpu/drm/amd/amdgpu/amdgpu.ko.zst" "$Q/amdgpu.ko.zst"
 same "$MD/drivers/bluetooth/btusb.ko.zst" "$Q/btusb.ko.zst"
-[ -f "$Q/files/MAP" ] && while read -r f dest mode; do same "$MNT$dest" "$Q/files/$f"; done < "$Q/files/MAP"
+[ -f "$Q/files/MAP" ] && while read -r f dest _; do same "$MNT$dest" "$Q/files/$f"; done < "$Q/files/MAP"
 IP=$(sudo chroot "$MNT" lsinitrd /boot/efi/initrd.img 2>/dev/null | grep -o '[^ ]*amdgpu/amdgpu\.ko[a-z.]*' | sed -n 1p)
 [ -n "$IP" ] || { echo "STOP: amdgpu not found in the image's initrd"; exit 1; }
 sudo chroot "$MNT" lsinitrd -f "$IP" /boot/efi/initrd.img > /tmp/initrd-amdgpu

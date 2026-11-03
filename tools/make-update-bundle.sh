@@ -56,6 +56,8 @@ ps5-perf /usr/local/sbin/ps5-perf 755
 ps5-perf.service /etc/systemd/system/ps5-perf.service
 ps5-stage-viola-fw /usr/local/sbin/ps5-stage-viola-fw 755
 ps5-stage-viola-fw.service /etc/systemd/system/ps5-stage-viola-fw.service
+ps5-console-defaults /usr/local/sbin/ps5-console-defaults 755
+ps5-console-defaults.service /etc/systemd/system/ps5-console-defaults.service
 ps5-wifi-powersave.service /etc/systemd/system/ps5-wifi-powersave.service
 ps5-wifi-powersave.timer /etc/systemd/system/ps5-wifi-powersave.timer
 ps5-wifi-repair /usr/local/sbin/ps5-wifi-repair 755

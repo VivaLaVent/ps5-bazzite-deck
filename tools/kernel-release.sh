@@ -2,7 +2,6 @@
 # Kernel-only release: apply the named patches, build, test on the PS5, publish.
 #   bash tools/kernel-release.sh vNEW vPREV patch-name...
 #   PRERELEASE=1: quick package only · PROMOTE=1: swap a published quick kernel into vPREV's image and bundle
-#   TITLE="..." (keep tools/release-titles.tsv in sync)
 set -euo pipefail
 V=${1:?vNEW}; PREV=${2:?vPREV}; shift 2
 B=~/ps5-build-7.3; O=$B/output; K=$B/work/linux73; SRC=~/ps5-bazzite-deck; P=$SRC/patches

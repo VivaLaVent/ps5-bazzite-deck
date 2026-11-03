@@ -8,8 +8,8 @@ f=${1:-/etc/bluetooth/main.conf}
 grep -q '^\[General\]' "$f" || printf '\n[General]\n' >> "$f"
 set_key() {
     local key=$1 val=$2
-    if grep -qE "^[#[:space:]]*$key[[:space:]]*=" "$f"; then
-        sed -i -E "0,/^[#[:space:]]*$key[[:space:]]*=.*/s//$key = $val/" "$f"
+    if grep -qE "^[#[:space:]]*${key}[[:space:]]*=" "$f"; then
+        sed -i -E "0,/^[#[:space:]]*${key}[[:space:]]*=.*/s//$key = $val/" "$f"
     else
         sed -i "/^\[General\]/a $key = $val" "$f"
     fi

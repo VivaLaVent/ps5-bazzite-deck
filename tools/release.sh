@@ -1,12 +1,12 @@
 #!/bin/bash
 # Build, test and publish a release:
-#   bash tools/release.sh vX.Y "title"                                stable: image + update bundle
-#   PRERELEASE=1 BUNDLE_ONLY=1 bash tools/release.sh vX.Y.Z "title"  pre-release: bundle only
+#   bash tools/release.sh vX.Y                                stable: image + update bundle
+#   PRERELEASE=1 BUNDLE_ONLY=1 bash tools/release.sh vX.Y.Z  pre-release: bundle only
+# The release event then runs .github/workflows/release.yml: loader, bootc image and disk image.
 #   NO_DEPLOY=1: no test install or publish question · FRESH=1: from-scratch build.sh first
 # Uses ~/ps5-build-7.3/work/linux73 as it is; publishes only after you confirm the PS5 works.
 set -euo pipefail
-V=${1:?usage: release.sh vX.Y.Z "title"}
-TITLE=${2:-$V}
+V=${1:?usage: release.sh vX.Y[.Z]}
 R=VivaLaVent/ps5-bazzite-deck; B=~/ps5-build-7.3; SRC=~/ps5-bazzite-deck; PS5=${PS5:-ps5@192.168.66.55}
 
 cd "$SRC"

@@ -2,12 +2,15 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.2] – 2026-11-03
-> **First release to include the PS5 loader, the bootc image and the classic update bundle — all from one tag.**
-> Classic update (non-bootc): v2.1.6's image with ps5-bt-addr updated, checked file by file.
-> Bootc: built fresh from this tag and pushed as `ghcr.io/vivalavent/ps5-bazzite-bootc:stable`.
-> Loader: rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source.
-- **Fix: Bluetooth adapter gone after boot on IW620 consoles (root cause)** (Geov4ni, Max, bugloogis_chumbo, Storm, Verrek, AdiX): `btmgmt power off/on` during the re-init fires a second udev event, launching a second ps5-bt-addr while the first is mid-reinit. The two instances fight over the chip (double power-cycle), and the retry times out leaving the adapter gone. A `flock` at the script entry prevents concurrent runs; the 2.1.4 timing sleeps stay for the single-instance path
+## [v2.2.1] – 2026-11-<DD>
+> First release with the bootc image and the bazzite-bootc-loader, built from the same tag as the update for existing installs.
+- **bootc image (experimental):** `ghcr.io/vivalavent/ps5-bazzite-bootc`, flashed from the release's disk image, updated with `sudo bootc upgrade`, rolled back with `sudo bootc rollback`
+- **bazzite-bootc-loader:** rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source for every release; boots bootc deployments with boot counting and fallback
+- **PS5 Pro: D3D9 fix now actually applied.** The swap to AMD's command-processor microcode looked for `cyan_skillfish2_*.bin`, but Bazzite ships linux-firmware compressed (`.bin.xz`), so it silently kept Sony's. It now reads the compressed files
+- **PS5 Pro: 1 GB VRAM and an 80 °C GPU limit by default** (`ps5-console-defaults`, once; later changes are kept). Stops framebuffer pin failures (`-ENOMEM`) under load and leaves the firmware headroom before it cuts power
+- **IW620 Bluetooth no longer disappears when the Linux-only address doesn't stick** (Geov4ni, Storm, Verrek, AdiX, bugloogis_chumbo): the script retried the address right after the adapter reset, which hangs the chip. It now leaves Bluetooth working on the PS5 address and `ps5-report` shows `on, NOT applied`. A kernel-side fix is being tested
+- The update scripts refuse to run on a bootc install and point to `sudo bootc upgrade`
+- Releases: version-only titles, loader and bootc disk image attached by CI, no patch files attached
 
 ## [v2.1.6] – 2026-11-<DD>
 > Kernel only, quick package on top of v2.1.5.

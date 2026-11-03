@@ -97,12 +97,14 @@ jobs:
         if: github.event_name != 'pull_request' && inputs.tag == ''
         env:
           HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK || secrets.DISCORD_TESTING_WEBHOOK }}
-          REF: ${{ steps.build.outputs.ref }}
           DIGEST: ${{ steps.push.outputs.digest }}
           VERSION: ${{ steps.build.outputs.version }}
+          URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -n "$HOOK" ] || exit 0
-          jq -n --arg t "Image $VERSION" \
-                --arg d "\`$REF:stable\`\n\`$DIGEST\`\nOn the console: \`sudo bootc upgrade\`, then restart." \
-             '{embeds: [{title: $t, description: $d, color: 3447003}]}' |
+          DECK=$(git describe --tags --always)
+          jq -n --arg v "$VERSION" --arg u "$URL" --arg deck "$DECK" --arg digest "$DIGEST" --arg repo "$GITHUB_REPOSITORY" '
+            {embeds: [{title: "New bootc test image: \($v)", url: $u, color: 3447003,
+              description: "Built from \($deck) (Bazzite base updates and changes on main since the last release).\n\nOn the console: `sudo bootc upgrade`, then restart.\nBack to the previous image: `sudo bootc rollback`, then restart.\n\nDigest `\($digest)`",
+              footer: {text: "\($repo) • :stable"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"

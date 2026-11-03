@@ -152,6 +152,9 @@ sudo install -Dm644 "$SRC/files/ps5-wifi-powersave.timer" "$ROOT/etc/systemd/sys
 sudo mkdir -p "$ROOT/etc/systemd/system/timers.target.wants" && sudo ln -sf /etc/systemd/system/ps5-wifi-powersave.timer "$ROOT/etc/systemd/system/timers.target.wants/ps5-wifi-powersave.timer"
 sudo ln -sf /etc/systemd/system/ps5-perf.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-perf.service"
 sudo ln -sf /etc/systemd/system/ps5-stage-viola-fw.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-stage-viola-fw.service"
+sudo install -Dm755 "$SRC/files/ps5-console-defaults" "$ROOT/usr/local/sbin/ps5-console-defaults"
+sudo install -Dm644 "$SRC/files/ps5-console-defaults.service" "$ROOT/etc/systemd/system/ps5-console-defaults.service"
+sudo ln -sf /etc/systemd/system/ps5-console-defaults.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-console-defaults.service"
 # Bazzite's ostree-only services fail at every boot on this non-ostree image: masked (vanilla Bazzite doesn't run them on such installs)
 for u in bootloader-update.service greenboot-healthcheck.service greenboot-success.target; do sudo ln -sf /dev/null "$ROOT/etc/systemd/system/$u"; done
 sudo install -Dm755 "$SRC/files/ps5-wifi-repair" "$ROOT/usr/local/sbin/ps5-wifi-repair"                        # IW620: Wi-Fi back after a warm reboot

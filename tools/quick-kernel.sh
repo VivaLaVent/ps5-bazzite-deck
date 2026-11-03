@@ -4,7 +4,7 @@
 # The PS5 must run the tree's kernel version (7.3.0); the installer keeps a backup and prints the undo.
 set -euo pipefail
 L=${1:?usage: quick-kernel.sh <label> [ps5-host]}; PS5=${2:-ps5@192.168.66.55}
-B=~/ps5-build-7.3; K=$B/work/linux73; O=$B/output/ps5-quick-$L; mkdir -p "$O"; rm -rf "$O"/*
+B=~/ps5-build-7.3; K=$B/work/linux73; O=$B/output/ps5-quick-$L; mkdir -p "$O"; rm -rf "${O:?}"/*
 cd "$B"
 echo "==> kernel build (bzImage + modules, incremental)"
 docker run --rm -v "$K":/src -v "$B/work/ps5-linux-patches":/ps5-linux-patches:ro -v "$B/cache/ccache":/ccache \
