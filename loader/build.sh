@@ -57,7 +57,7 @@ fi
 echo "shellcode headers: byte-identical"
 
 echo "--- output"
-ELF=$(find "$WORK/loader" -maxdepth 1 -name '*.elf' | head -1)
+ELF=$WORK/loader/bin/ps5-linux-loader.elf
 cp "$ELF" "$OUT/ps5-linux-loader-$TAG.elf"
 sha256sum "$OUT/ps5-linux-loader-$TAG.elf" | tee "$OUT/ps5-linux-loader-$TAG.elf.sha256"
 
