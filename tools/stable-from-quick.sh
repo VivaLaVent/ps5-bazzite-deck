@@ -99,8 +99,8 @@ sed -i "s/^## \[$V\] – [^ ]*/## [$V] – $(date +%F)/" CHANGELOG.md
 git add -A; git commit -q -m "$V" || true; git push -q
 git rev-parse -q --verify refs/tags/$V >/dev/null || { git tag -a $V -m $V; git push -q --tags; }
 cd $O
-gh release create $V ps5-bazzite-deck-$V.img.7z.* ps5-bazzite-deck-$V.sha256 $N.tar.xz $N.tar.xz.sha256 stable-$V/* \
-  --repo $R --latest --title "${TITLE:-$V}" --notes "Release notes follow."
+gh release create $V ps5-bazzite-deck-$V.img.7z.* ps5-bazzite-deck-$V.sha256 $N.tar.xz $N.tar.xz.sha256 \
+  --repo $R --latest --title "$V" --notes "Release notes follow."
 
 step "checking what GitHub has"
 rm -rf /tmp/schk; mkdir /tmp/schk; cd /tmp/schk

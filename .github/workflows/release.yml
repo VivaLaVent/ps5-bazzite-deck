@@ -1,157 +1,92 @@
 name: Release
-
+# Every release gets the bootc loader, the bootc image (:<tag>, plus :stable unless it's a
+# pre-release) and the bootc disk image. Re-runs replay the old workflow file, so after a
+# fix run it fresh instead:  gh workflow run release.yml -f tag=vX.Y
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release tag, e.g. v2.2"
+        required: true
 
 jobs:
-  loader:
+  meta:
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+      stable: ${{ steps.m.outputs.stable }}
+    steps:
+      - id: m
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          pre=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q .isPrerelease)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "stable=$([ "$pre" = true ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+
+  loader:
+    needs: meta
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.release.tag_name }}
-      - name: Dependencies
-        run: sudo apt-get install -y clang-18 lld-18 build-essential binutils xxd
-      - name: Build loader
+          ref: ${{ needs.meta.outputs.tag }}
+      - run: sudo apt-get install -yq clang-18 lld-18 build-essential binutils xxd
+      - name: Build and attach
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash loader/build.sh "${{ github.event.release.tag_name }}"
-      - name: Attach to release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
         run: |
-          TAG=${{ github.event.release.tag_name }}
-          gh release upload "$TAG" \
-            loader/output/ps5-linux-loader-${TAG}.elf \
-            loader/output/ps5-linux-loader-${TAG}.elf.sha256
+          bash loader/build.sh "$TAG"
+          gh release upload "$TAG" loader/output/bazzite-bootc-loader-$TAG.elf \
+            loader/output/bazzite-bootc-loader-$TAG.elf.sha256 --clobber
 
-  bootc-image:
-    runs-on: ubuntu-24.04
-    needs: loader
+  image:
+    needs: meta
     permissions:
       contents: read
       packages: write
-      id-token: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-      - name: Install cosign
-        uses: sigstore/cosign-installer@v3
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and push bootc image
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: bootc
-          push: true
-          tags: |
-            ghcr.io/vivalavent/ps5-bazzite-bootc:${{ github.event.release.tag_name }}
-            ${{ !github.event.release.prerelease && 'ghcr.io/vivalavent/ps5-bazzite-bootc:stable' || '' }}
-      - name: Sign image
-        if: env.SIGNING_SECRET != ''
-        env:
-          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
-          COSIGN_PASSWORD: ''
-        run: cosign sign --yes --key env://COSIGN_PRIVATE_KEY ghcr.io/vivalavent/ps5-bazzite-bootc@${{ steps.build.outputs.digest }}
-      - name: Append image digest to release notes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG=${{ github.event.release.tag_name }}
-          DIGEST=${{ steps.build.outputs.digest }}
-          LOADER_COMMIT=$(. loader/pins.env && echo "$LOADER_COMMIT")
-          PATCHES_SHA=$(cat loader/patches/0001-*.patch loader/patches/0002-*.patch loader/patches/0003-*.patch loader/patches/0004-*.patch loader/patches/0005-*.patch loader/patches/0006-*.patch | sha256sum | cut -c1-12)
-          ELF_SHA=$(cat loader/output/ps5-linux-loader-${TAG}.elf.sha256)
-          NOTE=$'\n\n---\n**Artifacts**\n'
-          NOTE+="bootc image: \`ghcr.io/vivalavent/ps5-bazzite-bootc@${DIGEST}\`\n"
-          NOTE+="loader: \`ps5-linux/ps5-linux-loader@${LOADER_COMMIT}+bls-${PATCHES_SHA}\` sha256 \`${ELF_SHA}\`"
-          gh release edit "$TAG" --notes "$(gh release view "$TAG" --json body -q .body)${NOTE}"
+    uses: ./.github/workflows/bootc-build-image.yml
+    with:
+      tag: ${{ needs.meta.outputs.tag }}
+      stable: ${{ needs.meta.outputs.stable == 'true' }}
+    secrets: inherit
 
-  bootc-disk:
-    runs-on: ubuntu-24.04
-    needs: bootc-image
+  disk:
+    needs: [meta, image]
     permissions:
       contents: write
       packages: read
+    uses: ./.github/workflows/bootc-build-disk-image.yml
+    with:
+      release: ${{ needs.meta.outputs.tag }}
+
+  notes:
+    needs: [meta, loader, image, disk]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.release.tag_name }}
-      - name: Log in to ghcr.io
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build disk image
+      - name: Release notes
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG=${{ github.event.release.tag_name }}
-          . bootc/pins.env
-          sudo podman run --rm --privileged \
-            -v /var/lib/containers/storage:/var/lib/containers/storage \
-            -v $PWD/bootc/bib:/config \
-            -v $PWD/output:/output \
-            "${BIB_IMAGE}" \
-            --type raw \
-            ghcr.io/vivalavent/ps5-bazzite-bootc:${TAG}
-          sudo bash bootc/tools/finish-disk-image.sh output/image/disk.raw
-          sudo mv output/image/disk.raw ps5-bazzite-deck-bootc-${TAG}.img
-          7z a -v2g ps5-bazzite-deck-bootc-${TAG}.img.7z ps5-bazzite-deck-bootc-${TAG}.img
-          sha256sum ps5-bazzite-deck-bootc-${TAG}.img.7z.* > ps5-bazzite-deck-bootc-${TAG}.sha256
-          gh release upload "$TAG" \
-            ps5-bazzite-deck-bootc-${TAG}.img.7z.* \
-            ps5-bazzite-deck-bootc-${TAG}.sha256
-
-  notify-prerelease:
-    runs-on: ubuntu-24.04
-    needs: [loader, bootc-disk]
-    if: github.event.release.prerelease
-    steps:
-      - name: Discord pre-release notification
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release_notes.py "${{ needs.meta.outputs.tag }}"
+      - name: Post to the bootc testing channel
+        if: needs.loader.result == 'success' && needs.disk.result == 'success'
         env:
-          WEBHOOK: ${{ secrets.DISCORD_PRERELEASE_WEBHOOK }}
+          HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
+          TAG: ${{ needs.meta.outputs.tag }}
+          URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.meta.outputs.tag }}
         run: |
-          TAG=${{ github.event.release.tag_name }}
-          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
-          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
-            -d "{\"content\":\"**New pre-release: ${TAG}**\n${URL}\"}"
-      - name: Discord bootc-testing notification
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
-        run: |
-          TAG=${{ github.event.release.tag_name }}
-          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
-          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
-            -d "{\"content\":\"**New bootc test build: ${TAG}**\nBootc disk image and loader attached.\n${URL}\"}"
-
-  notify-stable:
-    runs-on: ubuntu-24.04
-    needs: [loader, bootc-disk]
-    if: "!github.event.release.prerelease"
-    steps:
-      - name: Discord stable notification
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: |
-          TAG=${{ github.event.release.tag_name }}
-          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
-          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
-            -d "{\"content\":\"**New release: ${TAG}**\n${URL}\"}"
-      - name: Discord bootc-testing notification
-        env:
-          WEBHOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
-        run: |
-          TAG=${{ github.event.release.tag_name }}
-          URL=https://github.com/VivaLaVent/ps5-bazzite-deck/releases/tag/${TAG}
-          curl -sS -X POST "$WEBHOOK" -H 'Content-Type: application/json' \
-            -d "{\"content\":\"**New stable release: ${TAG}** — includes fresh bootc image \`:stable\` and disk image\n${URL}\"}"
+          [ -n "$HOOK" ] || exit 0
+          jq -n --arg t "bootc $TAG" --arg u "$URL" \
+                --arg d "Disk image and bazzite-bootc-loader attached to the release.\nAlready on bootc: \`sudo bootc upgrade\`, then restart." \
+             '{embeds: [{title: $t, url: $u, description: $d, color: 3447003}]}' |
+            curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"

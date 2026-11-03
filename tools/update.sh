@@ -1,6 +1,7 @@
 #!/bin/bash
 # In-place update to this bundle's version (from v1.0.3, kernel 7.3.0). On the PS5: bash update.sh
 set -euo pipefail
+[ -e /run/ostree-booted ] && { echo "This is a bootc install: update with  sudo bootc upgrade"; exit 1; }
 cd "$(dirname "$0")"
 V=$(cat VERSION); K=$(cat KERNEL)
 echo "PS5 Bazzite Deck: in-place update to $V"

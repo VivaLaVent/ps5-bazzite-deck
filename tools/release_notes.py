@@ -94,7 +94,7 @@ def render(tag, tmp):
 def main():
     dry = "--dry-run" in sys.argv
     os.makedirs(OUT, exist_ok=True)
-    for tag in _tags():
+    for tag in [a for a in sys.argv[1:] if not a.startswith("--")] or _tags():
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 notes = render(tag, tmp)

@@ -10,17 +10,24 @@ on:
   schedule:
     - cron: "41 4 * * *"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        default: ""
+      stable:
+        type: boolean
+        default: true
 
 env:
   IMAGE: ps5-bazzite-bootc
 
-concurrency:
-  group: image-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-24.04
+    concurrency:
+      group: image-${{ inputs.tag || github.ref }}
+      cancel-in-progress: ${{ inputs.tag == '' }}
     permissions:
       contents: read
       packages: write
@@ -30,6 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.tag }}
           fetch-depth: 0   # tags, for the deck version in the image
 
       - name: Kernel RPM pinned in pins.env
@@ -43,7 +51,8 @@ jobs:
       - name: Build
         id: build
         run: |
-          . ./pins.env
+          . ./pins.env; . ../loader/pins.env
+          LOADER="$LOADER_REPO@${LOADER_COMMIT:0:12}+bls-$(cat ../loader/patches/*.patch | sha256sum | cut -c1-12)"
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE
           VERSION=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
           podman build --pull=newer --build-arg IMAGE_VERSION="$VERSION" --build-arg LOADER="$LOADER" \
@@ -57,10 +66,12 @@ jobs:
         env:
           REF: ${{ steps.build.outputs.ref }}
           VERSION: ${{ steps.build.outputs.version }}
+          TAG: ${{ inputs.tag }}
+          STABLE: ${{ inputs.stable || inputs.tag == '' }}
         run: |
           echo "${{ github.token }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push --digestfile digest "$REF:stable"
-          podman push "$REF:stable" "$REF:${VERSION%%.*}"
+          podman push --digestfile digest "$REF:stable" "$REF:${TAG:-${VERSION%%.*}}"
+          [ "$STABLE" != true ] || podman push "$REF:stable"
           echo "digest=$(cat digest)" >> "$GITHUB_OUTPUT"
 
       - uses: sigstore/cosign-installer@v3
@@ -83,9 +94,9 @@ jobs:
           cosign sign -y --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST"
 
       - name: Post to Discord
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && inputs.tag == ''
         env:
-          HOOK: ${{ secrets.DISCORD_TESTING_WEBHOOK }}
+          HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK || secrets.DISCORD_TESTING_WEBHOOK }}
           REF: ${{ steps.build.outputs.ref }}
           DIGEST: ${{ steps.push.outputs.digest }}
           VERSION: ${{ steps.build.outputs.version }}

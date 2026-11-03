@@ -2,6 +2,7 @@
 # In-place update to the latest release, or to a given version. On the PS5:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/update-latest.sh) [vX.Y.Z]
 set -euo pipefail
+[ -e /run/ostree-booted ] && { echo "This is a bootc install: update with  sudo bootc upgrade"; exit 1; }
 REPO=VivaLaVent/ps5-bazzite-deck
 V=${1:-}
 if [ -z "$V" ]; then

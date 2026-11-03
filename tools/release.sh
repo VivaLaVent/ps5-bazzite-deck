@@ -6,7 +6,7 @@
 # Uses ~/ps5-build-7.3/work/linux73 as it is; publishes only after you confirm the PS5 works.
 set -euo pipefail
 V=${1:?usage: release.sh vX.Y.Z "title"}
-TITLE=${2:?usage: release.sh vX.Y.Z "title"}
+TITLE=${2:-$V}
 R=VivaLaVent/ps5-bazzite-deck; B=~/ps5-build-7.3; SRC=~/ps5-bazzite-deck; PS5=${PS5:-ps5@192.168.66.55}
 
 cd "$SRC"
@@ -69,7 +69,7 @@ git rev-parse -q --verify "refs/tags/$V" >/dev/null || { git tag -a "$V" -m "$V"
 
 echo "==> GitHub release"
 cd "$B/output"
-gh release create "$V" "${IMGFILES[@]}" "$BUNDLE" "$BUNDLE.sha256" VERSIONS.md local-changes.diff ./*.patch ${PRERELEASE:+--prerelease} \
-  --repo "$R" --title "$TITLE" --notes "Release notes follow."
-cd "$SRC" && python3 tools/release_notes.py
+gh release create "$V" "${IMGFILES[@]}" "$BUNDLE" "$BUNDLE.sha256" ${PRERELEASE:+--prerelease} \
+  --repo "$R" --title "$V" --notes "Release notes follow."
+cd "$SRC" && python3 tools/release_notes.py "$V"
 echo "https://github.com/$R/releases/tag/$V"

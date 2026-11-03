@@ -17,7 +17,7 @@ jobs:
         env:
           ACTION: ${{ github.event.action }}
           IS_PRERELEASE: ${{ github.event.release.prerelease }}
-          RELEASES_HOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK || secrets.DISCORD_WEBHOOK_RELEASES }}
+          RELEASES_HOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK || secrets.DISCORD_WEBHOOK_RELEASES || secrets.DISCORD_WEBHOOK }}
           PRERELEASE_HOOK: ${{ secrets.DISCORD_PRERELEASE_WEBHOOK || secrets.DISCORD_WEBHOOK_PRERELEASES }}
           NAME: ${{ github.event.release.name || github.event.release.tag_name }}
           TAG: ${{ github.event.release.tag_name }}
