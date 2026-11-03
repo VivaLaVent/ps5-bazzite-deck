@@ -60,7 +60,7 @@ def files_section(tag, assets):
         (f"bazzite-bootc-loader-{tag}.elf", "replaces the standard PS5 Linux loader; built from rmux's ps5-linux-loader + BLS/bootc patches"),
         (f"bazzite-bootc-loader-{tag}.elf.sha256", "loader checksum"),
         ("btusb.ko", "Bluetooth kernel module for v1.0.2 users"),
-    ]:
+    ] + [(a, "PS5 Linux kernel RPM (used by the bootc image build)") for a in sorted(assets) if a.endswith(".rpm")]:
         if name in assets:
             lines.append(f"- `{name}` – {desc}")
             used.add(name)
