@@ -32,7 +32,7 @@ git -C "$WORK/loader" checkout -q "$LOADER_COMMIT"
 echo "--- unpatched build (baseline shellcode headers)"
 make -C "$WORK/loader" PS5_PAYLOAD_SDK="$SDK_DIR" -j"$(nproc)" 2>/dev/null
 HEADER_HASHES=$(find "$WORK/loader" -path '*/shellcode_*/*.h' | sort | xargs sha256sum)
-make -C "$WORK/loader" PS5_PAYLOAD_SDK="$SDK_DIR" clean >/dev/null 2>&1
+make -C "$WORK/loader" clean 2>/dev/null || true
 
 echo "--- patches 0001-0006"
 for n in 0001 0002 0003 0004 0005 0006; do
