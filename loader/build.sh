@@ -58,11 +58,11 @@ echo "shellcode headers: byte-identical"
 
 echo "--- output"
 ELF=$WORK/loader/bin/ps5-linux-loader.elf
-cp "$ELF" "$OUT/ps5-linux-loader-$TAG.elf"
-sha256sum "$OUT/ps5-linux-loader-$TAG.elf" | tee "$OUT/ps5-linux-loader-$TAG.elf.sha256"
+cp "$ELF" "$OUT/bazzite-bootc-loader-$TAG.elf"
+sha256sum "$OUT/bazzite-bootc-loader-$TAG.elf" | tee "$OUT/bazzite-bootc-loader-$TAG.elf.sha256"
 
 KNOWN=89830d50324c3d10cefdbb1fbf1b9aeb0c6d2ea9d8cd15750eac39091ea42d3f
-actual=$(cut -d' ' -f1 "$OUT/ps5-linux-loader-$TAG.elf.sha256")
+actual=$(cut -d' ' -f1 "$OUT/bazzite-bootc-loader-$TAG.elf.sha256")
 if [ "$actual" = "$KNOWN" ]; then
   echo "known-good sha256 reproduced"
 else

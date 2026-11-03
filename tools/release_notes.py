@@ -53,8 +53,8 @@ def files_section(tag, assets):
         (f"{base}-update.tar.gz.sha256", "checksum for the update"),
         (f"{base}-update.tar.xz", "in-place update (see Updating above)"),
         (f"{base}-update.tar.xz.sha256", "checksum for the update"),
-        (f"ps5-linux-loader-{tag}.elf", "PS5 loader ELF, built from source"),
-        (f"ps5-linux-loader-{tag}.elf.sha256", "loader checksum"),
+        (f"bazzite-bootc-loader-{tag}.elf", "PS5 loader ELF, built from source"),
+        (f"bazzite-bootc-loader-{tag}.elf.sha256", "loader checksum"),
     ]:
         if name in assets:
             lines.append(f"- `{name}` \u2013 {desc}")
