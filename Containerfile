@@ -14,6 +14,8 @@ ARG BASE_IMAGE
 ARG BASE_TAG
 ARG IMAGE_VERSION=dev
 ARG LOADER=unknown
+LABEL org.opencontainers.image.version="${IMAGE_VERSION}" \
+      org.opencontainers.image.source="https://github.com/VivaLaVent/ps5-bazzite-bootc"
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \

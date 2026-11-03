@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `bootc status` shows this image's version instead of Bazzite's (version label set again).
+
+## Increment 8
+
 - The root filesystem now grows to fill the drive (first test: it didn't). /sysroot is read-only on
   ostree, so the resize runs with it remounted read-write in a private mount namespace, and it runs
   until it has succeeded once (a marker in /var) instead of relying on ConditionFirstBoot.
