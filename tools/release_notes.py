@@ -14,7 +14,7 @@ import json, os, re, subprocess, sys, tempfile
 REPO = "VivaLaVent/ps5-bazzite-deck"
 def _tags():
     d = os.path.join(SRC, "docs/release-notes")
-    tags = [f[:-3] for f in os.listdir(d) if re.fullmatch(r"v\d+\.\d+\.\d+\.md", f)]
+    tags = [f[:-3] for f in os.listdir(d) if re.fullmatch(r"v\d+\.\d+(?:\.\d+)?\.md", f)]
     return sorted(tags, key=lambda t: tuple(int(x) for x in t[1:].split(".")))
 
 DISCORD = "https://discord.gg/ps5linux"
