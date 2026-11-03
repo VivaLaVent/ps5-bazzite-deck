@@ -51,6 +51,11 @@ sudo rm -f /etc/systemd/system/ps5-first-start.service /etc/systemd/system/multi
 # v1.8.9: the Linux-only Bluetooth address is on by default; the old opt-in flag isn't used any more
 sudo rm -f /etc/ps5-bazzite-deck/bt-address
 # v1.8.9: Bazzite's ostree-only services fail at every boot on this image: masked
+# v2.1.2: the reboot override only while warm reboot is on; one Bluetooth-connectable mechanism; generic Wi-Fi config name
+if [ -e /etc/ps5-bazzite-deck/warm-reboot ]; then sudo install -m644 /usr/local/share/ps5-bazzite-deck/reboot.target /etc/systemd/system/reboot.target
+elif grep -qs ps5-kexec-prepare /etc/systemd/system/reboot.target; then sudo rm -f /etc/systemd/system/reboot.target; fi
+sudo rm -f /etc/systemd/system/bluetooth.service.d/10-ps5-connectable.conf /etc/NetworkManager/conf.d/99-ps5-iw620.conf
+sudo systemctl daemon-reload
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
 # v1.8.9: hdmi.rearm=0 is gone (the re-arm has its own back-off now); a leftover kept TVs dark after mode changes
 sudo sed -i 's/ *hdmi\.rearm=0//' "$EFI/cmdline.txt"

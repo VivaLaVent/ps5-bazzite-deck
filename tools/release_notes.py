@@ -17,7 +17,7 @@ def _tags():
     tags = [f[:-3] for f in os.listdir(d) if re.fullmatch(r"v\d+\.\d+\.\d+\.md", f)]
     return sorted(tags, key=lambda t: tuple(int(x) for x in t[1:].split(".")))
 
-DISCORD = "https://discord.gg/qGcuTgBBYU"
+DISCORD = "https://discord.gg/ps5linux"
 KOFI = "https://ko-fi.com/vivalavent"
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = "/tmp/release-notes"
@@ -78,7 +78,7 @@ def render(tag, tmp):
     parts = ["## What's new\n" + section(per, "What's new") + "\n",
              ("## VRR test\n" + vrr + "\n") if vrr else "", extra, upd + "\n",
              ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else "",
-             versions, files_section(tag, assets), f"---\nNew install: see the [README](https://github.com/{REPO}#install).\n\n**Found a problem?** Run this on the PS5 (it only reads, changes nothing) and post the file it saves in Discord:\n`bash <(curl -fsSL https://raw.githubusercontent.com/{REPO}/main/tools/ps5-report.sh)`\n\nQuestions, bug reports, test results: **Discord {DISCORD}**\nLike the project? Support it on **Ko-fi {KOFI}**\n"]
+             versions, files_section(tag, assets), f"---\nNew install: [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/installation/bazzite-deck).\n\n**Found a problem?** Run this on the PS5 (it only reads, changes nothing) and post the file it saves in Discord:\n`bash <(curl -fsSL https://raw.githubusercontent.com/{REPO}/main/tools/ps5-report.sh)`\n\nQuestions, bug reports, test results: **Discord {DISCORD}**\nLike the project? Support it on **Ko-fi {KOFI}**\n"]
     return "\n".join(p for p in parts if p)
 
 

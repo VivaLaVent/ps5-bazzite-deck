@@ -2,7 +2,16 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.1] – 2026-11-02
+## [v2.1.2] – 2026-11-<DD>
+> v2.1.1's image with the changed scripts installed into it, checked file by file. No kernel change.
+- **Warm restart fully opt-in:** the reboot override that runs every restart through the warm-restart path is only installed by `ps5-warm-reboot on` (and removed by `off`); with warm restart off, restarts go through plain systemd again
+- **Bluetooth:** one mechanism keeps the adapter connectable (the duplicate `bluetooth.service` drop-in is removed); the hung-adapter revive only acts on IW620 consoles (on others it would also reload a USB dongle's driver)
+- **Wi-Fi config renamed** to `99-ps5-wifi.conf`: it applies to every Wi-Fi chip, not only the IW620
+- `ps5-report`: the Linux-only Bluetooth address line showed `off/n.a.` on every console (it checked a flag from before v1.8.9); it now shows on/off and whether the address is applied, Pro included. `ps5-perf status` says the Pro's CPU clock is left to the console firmware
+- **README slimmed down to what the wiki doesn't cover:** what the project is, not affiliated with Bazzite, the wiki, Discord and Ko-fi. The docs (display recovery and logs, DualSense profiles) now live on [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu); the files here point there
+- README: on a Pro, start twice after every update; the rest-mode/login-screen problem and USB hubs; Pro memory and fixed VRAM
+
+## [v2.1.1] – 2026-11-<DD>
 > v2.1.0's image with the new kernel installed into it, checked file by file.
 - **Fix: Bluetooth on original PS5s (IW620) found no new devices** ("Busy"; the DualSense still worked): v2.0's reconnect quirk made the kernel scan with the old command family while it advertised with the new one, and this chip refuses to mix them ("Command Disallowed" on every scan). The quirk is taken out again, back to v1.8.x behaviour; consistent with rmux reporting Bluetooth trouble on his branch, which has the same quirk
 - **Fix: fan target back to 50 °C after sleep** (and the fan loud again): on waking up the fan driver re-sends its parameter table to the console, which resets the fan target. The current target (80 °C, or what you set with `ps5-perf`/hwcon) is put back now

@@ -31,6 +31,8 @@ if [ -n "${QUICK_FILES:-}" ]; then
   done
   echo "    files: $QUICK_FILES"
 fi
+# QUICK_REMOVE="/path ...": files the release drops (backed up, then removed)
+if [ -n "${QUICK_REMOVE:-}" ]; then mkdir -p "$O/files"; printf '%s\n' $QUICK_REMOVE > "$O/files/REMOVE"; echo "    removes: $QUICK_REMOVE"; fi
 echo "$R" > "$O/KERNEL"; echo "$L" > "$O/LABEL"
 cat > "$O/install.sh" << 'EOI'
 #!/bin/bash
@@ -103,6 +105,13 @@ BD=/usr/lib/modules/$K/kernel/drivers/bluetooth; BM=$(ls $BD/btusb.ko* 2>/dev/nu
 if [ -f btusb.ko.zst ] && [ -n "$BM" ]; then
   sudo cp "$BM" "$BK/"; sudo install -m644 btusb.ko.zst "$BD/btusb.ko.zst"; [ "$BM" = "$BD/btusb.ko.zst" ] || sudo rm -f "$BM"
   sudo depmod "$K"; echo "btusb: replaced"
+fi
+if [ -f files/REMOVE ]; then
+  while read -r p; do
+    [ -e "$p" ] || continue
+    sudo mkdir -p "$BK/removed$(dirname "$p")"; sudo cp -a "$p" "$BK/removed$p"; sudo rm -f "$p"; echo "removed: $p"
+  done < files/REMOVE
+  sudo systemctl daemon-reload
 fi
 if [ -f files/MAP ]; then
   while read -r f dest mode; do

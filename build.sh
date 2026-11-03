@@ -117,7 +117,7 @@ sudo mount "${LOOP}p2" "$BOOT"      # FAT32 boot
 sudo mount "${LOOP}p1" "$ROOT"      # ext4 root
 echo "    cmdline: $(cat "$BOOT/cmdline.txt")"
 echo "options moal ps_mode=0" | sudo tee "$ROOT/etc/modprobe.d/ps5-iw620.conf" >/dev/null
-sudo install -Dm644 "$SRC/files/99-ps5-iw620.conf" "$ROOT/etc/NetworkManager/conf.d/99-ps5-iw620.conf"        # IW620: stable MAC during scans
+sudo install -Dm644 "$SRC/files/99-ps5-wifi.conf" "$ROOT/etc/NetworkManager/conf.d/99-ps5-wifi.conf"          # stable MAC during scans, DHCP by MAC
 sudo install -Dm644 "$SRC/files/ps5-stage-firmware-no-default-deps.conf" "$ROOT/etc/systemd/system/ps5-stage-firmware.service.d/10-no-default-deps.conf"   # fixes boot ordering cycle (random missing services)
 sudo install -Dm644 "$SRC/files/50-ps5-pro-bt-power.rules" "$ROOT/etc/udev/rules.d/50-ps5-pro-bt-power.rules"     # PS5 Pro BT: no USB autosuspend (else the Salina xHCI dies)
 sudo install -Dm644 "$SRC/files/99-ps5-bt-phantom.rules" "$ROOT/etc/udev/rules.d/99-ps5-bt-phantom.rules"      # MediaTek BT: phantom interfaces, no autosuspend
@@ -127,7 +127,6 @@ sudo install -Dm644 "$SRC/files/ps5-bt-addr.service" "$ROOT/etc/systemd/system/p
 sudo install -Dm755 "$SRC/files/ps5-bt-pro-addr" "$ROOT/usr/local/sbin/ps5-bt-pro-addr"                         # PS5 Pro: apply its volatile Linux-only address after Bluetooth is powered
 sudo install -Dm644 "$SRC/files/ps5-bt-pro-addr.service" "$ROOT/etc/systemd/system/ps5-bt-pro-addr.service"
 sudo install -Dm644 "$SRC/files/ps5-bt-connectable.service" "$ROOT/etc/systemd/system/ps5-bt-connectable.service"   # adapter accepts incoming connections (controllers reconnect)
-sudo install -Dm644 "$SRC/files/bluetooth-ps5-connectable.conf" "$ROOT/etc/systemd/system/bluetooth.service.d/10-ps5-connectable.conf"   # ...again after every bluetoothd start
 sudo install -Dm644 "$SRC/files/99-ps5-bt-services.rules" "$ROOT/etc/udev/rules.d/99-ps5-bt-services.rules"   # both services every time the adapter appears
 sudo mkdir -p "$ROOT/etc/systemd/system/bluetooth.target.wants" && for u in ps5-bt-addr ps5-bt-connectable; do sudo ln -sf /etc/systemd/system/$u.service "$ROOT/etc/systemd/system/bluetooth.target.wants/$u.service"; done
 sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /etc/systemd/system/ps5-bt-pro-addr.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-bt-pro-addr.service"
@@ -160,7 +159,7 @@ sudo install -Dm644 "$SRC/files/99-ps5-usb-power.rules" "$ROOT/etc/udev/rules.d/
 sudo install -Dm755 "$SRC/files/90-ps5-wifi-powersave" "$ROOT/etc/NetworkManager/dispatcher.d/90-ps5-wifi-powersave"   # Wi-Fi power saving off (700 vs 100 Mbit/s)
 sudo install -Dm644 "$SRC/files/ps5-kexec-prepare.service" "$ROOT/etc/systemd/system/ps5-kexec-prepare.service" # loads the kernel when a reboot starts
 sudo install -Dm644 "$SRC/files/ps5-reboot.service" "$ROOT/etc/systemd/system/ps5-reboot.service"               # reboot = kexec when loaded, else normal
-sudo install -Dm644 "$SRC/files/reboot.target" "$ROOT/etc/systemd/system/reboot.target"                         # overrides systemd's reboot.target
+sudo install -Dm644 "$SRC/files/reboot.target" "$ROOT/usr/local/share/ps5-bazzite-deck/reboot.target"          # installed as /etc/systemd/system/reboot.target only by "ps5-warm-reboot on"
 [ -e "$ROOT/usr/sbin/kexec" ] || sudo install -Dm755 "$SRC/files/kexec-shim" "$ROOT/usr/sbin/kexec"            # systemd runs "kexec -e"; stand-in when kexec-tools is absent
 sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /usr/lib/systemd/system/sshd.service "$ROOT/etc/systemd/system/multi-user.target.wants/sshd.service"   # SSH on by default
 echo "$RELEASE" | sudo tee "$ROOT/etc/ps5-bazzite-deck-version" >/dev/null

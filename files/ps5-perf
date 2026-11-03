@@ -46,7 +46,8 @@ case "$1" in
     off) sudo mkdir -p "$(dirname "$CONF")"; sudo sed -i '/^ENABLED=/d' "$CONF" 2>/dev/null; echo "ENABLED=0" | sudo tee -a "$CONF" >/dev/null
          [ -f "$ORIG" ] && sudo sh -c "cat $ORIG > $FAN" && echo "fan target back to the console's $(cat "$ORIG") °C"; echo "ps5-perf off (CPU boost stays as the kernel set it until the next boot)" ;;
     *)   echo "ps5-perf: $([ "$ENABLED" = 1 ] && echo on || echo off) (set in $CONF)"
-         echo "  cpu boost: $(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || cat /sys/devices/system/cpu/cpufreq/policy0/boost 2>/dev/null || echo n/a), max clock $(( $(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null || echo 0) / 1000 )) MHz, governor $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null)"
+         if lspci -n 2>/dev/null | grep -qiE '1002:13d[ac]'; then echo "  CPU clock: left to the console firmware (PS5 Pro)"; else
+         echo "  cpu boost: $(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || cat /sys/devices/system/cpu/cpufreq/policy0/boost 2>/dev/null || echo n/a), max clock $(( $(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null || echo 0) / 1000 )) MHz, governor $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null)"; fi
          H=$(for h in /sys/class/hwmon/hwmon*; do [ "$(cat $h/name 2>/dev/null)" = ps5_fan ] && echo $h && break; done)
          M=$(cat "$H/pwm1_enable" 2>/dev/null)
          case "$M" in 0) MODE="full speed";; 1) MODE="manual";; 2) MODE="kernel curve";; 3) MODE="console firmware (default)";; *) MODE="";; esac

@@ -1,280 +1,36 @@
 # PS5 Bazzite Deck
 
-Turn your PS5 into a Steam console: this is [Bazzite](https://bazzite.gg) in Steam Deck mode, adapted for the
-PlayStation 5. It boots straight into **Steam Gaming Mode** (the Steam Deck interface), and a full KDE
-desktop is one click away.
+Turn your PS5 into a Steam console: [Bazzite](https://bazzite.gg) in Steam Deck mode, adapted for the PlayStation 5.
+It boots straight into **Steam Gaming Mode**, with a full KDE desktop one click away, runs from a USB drive or the M.2
+slot, and leaves the PS5 itself untouched: restart or power off and the PS5 starts its own system again.
 
-It runs from a USB drive, started by **rmux's** [PS5 Linux loader](https://github.com/rmuxwashere/ps5-linux-loader/releases).
-Your PS5 itself is not modified. Linux only starts when you run the loader; restart or power off and the PS5 starts
-its own system again, with the drive still plugged in.
+## Not affiliated with Bazzite
 
-**Official wiki:** [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/) covers PS5 Linux in general (loaders, hardware,
-other images) and is the place to check first for anything not specific to this image.
+This is a community project. It is **not** made or supported by the [Bazzite](https://bazzite.gg) project, Universal Blue
+or Sony. Ask here or on Discord, not in Bazzite's channels.
 
-**Which version:** use the release marked **Latest** on the [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases).
-Releases marked **Pre-release** are test builds for testers, even when their number is higher. What changed in which
-version is in the [changelog](CHANGELOG.md); this README describes the current release.
+## Get started: the official wiki
 
-**Download:** [Releases](../../releases) · **Help & testing:** [Discord](https://discord.gg/qGcuTgBBYU) · **Support the project:** [Ko-fi](https://ko-fi.com/vivalavent)
+Everything is on **[wiki.ps5-linux.eu](https://wiki.ps5-linux.eu)**: what you need, the install step by step, what works
+on your console, and how to fix problems.
 
-## Features and your hardware
+- [Install PS5 Bazzite Deck](https://wiki.ps5-linux.eu/installation/bazzite-deck)
+- [Before you install](https://wiki.ps5-linux.eu/getting-started/overview): firmware, loader, drive, TV
+- [Troubleshooting and getting help](https://wiki.ps5-linux.eu/troubleshooting/getting-help)
 
-One image runs on every supported PS5. What differs is decided by three parts of the console:
+**Downloads:** the [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases). Use the release marked
+**Latest**; releases marked **Pre-release** are test builds, even when their number is higher. What changed in which
+version is in the [changelog](CHANGELOG.md).
 
-| Part | Kinds | How to tell |
-|---|---|---|
-| **HDMI chip** | FLAVA3 (most consoles), VERDE (some later models) | `ps5-report` (first line), or `sudo dmesg \| grep "HDMI IC Type"` |
-| **Wi-Fi/Bluetooth chip** | IW620 (most original PS5s, `1b4b:2b56`), MediaTek MT7961 (most Slims, `14c3:7961`), MediaTek MT7925 (PS5 Pro, `14c3:7925`) | `ps5-report`, or `lspci -nn \| grep -i -e 1b4b -e 14c3` |
-| **Model** | PS5 or Slim, PS5 Pro (GPU `1002:13da`) | `ps5-report`, or `lspci -nn \| grep 1002:13da` |
+## Join the PS5 Linux community on Discord
 
-**What differs by HDMI chip**
+**[discord.gg/ps5linux](https://discord.gg/ps5linux)**: help in `#bazzite-problems`, test builds, and everything
+else about Linux on the PS5.
 
-| | FLAVA3 | VERDE | |
-|---|:---:|:---:|---|
-| **1440p120** | ✅ | ❌ | |
-| **4K120** | ✅ | ❌ | HDMI 2.1 TV and cable; only offered when the TV can take it, and back to 4K by itself if the link fails |
-| **HDR** (1080p60, 4K60) | ✅ | ❌ | Game Mode → Settings → Display |
-| **VRR** (displays with HDMI VRR) | ✅ | ❌ | every resolution: Game Mode → Settings → Display → Enable VRR. As on the PS5 system, not on monitors that only have FreeSync |
+## Like this project? Donate
 
-Both chips: 1080p60, 1080p120, 1440p60 and 4K60, when the TV/monitor can do them. Other resolutions (ultrawide,
-other refresh rates) aren't offered: the HDMI chip only has setups for these.
-
-**What differs by Wi-Fi/Bluetooth chip**
-
-| | IW620 | MediaTek | |
-|---|:---:|:---:|---|
-| **One DualSense for PS5 and Linux** (separate pairing profiles) | ✅ | ✅ | on by default: pair the controller with Linux on its own profile (e.g. PS + Square). IW620: while it's on, restarts go through the PS5 system instead of warm ones. `ps5-bt-address off` switches it off. See [docs/dualsense-profiles.md](docs/dualsense-profiles.md) |
-| **Wi-Fi after a restart straight into Linux** (`ps5-warm-reboot on`) | ⚠️ | ✅ | IW620: repaired automatically; if it's still missing, power off and run the loader |
-
-**PS5 Pro:** a first version (GPU with 60 compute units and its own firmware, Wi-Fi, Bluetooth; see
-[Features and your hardware](#features-and-your-hardware) for the exact split). It needs a loader that dumps the
-Pro's GPU firmware to the boot partition: the official [ps5-linux-loader](https://github.com/ps5-linux/ps5-linux-loader)
-from 2 November 2026 or later, on system software 13.20, 13.60 or 11.60 (earlier releases and rmux's fork, v3.5 and older,
-don't dump it). Without the dump the GPU runs as a base PS5 (36 CUs), and `journalctl -u ps5-stage-viola-fw` says so. After the first start,
-start Linux with the loader once more: that one uses the Pro's GPU firmware (`journalctl -u ps5-stage-viola-fw`
-says whether it was found and added). Not yet supported on the Pro: the 40-CU unlock (see below) and the
-Linux-only Bluetooth address. The same drive works in a Slim or original PS5 too; the Pro's firmware files on it are
-ignored there. Reports welcome in #bazzite-ps5-pro-tests either way.
-
-**Switching between Game Mode and the desktop:** the usual way is Steam's own Switch to Desktop /
-Return to Gaming Mode. From a terminal or over SSH, the same thing is `steamos-session-select plasma`
-(desktop) or `steamos-session-select gamescope` (Game Mode).
-
-## Prerequisites
-
-- A PS5 on a firmware **rmux's** [PS5 Linux loader](https://github.com/rmuxwashere/ps5-linux-loader/releases) supports (see its releases). Tested on firmware 13.60.
-- An original PS5, a PS5 Slim or a PS5 Pro (see [Features and your hardware](#features-and-your-hardware)).
-- **etaHEN and kstuff off:** they don't work with the Linux loader (freezes, especially when going to sleep).
-- A USB drive of **32 GB or more**, ideally an external SSD (much faster than a stick).
-- A PC to download and flash the image, and for the first setup a USB keyboard is handy.
-- **PS5 settings**, in the normal PS5 menu, before the first start (set them again after a PS5 reset or firmware update):
-  - `Settings` → `System` → `Power Saving` → `Features Available in Rest Mode` → `Supply Power to USB Ports`: **Always**.
-  - `Settings` → `HDMI` → `Enable HDMI Device Link`: **off**. If it's on, you'll typically get a black screen.
-
-## Install
-
-1. **Download** all `ps5-bazzite-deck-vX.Y.Z.img.7z.00*` files from the latest [release](../../releases)
-   into one folder.
-2. **Extract** the `.001` file with [7-Zip](https://7-zip.org) (Windows), Keka (macOS) or `7z x` (Linux).
-   You get `ps5-bazzite-deck.img`.
-3. **Flash** it to the USB drive with [Rufus](https://rufus.ie): select the drive, select the `.img`, click Start.
-   This erases the drive.
-4. **Plug** the drive into a fast USB port. Every PS5 has fast ports (SuperSpeed, 10 Gbit/s) and one slow port
-   (Hi-Speed, the older USB 2.0 speed of 480 Mbit/s). A slow port works, but booting, loading and installing
-   games become much slower.
-   - **Original PS5:** the two **rear** USB-A ports or the **front USB-C** port. The front USB-A port is the slow one.
-   - **PS5 Slim:** the two **rear** USB-A ports. One of the two front USB-C ports is the slow one, so the rear
-     ports are the safe choice.
-
-   Use the slow port for a controller or keyboard.
-5. **Run the jailbreak and the loader** as described in the loader's instructions. The PS5 goes into rest mode;
-   wait until the orange light stops blinking, then press the power button. A **white light** means Linux is booting.
-6. **First boot is slow.** The screen can stay black for a few minutes. Let it be.
-
-Already installed? Each release's notes say how to update.
-
-## First boot
-
-- The default password is **`ps5`** (asked for anything that needs admin rights). SSH is on: `ssh ps5@<your PS5's IP>`.
-  **Change the password** with `passwd`, since anyone on your network can try `ps5`.
-- **After joining Wi-Fi, Steam updates itself** in the background, often behind a blank screen with a blinking cursor
-  that looks frozen, for several minutes. Don't power off then: that's the most common reason for a broken first start.
-- The first start is at **1080p60**. Pick your resolution in the display settings (Game Mode: Settings → Display); it's remembered.
-- Set **RGB range** to **Full**, in both Game Mode and the desktop.
-
-## Boot options (cmdline.txt)
-`cmdline.txt` is on the USB drive's small FAT32 partition and must stay **one single line**: add an option at the
-end with a space in front of it, or delete it again to undo. Leave the entries that are already there as they are.
-
-| Option | What it does | When to use it |
-|---|---|---|
-| `amdgpu.force_1080p=1` | Only allows 1080p60 | Black or garbled picture you can't get past, e.g. after picking a resolution your display can't show. Remove it once you've set a working resolution; step by step in [docs/display-recovery.md](docs/display-recovery.md) |
-| `usb-storage.quirks=xxxx:yyyy:u` | Turns off UAS for one USB drive (`xxxx:yyyy` from `lsusb`) | USB-C SSDs or enclosures that disconnect, freeze or show I/O errors (many have buggy UAS) |
-| `usbc_dp.enable=1` | Switches on the front USB-C port's DisplayPort output | USB-C displays and the PSVR2. Not with your boot drive on the front USB-C port |
-| `hdmi.frl_4k120=0` | Never offers 4K at 120 Hz | A TV where 4K120 misbehaves |
-
-To switch off VRR, use Steam's setting (Settings → Display); to keep the TV from following the console at boot,
-switch off HDMI-CEC in the TV's settings (SIMPLINK, Anynet+, BRAVIA Sync…).
-
-## 40 GPU compute units
-
-## GPU memory (VRAM)
-
-The GPU reserves 512 MB of RAM for itself and can borrow up to half of the rest on top (so about 8.25 GB total
-on a 16 GB console). A memory-hungry game can hit that ceiling: stutter, or a game crashing with something like
-"not enough memory for command submission". Raise the ceiling, rather than fix a bigger reserved amount (that
-locks the memory away even when you're not gaming):
-```
-E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break; done); sudo sed -i 's/ *ttm\.pages_limit=[0-9]*//; s/[[:space:]]*$/ ttm.pages_limit=2621440/' $E/cmdline.txt && sudo cat $E/cmdline.txt
-```
-That sets a 10 GB ceiling (`2621440` = GB × 262144); remove the option to go back to the default. **Check:**
-`sudo dmesg | grep -iE 'VRAM|GTT'` after rebooting.
-
-
-*Original PS5 and Slim only.* The PS5 Pro's 60 compute units are all active already; don't use this on a Pro.
-
-The PS5's GPU has 40 compute units (CUs); Sony ships it with 36 active. The other 4 were switched off at the
-factory, partly because on some chips one of them is faulty. That's the **silicon lottery**: on many consoles all
-40 work and you get more GPU power, on others the extra units cause green dots and other artifacts, a purple
-tint, or crashes. Try it, and switch it back off if you see any of that.
-
-**Switch on** (in a terminal or over SSH), then reboot and run the loader:
-```
-E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break; done); sudo sed -i -e 's/amdgpu\.ps5_cu_unlock=[0-9]*/amdgpu.ps5_cu_unlock=3/' -e '/ps5_cu_unlock/!s/[[:space:]]*$/ amdgpu.ps5_cu_unlock=3/' $E/cmdline.txt && sudo cat $E/cmdline.txt
-```
-**Check:** `dmesg | grep active_cu_number` shows `40` (36 without it).
-
-**Switch off** again:
-```
-E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break; done); sudo sed -i 's/ *amdgpu\.ps5_cu_unlock=[0-9]*//' $E/cmdline.txt && sudo cat $E/cmdline.txt
-```
-
-The setting stays as it is across updates.
-
-## Troubleshooting
-
-Wider PS5-Linux questions (loaders, other hardware, general background): [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/).
-
-**Ask in [Discord](https://discord.gg/qGcuTgBBYU)** (#bazzite-problems) or open a
-[GitHub issue](https://github.com/VivaLaVent/ps5-bazzite-deck/issues), and attach the report from `ps5-report` (in a
-terminal or over SSH). It only reads, and saves one file with your hardware, display (EDID, modes, VRR state) and the
-relevant logs. For specific problems:
-
-| Problem | Also send |
-|---|---|
-| Picture, modes, VRR, 4K120 | the display log, see [docs/display-logs.md](docs/display-logs.md) |
-| Bluetooth | `{ ps5-bt-address status; lsusb; journalctl -u ps5-bt-addr -u bluetooth -b --no-pager \| tail -40; } > ~/bt-log.txt 2>&1`, before rebooting |
-| A game crashes | launch options `PROTON_LOG=1 %command%`, then `~/steam-<appid>.log` and `sudo dmesg \| tail -80` |
-| "page fault" or "ring timeout" in `dmesg` | right after it: `sudo cp /sys/class/drm/card0/device/devcoredump/data ~/gpu-coredump.txt` |
-
-Without network, copy the files to the drive's FAT32 partition and take them from there on your PC:
-`E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break; done); sudo cp ~/ps5-report-*.txt $E/`.
-Commands: `ps5-perf` (CPU boost, fan; `status` shows the fan mode), `ps5-warm-reboot` (restart straight into Linux,
-experimental), `ps5-bt-address` (one DualSense for the PS5 and Linux, on by default).
-
-- **Console running, no picture** (wrong mode, a mode the TV doesn't take): get in with SSH or a TTY and change the
-  mode by command, see [docs/display-recovery.md](docs/display-recovery.md). To report a display problem (VRR, a
-  mode, blinking): [docs/display-logs.md](docs/display-logs.md) says what to send.
-- **White light but black screen:** HDMI Device Link off (see [Prerequisites](#prerequisites)), another HDMI
-  port or TV, HDCP on/off in the PS5 settings; last resort `amdgpu.force_1080p=1` ([boot options](#boot-options-cmdlinetxt)).
-- **Black screen, but the PS5 is running:** <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>F2</kbd>, wait 2–3 seconds, then
-  <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>F1</kbd> (over SSH: `sudo chvt 2; sleep 3; sudo chvt 1`).
-- **Boots back into the PS5 menu:** you pressed the power button before the orange light stopped blinking, or USB
-  power in rest mode isn't set to `Always`.
-- **Artifacts, green dots or crashes:** switch the [40 compute units](#40-gpu-compute-units) off again; for glitches in one game, launch
-  options `RADV_DEBUG=nohiz %command%`.
-- **VRR:** no "Enable VRR" means a VERDE console, a display without HDMI VRR (FreeSync-only monitors), or VRR off for that input in the TV. The screen going dark
-  for 2 seconds in menus: use VRR per game (quick access menu → Performance). OLED flicker on the desktop: Adaptive
-  Sync on **Automatic**, not Always.
-- **HEVC video with broken colours or a red screen** (recording, streaming with Sunshine, Moonlight): the PS5's
-  video engine gets HEVC P-frames wrong. Use **H.264**, or for encoding HEVC with I-frames only (ffmpeg: `-g 1 -bf 0`;
-  much higher bitrate). As a Moonlight client: H.264, or "Force software decoding" for HEVC.
-- **Won't boot from an SSD in a USB enclosure:** some enclosures don't work with the loader; try another one.
-
-## Installing to the PS5's internal M.2
-
-The USB drive stays required: the PS5 loader always starts the kernel from its small FAT32
-partition. The M.2 holds the system. Install the **same version** on the M.2 as on the USB.
-If a step doesn't work for you, tell us in [Discord](https://discord.gg/qGcuTgBBYU).
-
-All steps run on the PS5, booted from the USB, in a terminal (password `ps5`).
-
-1. **Get the tools** ([ps5-linux-tools](https://github.com/ps5-linux/ps5-linux-tools); Bazzite has everything needed to build them).
-   If the M.2 isn't prepared for Linux yet, follow their README (`m2_init`) first.
-   ```
-   git clone https://github.com/ps5-linux/ps5-linux-tools ~/ps5-linux-tools && make -C ~/ps5-linux-tools
-   ```
-
-2. **Install.** `m2_install.sh` looks for the boot partition at `/boot/efi`; Bazzite has it at `/efi`, so mount it there too:
-   ```
-   sudo mkdir -p /boot/efi && (mountpoint -q /boot/efi || sudo mount LABEL=boot /boot/efi)
-   cd ~/ps5-linux-tools && sudo ./m2_install.sh --install /path/to/ps5-bazzite-deck.img
-   ```
-   - Use the extracted `.img`, not the `.7z` files.
-   - Keep the `.img` **on the USB system** (e.g. in `~/Downloads`), **not on the M.2**: the M.2 is wiped during the install.
-   - Tip: type the command up to `--install ` (with the space), then drag the `.img` from the file manager into the
-     terminal to insert its path.
-   - **What you'll see:** `Formatting /dev/nvme0n1p1 …`, then `Copying files to M.2...`, and then **nothing for
-     10–30 minutes** while it copies the system (there's no progress bar). Wait until it prints `Installation complete.`
-   - **It asks for the password and then ends without printing anything:** `/boot/efi` isn't mounted, or it's mounted
-     several times (from running a plain `mount` line more than once). Reset it to one mount, then run the install again:
-     `while mountpoint -q /boot/efi; do sudo umount /boot/efi; done; sudo mount LABEL=boot /boot/efi`
-   - `/dev/nvme0n1p1 not found`: the M.2 isn't prepared for Linux yet, see step 1 (`m2_init`).
-
-3. **Boot from the M.2 from now on:** point `cmdline.txt` at the M.2:
-   ```
-   E=$(for d in /boot/efi /efi; do sudo test -f $d/cmdline.txt && echo $d && break; done); sudo sed -i 's/root=LABEL=bazzite-deck /root=LABEL=bazzite-deck-m2 /' $E/cmdline.txt && sudo cat $E/cmdline.txt
-   ```
-
-4. **Start it:** reboot (`sudo reboot`) and run the loader as usual; it now starts the system on the M.2.
-   `cd ~/ps5-linux-tools && sudo ./m2_exec.sh` switches right away without a reboot; if it says `kexec` isn't
-   found, just reboot instead.
-
-To go back to the USB system, change `bazzite-deck-m2` back to `bazzite-deck` in `cmdline.txt`.
-
-Notes:
-- The first start from the M.2 can show a grey or black screen: reboot once and run the loader again.
-- **The USB drive afterwards:** keep its small FAT32 partition (label `boot`): the loader always starts Linux from
-  there, and updates put the new kernel there. The big Linux partition on the USB is only a fallback now. You can
-  reformat that one for storage (only that partition, not the whole drive), but then you can no longer switch back
-  to the USB system via `cmdline.txt`.
-- Updating: run the in-place update while booted from the M.2, with the USB drive plugged in. The update script
-  finds the USB drive's boot partition by itself: on an M.2 install it is often mounted at `/boot/efi` instead of
-  `/efi`, or not at all.
-- The commands in this README find `cmdline.txt` themselves (`/boot/efi` or `/efi`). If neither has it, the boot
-  partition isn't mounted: edit `cmdline.txt` from your PC instead.
-- Stuck in emergency mode when booting the M.2: its `/etc/fstab` may contain a boot-partition line with an empty
-  `UUID=`. Replace that line with `LABEL=boot /efi vfat defaults,nofail 0 2` (mount the M.2 from the USB system
-  with `sudo mount LABEL=bazzite-deck-m2 /mnt` to edit it).
-
-## Useful plugins
-
-Community-made, not part of the image:
-
-| Plugin | What it does |
-|---|---|
-| [Decky Loader](https://decky.xyz) | Plugins in Game Mode's quick access menu (the `...` button). Install it from Desktop Mode with the installer on its site; the two below need it |
-| [PS5 hardware control](https://github.com/NotHavocc/ps5-hwcon-plugin) (Decky) | Fan target, live temperatures, CPU and GPU governors and clocks, LED presets. It sets the same things as `ps5-perf`: whichever was set last applies. Desktop version: [ps5-hwcon-gui](https://github.com/NotHavocc/ps5-hwcon-gui) |
-| [PS5 Bazzite Updater](https://github.com/cmartinespinosa/decky-ps5-bazzite-updater) (Decky) | Shows when a new release is out, its notes, and installs it (the same update as in the release notes), then powers off. Unofficial; full releases only |
-
-## Support the project
-
-This is a hobby project, built and tested in my free time. If it's useful to you, you can support it on
-[Ko-fi](https://ko-fi.com/vivalavent). Thank you!
+**[Ko-fi](https://ko-fi.com/vivalavent)**. It keeps the test consoles, drives and TVs coming. Thank you!
 
 ## Credits
 
-- **[ps5-linux](https://github.com/ps5-linux)** (theflow, c0w, resulknad, rmuxnet and contributors) – the PS5 Linux
-  loader, kernel patches and image builder this is built on.
-- **[rmuxnet](https://github.com/rmuxnet)** – 7.3 PS5 kernel patches, video decoding, the
-  [PS5 Linux Guide](https://rmuxnet.gitlab.io/ps5-linux-guide/).
-- **[soniciso1](https://github.com/soniciso1)** – loader with firmware 13.60 support.
-- **[ps5-linux-mwifiex](https://github.com/ps5-linux/ps5-linux-mwifiex)** contributors – PS5 Wi-Fi driver patches.
-- **[WizGery](https://github.com/WizGery/ps5-mediatek-fixes)** – MediaTek Bluetooth patches.
-- **[etawen](https://repo.etawen.dev/)** – PS5 package repo and documentation.
-- **[Universal Blue / Bazzite](https://github.com/ublue-os/bazzite)** – Bazzite itself.
-- **Lawson** – the VRR fix and 4K120 over HDMI 2.1 FRL; **hsgodd** – captures and research on the stock system's
-  HDMI setup; **Slip** – HDR, SCDC, CEC and hotplug patches; **Tertium** – USB-C display output; **Dasloh** – sleep.
-- **Gilles ([@VivaLaVent](https://github.com/VivaLaVent))** – developer of this image.
-
-Not affiliated with Sony, Valve or Universal Blue. Use at your own risk. Scripts and docs: MIT; patches: GPL-2.0.
+Built on the work of the PS5 Linux community: [credits](https://wiki.ps5-linux.eu/about/credits).

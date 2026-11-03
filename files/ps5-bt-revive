@@ -3,6 +3,8 @@
 # Wi-Fi keeps working. If the adapter isn't up and powered ~30 s after boot, reload btusb once:
 # that brings it back (and the address / connectable services run again when hci0 re-appears).
 set -u
+# Only for the IW620 (original PS5); elsewhere it would reload btusb under USB dongles too.
+grep -qs 1286 /sys/bus/usb/devices/*/idVendor || exit 0
 # Hung = no adapter at all, or not powered while the kernel logged command timeouts for it.
 # (Not powered without timeouts is a user who switched Bluetooth off: leave that alone.)
 healthy() {

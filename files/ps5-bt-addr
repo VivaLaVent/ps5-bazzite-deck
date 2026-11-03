@@ -1,5 +1,6 @@
 #!/bin/bash
-# Gives the IW620 Bluetooth chip a Linux-only address (PR #9 by Dasloh). See docs/dualsense-profiles.md.
+# Gives the Bluetooth chip a Linux-only address, so a DualSense keeps separate PS5 and Linux pairings.
+# Background: https://wiki.ps5-linux.eu/using-linux/bluetooth
 # Runs every time the adapter appears (udev), and makes sure the kernel and bluetoothd use the new
 # address too: otherwise pairings are stored under the old address on some boots and under the new
 # one on others, and controllers have to be paired again.
