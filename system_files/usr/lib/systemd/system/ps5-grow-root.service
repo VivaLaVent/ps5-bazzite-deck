@@ -1,6 +1,6 @@
 [Unit]
 Description=Grow the root filesystem to fill the drive
-ConditionFirstBoot=yes
+ConditionPathExists=!/var/lib/ps5-bazzite-bootc/root-grown
 After=local-fs.target
 
 [Service]

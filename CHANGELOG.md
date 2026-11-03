@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The root filesystem now grows to fill the drive (first test: it didn't). /sysroot is read-only on
+  ostree, so the resize runs with it remounted read-write in a private mount namespace, and it runs
+  until it has succeeded once (a marker in /var) instead of relying on ConditionFirstBoot.
+
+## Increment 7
+
 - composefs off in prepare-root.conf: the PS5 kernel has no EROFS, so the first real boot stopped in
   ostree-prepare-root ("Failed to mount composefs: No such device"). Back on once the kernel has EROFS.
 
