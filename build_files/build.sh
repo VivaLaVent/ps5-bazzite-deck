@@ -18,6 +18,9 @@ mapfile -t old < <(rpm -qa --qf '%{NAME}\n' |
 [ ${#old[@]} -eq 0 ] || rpm -e --nodeps --noscripts "${old[@]}"
 rm -rf /usr/lib/modules/*
 
+# /usr/local is a link to /var/usrlocal, which only exists once installed: give the
+# RPM somewhere to put its helper scripts (moved to /usr/bin below)
+mkdir -p /var/usrlocal/bin /var/usrlocal/sbin
 rpm -i --nodeps --noscripts --replacefiles "$CTX"/kernel/linux-ps5-*.rpm
 KVER=$(ls /usr/lib/modules)
 [ "$(echo "$KVER" | wc -l)" = 1 ] || { echo "expected one kernel, got: $KVER"; exit 1; }
