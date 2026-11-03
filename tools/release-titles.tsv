@@ -46,3 +46,4 @@ v2.1.4-test.1	v2.1.4-test.1 – ICC device power test for issue #36 (pre-release
 v2.1.4	v2.1.4 – Bluetooth adapter stays up after the Linux-only address is set (IW620)
 v2.1.5	v2.1.5 – PS5 Pro: D3D9 fixed, M.2 NVMe write error workaround
 v2.1.6	v2.1.6 – no fan spike at shutdown
+v2.2	v2.2 – Bluetooth adapter fix (root cause, IW620)

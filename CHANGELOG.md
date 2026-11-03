@@ -2,7 +2,14 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.6] – 2026-11-03
+## [v2.2] – 2026-11-<DD>
+> **First release to include the PS5 loader, the bootc image and the classic update bundle — all from one tag.**
+> Classic update (non-bootc): v2.1.6's image with ps5-bt-addr updated, checked file by file.
+> Bootc: built fresh from this tag and pushed as `ghcr.io/vivalavent/ps5-bazzite-bootc:stable`.
+> Loader: rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source.
+- **Fix: Bluetooth adapter gone after boot on IW620 consoles (root cause)** (Geov4ni, Max, bugloogis_chumbo, Storm, Verrek, AdiX): `btmgmt power off/on` during the re-init fires a second udev event, launching a second ps5-bt-addr while the first is mid-reinit. The two instances fight over the chip (double power-cycle), and the retry times out leaving the adapter gone. A `flock` at the script entry prevents concurrent runs; the 2.1.4 timing sleeps stay for the single-instance path
+
+## [v2.1.6] – 2026-11-<DD>
 > Kernel only, quick package on top of v2.1.5.
 - **Fix: fan briefly at full speed just before shutdown or reboot** (Verrek, xlxdlx, dreamer_599, loseheaven): the fan driver re-uploaded the original parameter table during cleanup, triggering a ramp-up before handing control back to the firmware's AUTO mode
 
