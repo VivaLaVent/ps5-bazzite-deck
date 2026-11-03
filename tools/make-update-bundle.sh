@@ -29,7 +29,6 @@ sudo cp -a "/mnt/ps5root/usr/lib/modules/$K" "$OUT/modules/"
 sudo test -f /mnt/ps5root/etc/modprobe.d/ps5-iw620.conf && sudo cp /mnt/ps5root/etc/modprobe.d/ps5-iw620.conf "$OUT/files/ps5-iw620-modprobe.conf"
 sudo chown -R "$(id -u):$(id -g)" "$OUT"
 fi
-cp "$SRC/files/99-ps5-wifi.conf" "$SRC/files/99-ps5-bt-phantom.rules" "$SRC/files/50-ps5-pro-bt-power.rules" "$SRC/files/btusb-ps5.conf" "$SRC/files/ps5-stage-firmware-no-default-deps.conf" "$SRC/files/ps5-bt-addr" "$SRC/files/ps5-bt-addr.service" "$SRC/files/ps5-bt-pro-addr" "$SRC/files/ps5-bt-pro-addr.service" "$SRC/files/ps5-bt-connectable.service" "$SRC/files/99-ps5-bt-services.rules" "$SRC/files/ps5-bt-revive" "$SRC/files/ps5-bt-revive.service" "$SRC/files/ps5-hidp.conf" "$SRC/files/99-ps5-usb-power.rules" "$SRC/files/ps5-warm-reboot" "$SRC/files/ps5-bt-address" "$SRC/tools/ps5-report.sh" "$SRC/tools/vrr-report.sh" "$SRC/files/ps5-perf" "$SRC/files/ps5-perf.service" "$SRC/files/ps5-stage-viola-fw" "$SRC/files/ps5-stage-viola-fw.service" "$SRC/files/ps5-wifi-powersave.service" "$SRC/files/ps5-wifi-powersave.timer" "$SRC/files/ps5-wifi-repair" "$SRC/files/ps5-wifi-repair.service" "$SRC/files/90-ps5-wifi-powersave" "$SRC/files/ps5-kexec" "$SRC/files/kexec-shim" "$SRC/files/ps5-kexec-prepare.service" "$SRC/files/ps5-reboot.service" "$SRC/files/reboot.target" "$SRC/files/ps5-reboot-to-ps5" "$OUT/files/"
 # FILES: source, destination, optional mode (default 644)
 cat > "$OUT/FILES" << 'L'
 99-ps5-wifi.conf /etc/NetworkManager/conf.d/99-ps5-wifi.conf
@@ -69,6 +68,13 @@ ps5-kexec-prepare.service /etc/systemd/system/ps5-kexec-prepare.service
 ps5-reboot.service /etc/systemd/system/ps5-reboot.service
 reboot.target /usr/local/share/ps5-bazzite-deck/reboot.target
 L
+# every file in FILES, so a new entry can't be listed without being shipped
+while read -r src _; do
+  [ "$src" = ps5-iw620-modprobe.conf ] && continue   # taken from the image or bundle above
+  f=$SRC/files/$src; [ -f "$f" ] || f=$SRC/tools/$src
+  cp "$f" "$OUT/files/"
+done < "$OUT/FILES"
+cp "$SRC/files/kexec-shim" "$OUT/files/"
 echo "$REL" > "$OUT/VERSION"; echo "$K" > "$OUT/KERNEL"
 cp "$SRC/tools/update.sh" "$OUT/update.sh"
 cp "$SRC/tools/bt-mainconf.sh" "$OUT/bt-mainconf.sh"

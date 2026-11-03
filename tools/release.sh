@@ -3,6 +3,7 @@
 #   bash tools/release.sh vX.Y                                stable: image + update bundle
 #   PRERELEASE=1 BUNDLE_ONLY=1 bash tools/release.sh vX.Y.Z  pre-release: bundle only
 # The release event then runs .github/workflows/release.yml: loader, bootc image and disk image.
+#   FROM_BUNDLE=<previous bundle .tar.xz>: same kernel, only files and scripts changed (minutes, no image build)
 #   NO_DEPLOY=1: no test install or publish question · FRESH=1: from-scratch build.sh first
 # Uses ~/ps5-build-7.3/work/linux73 as it is; publishes only after you confirm the PS5 works.
 set -euo pipefail
@@ -16,7 +17,11 @@ gh release view "$V" --repo "$R" >/dev/null 2>&1 && { echo "STOP: $V is already 
 FREE=$(df --output=avail -BG "$HOME" | tail -1 | tr -dc 0-9)
 echo "free space: ${FREE}G"; [ "$FREE" -ge 60 ] || { echo "STOP: need at least 60G free"; exit 1; }
 
-if [ -n "${FRESH:-}" ]; then
+if [ -n "${FROM_BUNDLE:-}" ]; then
+  echo "==> update bundle: kernel from $(basename "$FROM_BUNDLE"), files and scripts from the repo (no image build)"
+  BUNDLE_ONLY=1
+  cd "$B" && FROM_BUNDLE="$FROM_BUNDLE" bash "$SRC/tools/make-update-bundle.sh" "$V"
+elif [ -n "${FRESH:-}" ]; then
   echo "==> FRESH: from-scratch build with build.sh (the previous build dir is kept as $B.prev)"
   [ -d "$B" ] && { sudo rm -rf "$B.prev"; mv "$B" "$B.prev"; }   # the old build dir holds root-owned files (chroot)
   OLD="$B.prev" SKIP_7Z=1 RELEASE="$V" bash "$SRC/build.sh"
