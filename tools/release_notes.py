@@ -39,25 +39,32 @@ def section(text, name):
 
 def files_section(tag, assets):
     base = f"ps5-bazzite-deck-{tag}"
-    lines = []
+    used, lines = set(), []
     vols = sorted(a for a in assets if re.fullmatch(rf"{re.escape(base)}\.img\.7z\.\d{{3}}", a))
     if vols:
-        lines.append(f"- `{base}.img.7z.{'/.'.join(v.rsplit('.', 1)[1] for v in vols)}` \u2013 the full image as a 7-Zip multi-volume archive (extract from `.001`)")
+        lines.append(f"- `{base}.img.7z.{'/.'.join(v.rsplit('.', 1)[1] for v in vols)}` – full image, 7-Zip multi-volume (extract from `.001`)")
+        used.update(vols)
     bootc_vols = sorted(a for a in assets if re.fullmatch(rf"ps5-bazzite-deck-bootc-{re.escape(tag)}\.img\.7z\.\d{{3}}", a))
     if bootc_vols:
-        lines.append(f"- `ps5-bazzite-deck-bootc-{tag}.img.7z.*` \u2013 bootc disk image as a 7-Zip multi-volume archive (extract from `.001`)")
+        lines.append(f"- `ps5-bazzite-deck-bootc-{tag}.img.7z.*` – bootc disk image, 7-Zip multi-volume (extract from `.001`)")
+        used.update(bootc_vols)
     for name, desc in [
         (f"{base}.sha256", "checksums for the image volumes"),
         (f"ps5-bazzite-deck-bootc-{tag}.sha256", "checksums for the bootc image volumes"),
         (f"{base}-update.tar.gz", "in-place update (see Updating above)"),
-        (f"{base}-update.tar.gz.sha256", "checksum for the update"),
+        (f"{base}-update.tar.gz.sha256", "checksum"),
         (f"{base}-update.tar.xz", "in-place update (see Updating above)"),
-        (f"{base}-update.tar.xz.sha256", "checksum for the update"),
-        (f"bazzite-bootc-loader-{tag}.elf", "replaces the standard PS5 Linux loader; built from rmux's ps5-linux-loader + BLS/bootc patches so the PS5 can select, count and roll back bootc deployments"),
+        (f"{base}-update.tar.xz.sha256", "checksum"),
+        (f"ps5-quick-{tag}.tar.gz", "quick kernel package"),
+        (f"ps5-quick-{tag}.tar.gz.sha256", "checksum"),
+        (f"bazzite-bootc-loader-{tag}.elf", "replaces the standard PS5 Linux loader; built from rmux's ps5-linux-loader + BLS/bootc patches"),
         (f"bazzite-bootc-loader-{tag}.elf.sha256", "loader checksum"),
+        ("btusb.ko", "Bluetooth kernel module for v1.0.2 users"),
     ]:
         if name in assets:
-            lines.append(f"- `{name}` \u2013 {desc}")
+            lines.append(f"- `{name}` – {desc}")
+            used.add(name)
+    lines += [f"- `{a}`" for a in sorted(assets) if a not in used]
     return "## Files\n" + "\n".join(lines) + "\n"
 
 
@@ -80,7 +87,7 @@ def render(tag, tmp):
     parts = ["## What's new\n" + section(per, "What's new") + "\n",
              ("## VRR test\n" + vrr + "\n") if vrr else "", extra, upd + "\n",
              ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else "",
-             versions, files_section(tag, assets), f"---\nNew install: [wiki.ps5-linux.eu](https://wiki.ps5-linux.eu/installation/bazzite-deck).\n\n**Found a problem?** Run this on the PS5 (it only reads, changes nothing) and post the file it saves in Discord:\n`bash <(curl -fsSL https://raw.githubusercontent.com/{REPO}/main/tools/ps5-report.sh)`\n\nQuestions, bug reports, test results: **Discord {DISCORD}**\nLike the project? Support it on **Ko-fi {KOFI}**\n"]
+             versions, files_section(tag, assets), f"---\n**New install:** download the [latest stable release](https://github.com/{REPO}/releases/latest) full image, flash it to USB, then update using the built-in update command above.\n**Bootc image:** `sudo bootc upgrade` on a running bootc install pulls the latest image in the background.\n\n**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\nLike the project? Support it on [Ko-fi]({KOFI}).\n"]
     return "\n".join(p for p in parts if p)
 
 
