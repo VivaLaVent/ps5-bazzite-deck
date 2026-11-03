@@ -1,3 +1,3 @@
 # Run the Bluetooth address and "connectable" services every time the adapter appears
 # (at boot and after the driver re-initialises it), not only once per boot.
-ACTION=="add", SUBSYSTEM=="bluetooth", KERNEL=="hci0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ps5-bt-addr.service ps5-bt-pro-addr.service ps5-bt-connectable.service"
+ACTION=="add", SUBSYSTEM=="bluetooth", KERNEL=="hci[0-9]*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="ps5-bt-addr.service ps5-bt-pro-addr.service ps5-bt-connectable.service"

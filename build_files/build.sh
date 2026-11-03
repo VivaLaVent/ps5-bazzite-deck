@@ -64,7 +64,7 @@ cd /
 grep -v '^#' "$CTX/ps5/install.list" | while read -r src dst mode; do
     [ -n "$src" ] || continue
     install -Dm"${mode:-644}" "$CTX/ps5/$src" "$dst"
-    sed -i 's#/usr/local/s\?bin/#/usr/bin/#g' "$dst"
+    sed -i -e 's#/usr/local/s\?bin/#/usr/bin/#g' -e 's#/usr/local/share/#/usr/share/#g' "$dst"
 done
 # the deck image only installs the shim when kexec-tools is missing
 [ -e /usr/sbin/kexec ] || ln -s ps5-kexec-shim /usr/bin/kexec
@@ -103,13 +103,16 @@ dnf5 install -y --setopt=install_weak_deps=False \
 dnf5 clean all
 
 # --- version
+DECK=$(sed -n 's/.* at \(v[0-9.]*\) .*/\1/p' "$CTX/ps5/VENDORED")
 mkdir -p /usr/share/ps5-bazzite-bootc
 cat > /usr/share/ps5-bazzite-bootc/VERSION <<EOF
 version=$IMAGE_VERSION
 base=$BASE_IMAGE
 kernel=$KVER
+deck=$DECK
 EOF
-echo "$IMAGE_VERSION" > /etc/ps5-bazzite-deck-version   # read by ps5-report and vrr-report
+# read by ps5-report and vrr-report
+echo "$IMAGE_VERSION (bootc, ps5-bazzite-deck $DECK)" > /etc/ps5-bazzite-deck-version
 
 # --- initramfs
 # Last, so it carries the uncompressed GPU firmware and the amdgpu/moal options:

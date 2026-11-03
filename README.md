@@ -3,8 +3,8 @@
 [ps5-bazzite-deck](https://github.com/VivaLaVent/ps5-bazzite-deck) as a bootc image: the same
 kernel and PS5 fixes, but built from a `Containerfile` on top of
 `ghcr.io/ublue-os/bazzite-deck:stable` instead of flattened into a disk image. Updates work as on
-any Bazzite install: Bazzite's updater (`uupd`) fetches new images in the background, or run
-`sudo bootc upgrade` yourself. A bad update is undone with `sudo bootc rollback`.
+Bazzite Deck: Steam's own update button (Settings → System) runs Bazzite's updater, which pulls
+the new image; or run `sudo bootc upgrade`. A bad update is undone with `sudo bootc rollback`.
 
 **Status: experimental.** Not yet booted on a console. Use ps5-bazzite-deck.
 
@@ -36,7 +36,7 @@ ps5-linux-image does for its Bazzite target, with these differences:
 
 - nothing ships in `/usr/local` (it lives in `/var` on bootc, and bootc never updates `/var`):
   scripts go to `/usr/bin`;
-- Bazzite's own services stay on, including its updater and its Game Mode autologin, except
+- Bazzite's own services stay on, including Steam's update button and the Game Mode autologin, except
   `bazzite-hardware-setup`, `bootloader-update` and greenboot, which assume an x86 PC with GRUB;
 - the kernel swap and initramfs follow Bazzite's own build scripts (same packages removed, same
   dracut options), so the image looks to bootc and rpm-ostree like any Bazzite image;
@@ -46,14 +46,20 @@ ps5-linux-image does for its Bazzite target, with these differences:
 
 ## Building
 
-The image needs the `linux-ps5` RPM, which this repo doesn't build (yet). Every run of
-ps5-bazzite-deck's `build.sh` leaves it in `~/ps5-build-7.3/linux-bin/`. CI downloads it from a
-release tagged `kernel-latest`:
+The image needs the `linux-ps5` RPM, which this repo doesn't build (yet). CI downloads it from
+the release tagged `kernel-latest`. A full ps5-bazzite-deck `build.sh` run leaves it in
+`~/ps5-build-7.3/linux-bin/`. After kernel changes made with `tools/quick-kernel.sh`, repackage
+the same tree (incremental, a few minutes) and replace it:
 
 ```sh
-gh release create kernel-latest ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm \
-  --prerelease --title "PS5 kernel" --notes "From ps5-bazzite-deck build.sh"
+cd ~/ps5-build-7.3
+mkdir -p linux-bin/old && sudo mv linux-bin/*.rpm linux-bin/old/   # an RPM there skips the build
+./build_image.sh --kernel-only --distro bazzite-deck --kernel "$PWD/work/linux73"
+gh release upload kernel-latest linux-bin/linux-ps5-*.rpm --clobber --repo VivaLaVent/ps5-bazzite-bootc
 ```
+
+The first time, create the release instead: `gh release create kernel-latest
+linux-bin/linux-ps5-*.rpm --prerelease --title "PS5 kernel" --notes "linux-ps5 for the image build"`.
 
 Locally:
 

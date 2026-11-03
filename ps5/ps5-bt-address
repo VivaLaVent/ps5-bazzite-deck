@@ -13,7 +13,7 @@ case "$1" in
              echo "Linux-only Bluetooth address: off (ps5-bt-address on to switch it on)"
          else
              echo "Linux-only Bluetooth address: on"
-             cur=$(btmgmt --index 0 info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }')
+             cur=$(for h in /sys/class/bluetooth/hci*; do u=$(readlink -f $h/device/..); case "$(cat $u/idVendor 2>/dev/null):$(cat $u/idProduct 2>/dev/null)" in 1286:2059|0e8d:3603|0e8d:3605) cat $h/address; break;; esac; done | tr a-f A-F)
              [ -n "$cur" ] && echo "controller address now: $cur (the second character differs from the PS5 system's address when it's applied)"
          fi ;;
 esac

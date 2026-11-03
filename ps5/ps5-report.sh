@@ -24,7 +24,12 @@ echo "SUMMARY: $VER | $MODEL | HDMI $HDMI | Wi-Fi/BT $WL | display ${NAME:-?} on
 echo
 echo "=== system"; uname -rv; uptime -p; cat /sys/class/dmi/id/product_name /sys/class/dmi/id/board_name 2>/dev/null | paste -sd' '; grep -m1 'model name' /proc/cpuinfo
 echo "cmdline: $(cat /proc/cmdline)"
-echo "warm reboot: $([ -e /etc/ps5-bazzite-deck/warm-reboot ] && echo on || echo off) | linux-only BT address: $([ -e /etc/ps5-bazzite-deck/bt-address ] && echo on || echo off/n.a.)"
+BTA=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null)
+if [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then BTS=off
+elif [ -n "$BTA" ] && [ $(( 0x${BTA%%:*} & 2 )) -ne 0 ]; then BTS="on, applied ($BTA)"
+elif [ -n "$BTA" ]; then BTS="on, NOT applied ($BTA)"
+else BTS="on, no adapter"; fi
+echo "warm reboot: $([ -e /etc/ps5-bazzite-deck/warm-reboot ] && echo on || echo off) | linux-only BT address: $BTS"
 command -v ps5-perf >/dev/null && ps5-perf status
 echo "=== chips"; lspci -nn | grep -i -e network -e wireless -e ethernet -e usb -e display -e vga | cut -c1-120; lsusb | grep -v 'root hub'
 echo "=== display"; for c in /sys/class/drm/card0-*; do [ -f "$c/status" ] && echo "${c##*card0-}: $(cat "$c/status") $(cat "$c/enabled" 2>/dev/null) $(head -1 "$c/modes" 2>/dev/null)"; done
