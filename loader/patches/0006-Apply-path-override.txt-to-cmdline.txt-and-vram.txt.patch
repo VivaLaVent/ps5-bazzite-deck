@@ -1,0 +1,27 @@
+From 566a375a9401c25420e8e832b10414cf9af63299 Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 17:15:24 +0100
+Subject: [PATCH 6/8] Apply path-override.txt to cmdline.txt and vram.txt
+
+Only bzImage and initrd.img went through the overrides, so a rollback via path-override.txt still booted with the default cmdline.txt.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/loader.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/source/loader.c b/source/loader.c
+index 3f8cc44..f671b7e 100644
+--- a/source/loader.c
++++ b/source/loader.c
+@@ -85,6 +85,7 @@ int find_and_read_file(const char *filename, void *buf, size_t bufsize) {
+   char full_path[256];
+   struct stat st;
+ 
++  filename = get_overridden_filename(filename);
+   int num_paths = sizeof(file_paths) / sizeof(file_paths[0]);
+ 
+   for (int i = 0; i < num_paths; i++) {
+-- 
+2.43.0
+

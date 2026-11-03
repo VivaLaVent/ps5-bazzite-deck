@@ -1,0 +1,126 @@
+From 53d9a02481e793acb0ea8d3f1aa5b8dce3c9a870 Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 16:46:34 +0100
+Subject: [PATCH 2/8] Boot BLS entries when loader/entries exists
+
+If a USB root has loader/entries/*.conf, fetch_linux() boots the entry bls_select() picks: kernel and initrd relative to that root, cmdline from the entry's options. cmdline.txt and path-override.txt are not read in that mode, and a broken BLS setup aborts instead of falling back. Without loader/entries the loader behaves as before.
+
+Device firmware is still dumped to the partition root, where the Linux side looks for lib/.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/loader.c | 68 +++++++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 63 insertions(+), 5 deletions(-)
+
+diff --git a/source/loader.c b/source/loader.c
+index b34c16e..1230137 100644
+--- a/source/loader.c
++++ b/source/loader.c
+@@ -1,4 +1,5 @@
+ #include "loader.h"
++#include "bls.h"
+ #include "config.h"
+ #include "firmware.h"
+ #include "linux.h"
+@@ -117,11 +118,59 @@ void trim_newline(char *s) {
+   }
+ }
+ 
++// Only the first four search paths are partition roots, which BLS paths are
++// relative to.
++static int find_bls_entry(struct bls_entry *entry, const char **root) {
++  for (int i = 0; i < 4; i++) {
++    int ret = bls_select(file_paths[i], entry);
++    if (ret != 0) {
++      *root = file_paths[i];
++      return ret;
++    }
++  }
++  return 0;
++}
++
++static int find_bls_file(const char *root, const char *file, char *path,
++                         size_t path_size, size_t *size) {
++  struct stat st;
++
++  while (*file == '/')
++    file++;
++  int ret = snprintf(path, path_size, "%s%s", root, file);
++  if (ret < 0 || (size_t)ret >= path_size) {
++    notify("BLS path %s%s is too long - Aborting\n", root, file);
++    return -1;
++  }
++  if (stat(path, &st) != 0) {
++    notify("File %s not found - Aborting\n", path);
++    return -1;
++  }
++  *size = st.st_size;
++  return 0;
++}
++
+ int fetch_linux(struct linux_info *info) {
+   char bzimage_path[256];
+   char initrd_path[256];
++  struct bls_entry entry;
++  const char *bls_root = NULL;
+ 
+-  size_t bzimage_size = find_and_get_size_of_file("bzImage", bzimage_path);
++  int bls = find_bls_entry(&entry, &bls_root);
++  if (bls < 0) {
++    notify("No bootable entry in %sloader/entries - Aborting\n", bls_root);
++    return -1;
++  }
++  if (bls)
++    notify("Booting '%s' from %s\n", entry.title[0] ? entry.title : entry.id,
++           bls_root);
++
++  size_t bzimage_size;
++  if (!bls)
++    bzimage_size = find_and_get_size_of_file("bzImage", bzimage_path);
++  else if (find_bls_file(bls_root, entry.kernel, bzimage_path,
++                         sizeof(bzimage_path), &bzimage_size) < 0)
++    return -1;
+   if (bzimage_size < 0) {
+     notify("File bzImage not found at default paths - Aborting\n");
+     return -1;
+@@ -142,7 +191,12 @@ int fetch_linux(struct linux_info *info) {
+     return -1;
+   }
+ 
+-  size_t initrd_size = find_and_get_size_of_file("initrd.img", initrd_path);
++  size_t initrd_size;
++  if (!bls)
++    initrd_size = find_and_get_size_of_file("initrd.img", initrd_path);
++  else if (find_bls_file(bls_root, entry.initrd, initrd_path,
++                         sizeof(initrd_path), &initrd_size) < 0)
++    return -1;
+   if (bzimage_size < 0) {
+     notify("File bzImage not found at default paths - Aborting\n");
+     return -1;
+@@ -163,7 +217,9 @@ int fetch_linux(struct linux_info *info) {
+     return -1;
+   }
+ 
+-  if (dump_device_firmwares(initrd_path) < 0) {
++  // Linux looks for the firmware in <boot partition>/lib/, not next to a BLS
++  // initrd.
++  if (dump_device_firmwares(bls ? bls_root : initrd_path) < 0) {
+     notify(
+         "Something went wrong while dumping device firmwares - Continuing\n");
+   }
+@@ -186,8 +242,10 @@ int fetch_linux(struct linux_info *info) {
+   }
+ 
+   char cmdline[2048] = {};
+-  ret = find_and_read_file("cmdline.txt", cmdline, sizeof(cmdline) - 1);
+-  if (ret < 0) {
++  if (bls) {
++    strcpy(cmdline, entry.options);
++  } else if (find_and_read_file("cmdline.txt", cmdline, sizeof(cmdline) - 1) <
++             0) {
+     printf("File cmdline.txt not found at default paths - Using static "
+            "fallback\n");
+     strcpy(cmdline, CMD_LINE);
+-- 
+2.43.0
+

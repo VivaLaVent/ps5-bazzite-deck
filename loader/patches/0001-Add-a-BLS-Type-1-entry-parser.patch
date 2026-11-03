@@ -1,0 +1,697 @@
+From 562043f1ce74b0478492a1e7c7f203e79a7340bd Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 16:44:14 +0100
+Subject: [PATCH 1/8] Add a BLS Type #1 entry parser
+
+bls_select() reads loader/entries/*.conf under a partition root, sorts entries as the Boot Loader Specification says and honours the default glob in loader/loader.conf. It has no PS5 SDK dependencies so tests/ builds it with host gcc. Nothing calls it yet.
+
+Entries with more than one initrd are rejected because the loader has one initrd buffer. Version order follows systemd's strverscmp_improved(), so the order matches bootctl.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .gitignore                                    |   1 +
+ include/bls.h                                 |  22 ++
+ source/bls.c                                  | 290 ++++++++++++++++++
+ tests/Makefile                                |  14 +
+ .../bls/default/loader/entries/ostree-1.conf  |   5 +
+ .../bls/default/loader/entries/ostree-2.conf  |   5 +
+ tests/bls/default/loader/loader.conf          |   3 +
+ .../bls/invalid/loader/entries/nokernel.conf  |   2 +
+ .../bls/invalid/loader/entries/twoinitrd.conf |   4 +
+ tests/bls/noconf/loader/entries/README        |   1 +
+ .../bls/nomatch/loader/entries/ostree-1.conf  |   5 +
+ .../bls/nomatch/loader/entries/ostree-2.conf  |   5 +
+ tests/bls/nomatch/loader/loader.conf          |   1 +
+ .../bls/ostree/loader/entries/._ostree-2.conf |   1 +
+ tests/bls/ostree/loader/entries/ostree-1.conf |   5 +
+ tests/bls/ostree/loader/entries/ostree-2.conf |   5 +
+ tests/bls/sortkey/loader/entries/a.conf       |   5 +
+ tests/bls/sortkey/loader/entries/z-9.conf     |   4 +
+ tests/bls_test.c                              | 150 +++++++++
+ 19 files changed, 528 insertions(+)
+ create mode 100644 include/bls.h
+ create mode 100644 source/bls.c
+ create mode 100644 tests/Makefile
+ create mode 100644 tests/bls/default/loader/entries/ostree-1.conf
+ create mode 100644 tests/bls/default/loader/entries/ostree-2.conf
+ create mode 100644 tests/bls/default/loader/loader.conf
+ create mode 100644 tests/bls/invalid/loader/entries/nokernel.conf
+ create mode 100644 tests/bls/invalid/loader/entries/twoinitrd.conf
+ create mode 100644 tests/bls/noconf/loader/entries/README
+ create mode 100644 tests/bls/nomatch/loader/entries/ostree-1.conf
+ create mode 100644 tests/bls/nomatch/loader/entries/ostree-2.conf
+ create mode 100644 tests/bls/nomatch/loader/loader.conf
+ create mode 100644 tests/bls/ostree/loader/entries/._ostree-2.conf
+ create mode 100644 tests/bls/ostree/loader/entries/ostree-1.conf
+ create mode 100644 tests/bls/ostree/loader/entries/ostree-2.conf
+ create mode 100644 tests/bls/sortkey/loader/entries/a.conf
+ create mode 100644 tests/bls/sortkey/loader/entries/z-9.conf
+ create mode 100644 tests/bls_test.c
+
+diff --git a/.gitignore b/.gitignore
+index f5794a8..8569523 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -8,3 +8,4 @@ shellcode_hv/shellcode_hv.h
+ *.elf
+ *.bin
+ *.o
++tests/bls_test
+diff --git a/include/bls.h b/include/bls.h
+new file mode 100644
+index 0000000..34d3c6f
+--- /dev/null
++++ b/include/bls.h
+@@ -0,0 +1,22 @@
++#ifndef BLS_H
++#define BLS_H
++
++#define BLS_MAX_ENTRIES 64
++
++struct bls_entry {
++  char id[256];
++  char title[128];
++  char version[128];
++  char sort_key[128];
++  char machine_id[64];
++  char kernel[256];
++  char initrd[256];
++  char options[2048];
++};
++
++int bls_vercmp(const char *a, const char *b);
++int bls_parse_entry(const char *id, char *text, struct bls_entry *e);
++int bls_compare(const struct bls_entry *a, const struct bls_entry *b);
++int bls_select(const char *root, struct bls_entry *out);
++
++#endif
+diff --git a/source/bls.c b/source/bls.c
+new file mode 100644
+index 0000000..601f698
+--- /dev/null
++++ b/source/bls.c
+@@ -0,0 +1,290 @@
++#include "bls.h"
++#include <dirent.h>
++#include <fcntl.h>
++#include <fnmatch.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++static int is_digit(char c) { return c >= '0' && c <= '9'; }
++
++static int is_alpha(char c) {
++  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
++}
++
++static int is_version_char(char c) {
++  return is_digit(c) || is_alpha(c) || c == '~' || c == '-' || c == '^' ||
++         c == '.';
++}
++
++// Skips one separator on both sides, or orders the side that lacks it higher.
++static int skip_separator(const char **a, const char **b, char sep) {
++  if (**a != sep && **b != sep)
++    return 0;
++  if (**a != sep)
++    return 1;
++  if (**b != sep)
++    return -1;
++  (*a)++;
++  (*b)++;
++  return 0;
++}
++
++// Mirrors systemd's strverscmp_improved() so the loader orders entries the
++// same way bootctl and systemd-analyze compare-versions do.
++int bls_vercmp(const char *a, const char *b) {
++  for (;;) {
++    const char *end_a, *end_b;
++    int r;
++
++    while (*a && !is_version_char(*a))
++      a++;
++    while (*b && !is_version_char(*b))
++      b++;
++
++    if ((r = skip_separator(&a, &b, '~')))
++      return r;
++    if (!*a || !*b)
++      return (*a != '\0') - (*b != '\0');
++    if ((r = skip_separator(&a, &b, '-')) ||
++        (r = skip_separator(&a, &b, '^')) || (r = skip_separator(&a, &b, '.')))
++      return r;
++
++    if (is_digit(*a) || is_digit(*b)) {
++      for (end_a = a; is_digit(*end_a); end_a++)
++        ;
++      for (end_b = b; is_digit(*end_b); end_b++)
++        ;
++      // Unlike the UAPI.10 text, systemd orders a missing number below 0.
++      if ((a != end_a) != (b != end_b))
++        return a != end_a ? 1 : -1;
++      while (*a == '0')
++        a++;
++      while (*b == '0')
++        b++;
++      if (end_a - a != end_b - b)
++        return end_a - a < end_b - b ? -1 : 1;
++      if ((r = memcmp(a, b, end_a - a)))
++        return r < 0 ? -1 : 1;
++    } else {
++      for (end_a = a; is_alpha(*end_a); end_a++)
++        ;
++      for (end_b = b; is_alpha(*end_b); end_b++)
++        ;
++      size_t len_a = end_a - a, len_b = end_b - b;
++      if ((r = memcmp(a, b, len_a < len_b ? len_a : len_b)))
++        return r < 0 ? -1 : 1;
++      if (len_a != len_b)
++        return len_a < len_b ? -1 : 1;
++    }
++    a = end_a;
++    b = end_b;
++  }
++}
++
++// Entries are edited on Windows too, so trailing CR and blanks are dropped.
++static int next_key(char **cursor, char **key, char **value) {
++  while (**cursor) {
++    char *line = *cursor;
++    size_t len = strcspn(line, "\n");
++    *cursor = line + len + (line[len] == '\n');
++    line[len] = '\0';
++    while (len > 0 && strchr(" \t\r", line[len - 1]))
++      line[--len] = '\0';
++    line += strspn(line, " \t");
++    if (*line == '\0' || *line == '#')
++      continue;
++    *key = line;
++    line += strcspn(line, " \t");
++    if (*line)
++      *line++ = '\0';
++    *value = line + strspn(line, " \t");
++    return 1;
++  }
++  return 0;
++}
++
++static int set_field(char *dst, size_t size, const char *value) {
++  if (strlen(value) >= size)
++    return -1;
++  strcpy(dst, value);
++  return 0;
++}
++
++int bls_parse_entry(const char *id, char *text, struct bls_entry *e) {
++  char *key, *value;
++  int initrds = 0;
++
++  memset(e, 0, sizeof(*e));
++  if (set_field(e->id, sizeof(e->id), id) < 0) {
++    printf("BLS entry %s: file name too long\n", id);
++    return -1;
++  }
++
++  while (next_key(&text, &key, &value)) {
++    int r = 0;
++    if (!strcmp(key, "title"))
++      r = set_field(e->title, sizeof(e->title), value);
++    else if (!strcmp(key, "version"))
++      r = set_field(e->version, sizeof(e->version), value);
++    else if (!strcmp(key, "sort-key"))
++      r = set_field(e->sort_key, sizeof(e->sort_key), value);
++    else if (!strcmp(key, "machine-id"))
++      r = set_field(e->machine_id, sizeof(e->machine_id), value);
++    else if (!strcmp(key, "linux"))
++      r = set_field(e->kernel, sizeof(e->kernel), value);
++    else if (!strcmp(key, "initrd")) {
++      if (++initrds > 1) {
++        printf("BLS entry %s: only one initrd is supported\n", id);
++        return -1;
++      }
++      r = set_field(e->initrd, sizeof(e->initrd), value);
++    } else if (!strcmp(key, "options") && *value) {
++      size_t len = strlen(e->options);
++      if (len + (len > 0) + strlen(value) >= sizeof(e->options))
++        r = -1;
++      else
++        sprintf(e->options + len, "%s%s", len > 0 ? " " : "", value);
++    }
++    if (r < 0) {
++      printf("BLS entry %s: %s is too long\n", id, key);
++      return -1;
++    }
++  }
++
++  if (!e->kernel[0] || !e->initrd[0]) {
++    printf("BLS entry %s: needs both linux and initrd\n", id);
++    return -1;
++  }
++  return 0;
++}
++
++static int has_conf_suffix(const char *name) {
++  size_t len = strlen(name);
++  return len > 5 && !strcmp(name + len - 5, ".conf");
++}
++
++static void strip_conf_suffix(char *dst, const char *id) {
++  size_t len = strlen(id);
++  if (has_conf_suffix(id))
++    len -= 5;
++  memcpy(dst, id, len);
++  dst[len] = '\0';
++}
++
++int bls_compare(const struct bls_entry *a, const struct bls_entry *b) {
++  char name_a[sizeof(a->id)], name_b[sizeof(b->id)];
++  int r;
++
++  if (a->sort_key[0] && b->sort_key[0]) {
++    if ((r = strcmp(a->sort_key, b->sort_key)))
++      return r;
++    if ((r = strcmp(a->machine_id, b->machine_id)))
++      return r;
++    if ((r = bls_vercmp(b->version, a->version)))
++      return r;
++  } else if (a->sort_key[0] || b->sort_key[0]) {
++    return a->sort_key[0] ? -1 : 1;
++  }
++
++  strip_conf_suffix(name_a, a->id);
++  strip_conf_suffix(name_b, b->id);
++  return bls_vercmp(name_b, name_a);
++}
++
++static int compare_entries(const void *a, const void *b) {
++  return bls_compare(a, b);
++}
++
++static int read_text(const char *path, char *buf, size_t size) {
++  int fd = open(path, O_RDONLY);
++  if (fd < 0)
++    return -1;
++  ssize_t r = read(fd, buf, size);
++  close(fd);
++  if (r < 0 || (size_t)r == size)
++    return -1;
++  buf[r] = '\0';
++  return 0;
++}
++
++static int read_default(const char *root, char *pattern, size_t size) {
++  char path[512], buf[4096];
++  char *cursor = buf, *key, *value;
++
++  snprintf(path, sizeof(path), "%sloader/loader.conf", root);
++  if (read_text(path, buf, sizeof(buf)) < 0)
++    return 0;
++  while (next_key(&cursor, &key, &value))
++    if (!strcmp(key, "default") && *value)
++      return set_field(pattern, size, value) == 0;
++  return 0;
++}
++
++static int matches_default(const char *pattern, const char *id) {
++  char name[256];
++
++  if (fnmatch(pattern, id, 0) == 0)
++    return 1;
++  strip_conf_suffix(name, id);
++  return fnmatch(pattern, name, 0) == 0;
++}
++
++// Returns 1 with *out set, 0 when there are no entries, -1 when none is valid.
++int bls_select(const char *root, struct bls_entry *out) {
++  char path[512], pattern[256], text[8192];
++  struct dirent *de;
++  int found = 0, n = 0, chosen = 0;
++
++  snprintf(path, sizeof(path), "%sloader/entries", root);
++  DIR *dir = opendir(path);
++  if (dir == NULL)
++    return 0;
++
++  struct bls_entry *entries = malloc(BLS_MAX_ENTRIES * sizeof(*entries));
++  if (entries == NULL) {
++    closedir(dir);
++    printf("Could not allocate BLS entries\n");
++    return -1;
++  }
++
++  while ((de = readdir(dir)) != NULL) {
++    // macOS leaves ._name.conf AppleDouble files on FAT.
++    if (de->d_name[0] == '.' || !has_conf_suffix(de->d_name))
++      continue;
++    found = 1;
++    if (n == BLS_MAX_ENTRIES) {
++      printf("BLS entry %s: more than %d entries, skipped\n", de->d_name,
++             BLS_MAX_ENTRIES);
++      continue;
++    }
++    snprintf(path, sizeof(path), "%sloader/entries/%s", root, de->d_name);
++    if (read_text(path, text, sizeof(text)) < 0) {
++      printf("BLS entry %s: could not read\n", de->d_name);
++      continue;
++    }
++    if (bls_parse_entry(de->d_name, text, &entries[n]) == 0)
++      n++;
++  }
++  closedir(dir);
++
++  if (n == 0) {
++    free(entries);
++    return found ? -1 : 0;
++  }
++
++  qsort(entries, n, sizeof(*entries), compare_entries);
++  if (read_default(root, pattern, sizeof(pattern))) {
++    for (int i = 0; i < n; i++) {
++      if (matches_default(pattern, entries[i].id)) {
++        chosen = i;
++        break;
++      }
++    }
++  }
++
++  *out = entries[chosen];
++  free(entries);
++  return 1;
++}
+diff --git a/tests/Makefile b/tests/Makefile
+new file mode 100644
+index 0000000..843349f
+--- /dev/null
++++ b/tests/Makefile
+@@ -0,0 +1,14 @@
++.PHONY: test clean
++
++CC := gcc
++CFLAGS := -std=c2x -Wall -Wextra -Werror -fsanitize=address,undefined \
++	-I../include
++
++test: bls_test
++	./bls_test
++
++bls_test: bls_test.c ../source/bls.c ../include/bls.h
++	$(CC) $(CFLAGS) -o $@ bls_test.c ../source/bls.c
++
++clean:
++	rm -f bls_test
+diff --git a/tests/bls/default/loader/entries/ostree-1.conf b/tests/bls/default/loader/entries/ostree-1.conf
+new file mode 100644
+index 0000000..9c758ff
+--- /dev/null
++++ b/tests/bls/default/loader/entries/ostree-1.conf
+@@ -0,0 +1,5 @@
++title Bazzite Deck 43.20261101.0 (ostree:1)
++version 1
++options root=UUID=1234 rw ostree=/ostree/boot.1/default/aaa/1
++linux /ostree/default-aaa/vmlinuz
++initrd /ostree/default-aaa/initramfs.img
+diff --git a/tests/bls/default/loader/entries/ostree-2.conf b/tests/bls/default/loader/entries/ostree-2.conf
+new file mode 100644
+index 0000000..a1bcb34
+--- /dev/null
++++ b/tests/bls/default/loader/entries/ostree-2.conf
+@@ -0,0 +1,5 @@
++title Bazzite Deck 43.20261102.0 (ostree:0)
++version 2
++options root=UUID=1234 rw ostree=/ostree/boot.1/default/bbb/0
++linux /ostree/default-bbb/vmlinuz
++initrd /ostree/default-bbb/initramfs.img
+diff --git a/tests/bls/default/loader/loader.conf b/tests/bls/default/loader/loader.conf
+new file mode 100644
+index 0000000..7a2ec1b
+--- /dev/null
++++ b/tests/bls/default/loader/loader.conf
+@@ -0,0 +1,3 @@
++# pin the older deployment
++timeout 3
++default ostree-1
+diff --git a/tests/bls/invalid/loader/entries/nokernel.conf b/tests/bls/invalid/loader/entries/nokernel.conf
+new file mode 100644
+index 0000000..d008ef4
+--- /dev/null
++++ b/tests/bls/invalid/loader/entries/nokernel.conf
+@@ -0,0 +1,2 @@
++title No kernel
++initrd /x/initramfs.img
+diff --git a/tests/bls/invalid/loader/entries/twoinitrd.conf b/tests/bls/invalid/loader/entries/twoinitrd.conf
+new file mode 100644
+index 0000000..01562ef
+--- /dev/null
++++ b/tests/bls/invalid/loader/entries/twoinitrd.conf
+@@ -0,0 +1,4 @@
++title Two initrds
++linux /x/vmlinuz
++initrd /x/a.img
++initrd /x/b.img
+diff --git a/tests/bls/noconf/loader/entries/README b/tests/bls/noconf/loader/entries/README
+new file mode 100644
+index 0000000..0e1cb2d
+--- /dev/null
++++ b/tests/bls/noconf/loader/entries/README
+@@ -0,0 +1 @@
++not an entry
+diff --git a/tests/bls/nomatch/loader/entries/ostree-1.conf b/tests/bls/nomatch/loader/entries/ostree-1.conf
+new file mode 100644
+index 0000000..9c758ff
+--- /dev/null
++++ b/tests/bls/nomatch/loader/entries/ostree-1.conf
+@@ -0,0 +1,5 @@
++title Bazzite Deck 43.20261101.0 (ostree:1)
++version 1
++options root=UUID=1234 rw ostree=/ostree/boot.1/default/aaa/1
++linux /ostree/default-aaa/vmlinuz
++initrd /ostree/default-aaa/initramfs.img
+diff --git a/tests/bls/nomatch/loader/entries/ostree-2.conf b/tests/bls/nomatch/loader/entries/ostree-2.conf
+new file mode 100644
+index 0000000..a1bcb34
+--- /dev/null
++++ b/tests/bls/nomatch/loader/entries/ostree-2.conf
+@@ -0,0 +1,5 @@
++title Bazzite Deck 43.20261102.0 (ostree:0)
++version 2
++options root=UUID=1234 rw ostree=/ostree/boot.1/default/bbb/0
++linux /ostree/default-bbb/vmlinuz
++initrd /ostree/default-bbb/initramfs.img
+diff --git a/tests/bls/nomatch/loader/loader.conf b/tests/bls/nomatch/loader/loader.conf
+new file mode 100644
+index 0000000..5592dce
+--- /dev/null
++++ b/tests/bls/nomatch/loader/loader.conf
+@@ -0,0 +1 @@
++default fedora-*
+diff --git a/tests/bls/ostree/loader/entries/._ostree-2.conf b/tests/bls/ostree/loader/entries/._ostree-2.conf
+new file mode 100644
+index 0000000..0e1cb2d
+--- /dev/null
++++ b/tests/bls/ostree/loader/entries/._ostree-2.conf
+@@ -0,0 +1 @@
++not an entry
+diff --git a/tests/bls/ostree/loader/entries/ostree-1.conf b/tests/bls/ostree/loader/entries/ostree-1.conf
+new file mode 100644
+index 0000000..9c758ff
+--- /dev/null
++++ b/tests/bls/ostree/loader/entries/ostree-1.conf
+@@ -0,0 +1,5 @@
++title Bazzite Deck 43.20261101.0 (ostree:1)
++version 1
++options root=UUID=1234 rw ostree=/ostree/boot.1/default/aaa/1
++linux /ostree/default-aaa/vmlinuz
++initrd /ostree/default-aaa/initramfs.img
+diff --git a/tests/bls/ostree/loader/entries/ostree-2.conf b/tests/bls/ostree/loader/entries/ostree-2.conf
+new file mode 100644
+index 0000000..a1bcb34
+--- /dev/null
++++ b/tests/bls/ostree/loader/entries/ostree-2.conf
+@@ -0,0 +1,5 @@
++title Bazzite Deck 43.20261102.0 (ostree:0)
++version 2
++options root=UUID=1234 rw ostree=/ostree/boot.1/default/bbb/0
++linux /ostree/default-bbb/vmlinuz
++initrd /ostree/default-bbb/initramfs.img
+diff --git a/tests/bls/sortkey/loader/entries/a.conf b/tests/bls/sortkey/loader/entries/a.conf
+new file mode 100644
+index 0000000..c073f49
+--- /dev/null
++++ b/tests/bls/sortkey/loader/entries/a.conf
+@@ -0,0 +1,5 @@
++title Keyed
++sort-key bazzite
++version 1
++linux /a/vmlinuz
++initrd /a/initramfs.img
+diff --git a/tests/bls/sortkey/loader/entries/z-9.conf b/tests/bls/sortkey/loader/entries/z-9.conf
+new file mode 100644
+index 0000000..54c1c5f
+--- /dev/null
++++ b/tests/bls/sortkey/loader/entries/z-9.conf
+@@ -0,0 +1,4 @@
++title Unkeyed
++version 9
++linux /z/vmlinuz
++initrd /z/initramfs.img
+diff --git a/tests/bls_test.c b/tests/bls_test.c
+new file mode 100644
+index 0000000..5715e9c
+--- /dev/null
++++ b/tests/bls_test.c
+@@ -0,0 +1,150 @@
++#include "bls.h"
++#include <stdio.h>
++#include <string.h>
++
++static int failures;
++
++#define CHECK(cond)                                                            \
++  do {                                                                         \
++    if (!(cond)) {                                                             \
++      printf("%s:%d: CHECK(%s) failed\n", __FILE__, __LINE__, #cond);          \
++      failures++;                                                              \
++    }                                                                          \
++  } while (0)
++
++static int sign(int r) { return (r > 0) - (r < 0); }
++
++static void test_vercmp(void) {
++  static const struct {
++    const char *a, *b;
++    int expect;
++  } cases[] = {
++      {"11", "11", 0},
++      {"systemd-123", "systemd-123", 0},
++      {"bar-123", "foo-123", -1},
++      {"123a", "123", 1},
++      {"123.a", "123", 1},
++      {"123.a", "123.b", -1},
++      {"123a", "123.a", 1},
++      {"11\xce\xb1", "11\xce\xb2", 0},
++      {"B", "a", -1},
++      {"", "0", -1},
++      {"0.", "0", 1},
++      {"0.0", "0", 1},
++      {"0", "~", 1},
++      {"", "~", 1},
++      {"1_", "1", 0},
++      {"_1", "1", 0},
++      {"1_", "1.2", -1},
++      {"1_2_3", "1.3.3", 1},
++      {"1+", "1", 0},
++      {"+1", "1", 0},
++      {"1+", "1.2", -1},
++      {"1+2+3", "1.3.3", 1},
++      {"010", "10", 0},
++      {"ostree-10", "ostree-9", 1},
++  };
++  static const char *chain[] = {
++      "122.1",   "123~rc1-1", "123",     "123-a",   "123-a.1", "123-1",
++      "123-1.1", "123^post1", "123.a-1", "123.1-1", "123a-1",  "124-1",
++  };
++
++  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
++    int r = sign(bls_vercmp(cases[i].a, cases[i].b));
++    if (r != cases[i].expect)
++      printf("vercmp('%s', '%s') = %d, want %d\n", cases[i].a, cases[i].b, r,
++             cases[i].expect);
++    CHECK(r == cases[i].expect);
++    CHECK(sign(bls_vercmp(cases[i].b, cases[i].a)) == -cases[i].expect);
++  }
++
++  size_t n = sizeof(chain) / sizeof(chain[0]);
++  for (size_t i = 0; i < n; i++)
++    for (size_t j = 0; j < n; j++)
++      CHECK(sign(bls_vercmp(chain[i], chain[j])) == sign((int)i - (int)j));
++}
++
++static void test_parse(void) {
++  struct bls_entry e;
++  char text[4096];
++
++  strcpy(text, "# comment\r\n"
++               "title  Bazzite Deck \r\n"
++               "\r\n"
++               "options root=UUID=1234 rw\r\n"
++               "options   quiet\r\n"
++               "options\r\n"
++               "devicetree ignored.dtb\r\n"
++               "linux /ostree/a/vmlinuz\r\n"
++               "initrd /ostree/a/initramfs.img");
++  CHECK(bls_parse_entry("a.conf", text, &e) == 0);
++  CHECK(!strcmp(e.id, "a.conf"));
++  CHECK(!strcmp(e.title, "Bazzite Deck"));
++  CHECK(!strcmp(e.options, "root=UUID=1234 rw quiet"));
++  CHECK(!strcmp(e.kernel, "/ostree/a/vmlinuz"));
++  CHECK(!strcmp(e.initrd, "/ostree/a/initramfs.img"));
++
++  strcpy(text, "linux /a\n");
++  CHECK(bls_parse_entry("noinitrd.conf", text, &e) < 0);
++
++  strcpy(text, "linux /a\ninitrd /b\ninitrd /c\n");
++  CHECK(bls_parse_entry("twoinitrd.conf", text, &e) < 0);
++
++  char opts[2100];
++  memset(opts, 'x', sizeof(opts) - 1);
++  opts[sizeof(opts) - 1] = '\0';
++  snprintf(text, sizeof(text), "linux /a\ninitrd /b\noptions %s\n", opts);
++  CHECK(bls_parse_entry("longopts.conf", text, &e) < 0);
++
++  opts[2047] = '\0';
++  snprintf(text, sizeof(text), "linux /a\ninitrd /b\noptions %s\n", opts);
++  CHECK(bls_parse_entry("maxopts.conf", text, &e) == 0);
++  CHECK(strlen(e.options) == 2047);
++}
++
++static void test_compare(void) {
++  struct bls_entry a = {}, b = {};
++
++  strcpy(a.id, "z.conf");
++  strcpy(a.sort_key, "fedora");
++  strcpy(b.id, "a-99.conf");
++  CHECK(bls_compare(&a, &b) < 0);
++
++  strcpy(b.sort_key, "fedora");
++  strcpy(a.version, "6.1");
++  strcpy(b.version, "6.10");
++  CHECK(bls_compare(&a, &b) > 0);
++
++  strcpy(a.machine_id, "aaaa");
++  CHECK(bls_compare(&a, &b) > 0);
++}
++
++static void test_select(void) {
++  struct bls_entry e;
++
++  CHECK(bls_select("bls/missing/", &e) == 0);
++  CHECK(bls_select("bls/noconf/", &e) == 0);
++  CHECK(bls_select("bls/invalid/", &e) == -1);
++
++  CHECK(bls_select("bls/ostree/", &e) == 1);
++  CHECK(!strcmp(e.id, "ostree-2.conf"));
++  CHECK(!strcmp(e.title, "Bazzite Deck 43.20261102.0 (ostree:0)"));
++
++  CHECK(bls_select("bls/default/", &e) == 1);
++  CHECK(!strcmp(e.id, "ostree-1.conf"));
++
++  CHECK(bls_select("bls/nomatch/", &e) == 1);
++  CHECK(!strcmp(e.id, "ostree-2.conf"));
++
++  CHECK(bls_select("bls/sortkey/", &e) == 1);
++  CHECK(!strcmp(e.id, "a.conf"));
++}
++
++int main(void) {
++  test_vercmp();
++  test_parse();
++  test_compare();
++  test_select();
++  printf("%s\n", failures ? "FAIL" : "PASS");
++  return failures != 0;
++}
+-- 
+2.43.0
+
