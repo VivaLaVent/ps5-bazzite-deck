@@ -46,8 +46,8 @@ command -v skopeo >/dev/null || sudo apt install -y skopeo
 D=$(skopeo inspect docker://quay.io/centos-bootc/bootc-image-builder:latest --format '{{.Digest}}')
 R=$(basename ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm)
 S=$(sha256sum ~/ps5-build-7.3/linux-bin/"$R" | cut -d' ' -f1)
-L=$(git ls-remote https://github.com/VivaLaVent/ps5-linux-loader HEAD | cut -c1-12)
-printf 'BIB_IMAGE=quay.io/centos-bootc/bootc-image-builder@%s\nKERNEL_REPO=VivaLaVent/ps5-bazzite-bootc\nKERNEL_TAG=kernel-latest\nKERNEL_RPM=%s\nKERNEL_SHA256=%s\nLOADER=VivaLaVent/ps5-linux-loader@%s\n' "$D" "$R" "$S" "$L" > pins.env
+L=$(# loader ELF and sha256 are attached to each release on the ps5-bazzite-deck releases page
+printf 'BIB_IMAGE=quay.io/centos-bootc/bootc-image-builder@%s\nKERNEL_REPO=VivaLaVent/ps5-bazzite-bootc\nKERNEL_TAG=kernel-latest\nKERNEL_RPM=%s\nKERNEL_SHA256=%s\nLOADER=ps5-linux/ps5-linux-loader@%s\n' "$D" "$R" "$S" "$L" > pins.env
 cat pins.env
 ```
 
