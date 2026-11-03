@@ -53,7 +53,7 @@ def files_section(tag, assets):
         (f"{base}-update.tar.gz.sha256", "checksum for the update"),
         (f"{base}-update.tar.xz", "in-place update (see Updating above)"),
         (f"{base}-update.tar.xz.sha256", "checksum for the update"),
-        (f"bazzite-bootc-loader-{tag}.elf", "PS5 loader ELF, built from source"),
+        (f"bazzite-bootc-loader-{tag}.elf", "replaces the standard PS5 Linux loader; built from rmux's ps5-linux-loader + BLS/bootc patches so the PS5 can select, count and roll back bootc deployments"),
         (f"bazzite-bootc-loader-{tag}.elf.sha256", "loader checksum"),
     ]:
         if name in assets:
