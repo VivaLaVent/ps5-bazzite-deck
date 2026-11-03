@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- README for users (install, updating, rollback, boot options), in PS5 Bazzite Deck's style;
+  how it works and building moved to docs/building.md.
+
+## Increment 4
+
 - Comments trimmed to the ones that explain a reason the code can't show.
 
 ## Increment 3

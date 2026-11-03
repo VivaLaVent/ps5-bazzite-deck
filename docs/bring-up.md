@@ -4,7 +4,7 @@ Each stage ends with something to report back. Don't skip ahead: a stage builds 
 
 ## 1. The image builds
 
-1. Upload the kernel RPM as `kernel-latest` (README, *Building*).
+1. Upload the kernel RPM as `kernel-latest` (docs/building.md).
 2. Push to `main`; the *Build image* workflow runs.
 3. Report: the workflow log if it fails (the *Build* step), otherwise the output of
    `podman run --rm ghcr.io/<owner>/ps5-bazzite-bootc:stable sh -c 'cat /usr/share/ps5-bazzite-bootc/VERSION; ls /usr/lib/modules/*/; bootc container lint'`.

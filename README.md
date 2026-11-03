@@ -1,95 +1,68 @@
 # PS5 Bazzite (bootc)
 
-[ps5-bazzite-deck](https://github.com/VivaLaVent/ps5-bazzite-deck) as a bootc image: the same
-kernel and PS5 fixes, but built from a `Containerfile` on top of
-`ghcr.io/ublue-os/bazzite-deck:stable` instead of flattened into a disk image. Updates work as on
-Bazzite Deck: Steam's own update button (Settings → System) runs Bazzite's updater, which pulls
-the new image; or run `sudo bootc upgrade`. A bad update is undone with `sudo bootc rollback`.
+[PS5 Bazzite Deck](https://github.com/VivaLaVent/ps5-bazzite-deck), built the way Bazzite itself is built. Same
+**Steam Gaming Mode**, same KDE desktop, same PS5 fixes, but the system is a bootc image: it **updates from Steam's
+update button** like any Bazzite Deck, and a bad update is **undone with one command**. Runs from a USB drive and leaves
+the PS5 itself untouched: restart or power off and the PS5 starts its own system again.
 
-**Status: experimental.** Not yet booted on a console. Use ps5-bazzite-deck.
+**Experimental.** It hasn't been tested on many consoles yet. For a console you use every day, install
+[PS5 Bazzite Deck](https://github.com/VivaLaVent/ps5-bazzite-deck) instead.
 
-Hobby project, not affiliated with Sony, Valve or Universal Blue.
+## Not affiliated with Bazzite
 
-## How it boots
+This is a community project. It is **not** made or supported by the [Bazzite](https://bazzite.gg) project, Universal Blue
+or Sony. Ask here or on Discord, not in Bazzite's channels.
 
-The [PS5 Linux loader](https://github.com/ps5-linux/ps5-linux-loader) knows nothing about bootc.
-It loads `bzImage`, `initrd.img` and `cmdline.txt` from the USB drive's FAT partition, as it
-always has. bootc writes its boot entries to `/boot/loader/entries`, as it does on any other
-Fedora system. `ps5-bootc-sync` copies the current entry's kernel and initramfs to the FAT
-partition and rewrites `cmdline.txt` from its options:
+## Install
 
-- at every boot, so a `bootc rollback` takes effect;
-- at shutdown, after ostree has written the entry for an update `bootc upgrade` staged.
+You need a PS5 that runs the [PS5 Linux loader](https://github.com/ps5-linux/ps5-linux-loader) and a USB drive of at
+least 32 GB (an SSD is much faster). Use a different drive from your PS5 Bazzite Deck one, so you can always swap back.
 
-Options you add to `cmdline.txt` yourself are kept. The previous deployment stays on the FAT
-partition under `ostree/`, and `ROLLBACK.txt` there explains how to start it from a PC if the
-new one doesn't come up.
+1. Download all `.img.7z` parts of the newest release from the [releases page](https://github.com/VivaLaVent/ps5-bazzite-bootc/releases)
+   and extract them with [7-Zip](https://www.7-zip.org) (open the `.001` file).
+2. Write the `.img` to the USB drive with [Rufus](https://rufus.ie). This erases the drive.
+3. Plug it into a **rear** USB-A port of the PS5.
+4. In the PS5 settings: keep USB power on in rest mode, and switch HDMI Device Link off.
+5. Run the jailbreak and the loader as usual, and wait until the light stops blinking orange before pressing power.
+6. The first start takes a few minutes. You land in Steam Gaming Mode. Login for the desktop and `sudo`: **ps5** / **ps5**.
 
-After `bootc upgrade`, a restart goes back to the PS5 system (no warm reboot), and the loader
-then starts the new version.
+## Updating
 
-## Differences from ps5-bazzite-deck
+In Steam: **Settings → System**, check for updates and apply. Or in a terminal: `sudo bootc upgrade`.
 
-The PS5 scripts, units and rules in `ps5/` are copied unchanged from ps5-bazzite-deck
-(`ps5/VENDORED` says which commit). `build_files/build.sh` installs them, and does what
-ps5-linux-image does for its Bazzite target, with these differences:
+After an update, restart: the PS5 starts its own system first (a warm restart is skipped once), then run the loader as
+usual and you're on the new version. Your games, settings and files are kept.
 
-- nothing ships in `/usr/local` (it lives in `/var` on bootc, and bootc never updates `/var`):
-  scripts go to `/usr/bin`;
-- Bazzite's own services stay on, including Steam's update button and the Game Mode autologin, except
-  `bazzite-hardware-setup`, `bootloader-update` and greenboot, which assume an x86 PC with GRUB;
-- the kernel swap and initramfs follow Bazzite's own build scripts (same packages removed, same
-  dracut options), so the image looks to bootc and rpm-ostree like any Bazzite image;
-- `ps5-stage-gpu-firmware` (from the kernel package) is off: it writes to `/usr`, which is
-  read-only. `ps5-stage-viola-fw` does the same job on the boot partition;
-- no repo.etawen.dev: the kernel comes with the image.
+## Going back to the previous version
 
-## Building
+`sudo bootc rollback`, then restart and run the loader. If the new version doesn't start at all, the USB drive's
+small `boot` partition has a `ROLLBACK.txt` that explains how to start the previous one from a PC.
 
-The image needs the `linux-ps5` RPM, which this repo doesn't build (yet). CI downloads it from
-the release tagged `kernel-latest`. A full ps5-bazzite-deck `build.sh` run leaves it in
-`~/ps5-build-7.3/linux-bin/`. After kernel changes made with `tools/quick-kernel.sh`, repackage
-the same tree (incremental, a few minutes) and replace it:
+## Boot options (cmdline.txt)
 
-```sh
-cd ~/ps5-build-7.3
-mkdir -p linux-bin/old && sudo mv linux-bin/*.rpm linux-bin/old/   # an RPM there skips the build
-./build_image.sh --kernel-only --distro bazzite-deck --kernel "$PWD/work/linux73"
-gh release upload kernel-latest linux-bin/linux-ps5-*.rpm --clobber --repo VivaLaVent/ps5-bazzite-bootc
-```
+`cmdline.txt` is on the USB drive's small `boot` partition and works as in PS5 Bazzite Deck: add an option at the end of
+the single line, for example `amdgpu.ps5_cu_unlock=3` or `amdgpu.force_1080p=1`. Options you add are kept through updates.
+You can also edit it from a PC.
 
-The first time, create the release instead: `gh release create kernel-latest
-linux-bin/linux-ps5-*.rpm --prerelease --title "PS5 kernel" --notes "linux-ps5 for the image build"`.
+## Problems
 
-Locally:
+Run `ps5-report` in a terminal and post the file it makes, with what you did and what happened, on Discord or as a
+[GitHub issue](https://github.com/VivaLaVent/ps5-bazzite-bootc/issues). Mention that it's the bootc version.
 
-```sh
-cp ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm kernel/
-podman build -t ps5-bazzite-bootc .
-```
+## Join the PS5 Linux community on Discord
 
-Disk image (or run the *Build disk image* workflow):
+**[discord.gg/ps5linux](https://discord.gg/ps5linux)**: help in `#bazzite-problems`, test builds, and everything
+else about Linux on the PS5.
 
-```sh
-sudo podman run --rm --privileged -v ./bib/config.toml:/config.toml:ro -v ./out:/output \
-  -v /var/lib/containers/storage:/var/lib/containers/storage \
-  quay.io/centos-bootc/bootc-image-builder:latest --type raw --rootfs ext4 \
-  localhost/ps5-bazzite-bootc
-sudo tools/finish-disk-image.sh out/image/disk.raw
-```
+## Like this project? Donate
 
-`tests/ps5-bootc-sync.sh` checks the sync logic against fake boot entries; run it after
-changing `ps5-bootc-sync`.
-
-## GitHub setup
-
-- Settings → Actions → General → Workflow permissions: *Read and write*.
-- Secrets: `DISCORD_RELEASES_WEBHOOK` and `DISCORD_PRERELEASE_WEBHOOK` (the ones
-  ps5-bazzite-deck uses) and `DISCORD_TESTING_WEBHOOK` (posts every image push).
-- After the first push: make the `ps5-bazzite-bootc` package public in its package settings.
+[Buy me a coffee on Ko-fi](https://ko-fi.com/vivalavent).
 
 ## Credits
 
-Everything PS5-specific comes from ps5-bazzite-deck, ps5-linux-image, rmux's loader and kernel
-patches, and their contributors. The bootc layout follows Universal Blue's image template, and
-the sync approach Armada's ESP script (thanks JustRadical).
+Everything PS5-specific comes from [PS5 Bazzite Deck](https://github.com/VivaLaVent/ps5-bazzite-deck),
+[ps5-linux-image](https://github.com/ps5-linux/ps5-linux-image), rmux's loader and kernel patches, and their
+contributors. The image is built like Universal Blue's [image template](https://github.com/ublue-os/image-template);
+the boot partition sync follows Armada's (thanks JustRadical).
+
+How it works and how to build it: [docs/building.md](docs/building.md).
