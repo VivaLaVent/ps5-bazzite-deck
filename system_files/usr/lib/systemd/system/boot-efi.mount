@@ -1,5 +1,4 @@
-# The FAT partition the PS5 loader boots from, where the deck's scripts expect it.
-# An /etc/fstab entry for /boot/efi, if the installer wrote one, takes precedence.
+# An /etc/fstab entry for /boot/efi takes precedence over this.
 [Unit]
 Description=PS5 boot partition
 Before=local-fs.target

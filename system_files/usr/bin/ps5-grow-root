@@ -1,7 +1,5 @@
 #!/bin/bash
-# Grow the root partition and filesystem to fill the drive, once, on first boot.
-# Same job as ps5-linux-image's grow-rootfs, but on bootc / is an overlay:
-# the real partition is mounted at /sysroot.
+# ps5-linux-image's grow-rootfs, except that on bootc the root partition is /sysroot
 set -eu
 DEV=$(findmnt -no SOURCE /sysroot)
 DISK=/dev/$(lsblk -ndo PKNAME "$DEV")

@@ -1,14 +1,6 @@
-# Files vendored unchanged from VivaLaVent/ps5-bazzite-deck (files/ and tools/), and where
-# build_files/build.sh installs them in the image: <file> <destination> [mode, default 644]
-#
-# Differences from the deck image, all applied by build.sh rather than by editing these files:
-#   /usr/local/{s,}bin -> /usr/bin   /usr/local is /var/usrlocal on bootc, and /var is never
-#   /usr/local/share -> /usr/share   updated after install, so nothing may ship there
-#   units stay in /etc/systemd/system, as on the deck image: bootc merges /etc on every update
-#
-# To refresh: copy the newer files over these and redo this list from the FILES list in
-# the deck's tools/make-update-bundle.sh (ps5-iw620-modprobe.conf is built there, not a file;
-# here it's system_files/usr/lib/modprobe.d/ps5.conf).
+# Where build_files/build.sh installs the files vendored from ps5-bazzite-deck:
+# <file> <destination> [mode]. Paths are the deck's FILES list in
+# tools/make-update-bundle.sh with /usr/local moved to /usr.
 99-ps5-wifi.conf                        /etc/NetworkManager/conf.d/99-ps5-wifi.conf
 99-ps5-bt-phantom.rules                 /etc/udev/rules.d/99-ps5-bt-phantom.rules
 50-ps5-pro-bt-power.rules               /etc/udev/rules.d/50-ps5-pro-bt-power.rules

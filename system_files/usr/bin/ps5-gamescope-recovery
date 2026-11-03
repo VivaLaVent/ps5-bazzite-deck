@@ -1,6 +1,5 @@
 #!/bin/bash
-# First boot only: if gamescope hasn't got a display after 60 s, the screen is black.
-# Fall back to Plasma so there is something to work with (from ps5-linux-image).
+# First boot: fall back to Plasma if gamescope has no display after 60 s (from ps5-linux-image)
 for _ in $(seq 1 60); do
     sleep 1
     pgrep -x gamescope >/dev/null && exit 0

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Comments trimmed to the ones that explain a reason the code can't show.
+
+## Increment 3
+
 - PS5 files updated to ps5-bazzite-deck v2.1.3: Wi-Fi config renamed to 99-ps5-wifi.conf, one
   Bluetooth-connectable mechanism (the bluetooth.service drop-in is gone), warm reboot opt-in
   through /usr/share/ps5-bazzite-deck/reboot.target, newer Bluetooth address scripts.

@@ -1,6 +1,6 @@
 #!/bin/sh
-# amdgpu's display TA can finish loading after DRM probed the connectors, leaving the
-# screen dark until a VT switch. Re-probe a moment later (from ps5-linux-image).
+# The display TA can load after DRM probed the connectors, leaving the screen dark
+# until a VT switch (from ps5-linux-image).
 (
     sleep 3
     for c in /sys/class/drm/card*-*/status; do

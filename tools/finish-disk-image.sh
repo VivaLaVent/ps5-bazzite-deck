@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Make a bootc-image-builder raw disk bootable by the PS5 loader: label its EFI
-# partition "boot" and fill it the way ps5-bootc-sync does on the console.
+# Make a bootc-image-builder raw disk bootable by the PS5 loader.
 #   sudo tools/finish-disk-image.sh disk.raw
 set -euo pipefail
 IMG=${1:?usage: finish-disk-image.sh disk.raw}

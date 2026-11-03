@@ -1,5 +1,4 @@
-# PS5 Bazzite: bazzite-deck with the PS5 kernel, as a bootc image.
-# Needs the linux-ps5 RPM in kernel/ (see README).
+# Needs the linux-ps5 RPM in kernel/ (see README)
 
 ARG BASE_IMAGE=ghcr.io/ublue-os/bazzite-deck
 ARG BASE_TAG=stable
