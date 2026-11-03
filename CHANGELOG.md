@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.2] – 2026-11-<DD>
+## [v2.2] – 2026-11-03
 > **First release to include the PS5 loader, the bootc image and the classic update bundle — all from one tag.**
 > Classic update (non-bootc): v2.1.6's image with ps5-bt-addr updated, checked file by file.
 > Bootc: built fresh from this tag and pushed as `ghcr.io/vivalavent/ps5-bazzite-bootc:stable`.
