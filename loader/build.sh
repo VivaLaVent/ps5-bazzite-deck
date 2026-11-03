@@ -30,7 +30,7 @@ git -C "$WORK/loader" checkout -q "$LOADER_COMMIT"
   { echo "STOP: commit mismatch"; exit 1; }
 
 echo "--- unpatched build (baseline shellcode headers)"
-make -C "$WORK/loader" PS5_PAYLOAD_SDK="$SDK_DIR" -j"$(nproc)" 2>/dev/null
+make -C "$WORK/loader" PS5_PAYLOAD_SDK="$SDK_DIR"
 HEADER_HASHES=$(find "$WORK/loader" -path '*/shellcode_*/*.h' | sort | xargs sha256sum)
 make -C "$WORK/loader" clean 2>/dev/null || true
 
@@ -44,7 +44,7 @@ echo "--- host tests"
 make -C "$WORK/loader/tests" 2>&1 | tail -3
 
 echo "--- patched build"
-BUILD_LOG=$(make -C "$WORK/loader" PS5_PAYLOAD_SDK="$SDK_DIR" -j"$(nproc)" 2>&1)
+BUILD_LOG=$(make -C "$WORK/loader" PS5_PAYLOAD_SDK="$SDK_DIR" 2>&1)
 WARN=$(echo "$BUILD_LOG" | grep -c "warning:.*RWX" || true)
 [ "$WARN" -eq 5 ] || echo "note: expected 5 RWX warnings, got $WARN"
 
