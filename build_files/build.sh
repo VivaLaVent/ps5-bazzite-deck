@@ -14,7 +14,8 @@ CTX=/ctx
 # devel packages and kmods, which only fit Bazzite's kernel. kernel-tools stays.
 # --noscripts: linux-ps5's %post runs dracut and copies to /boot/efi, both wrong here.
 mapfile -t old < <(rpm -qa --qf '%{NAME}\n' |
-    grep -E '^kernel(-core|-modules(-core|-extra)?|-devel(-matched)?|-uki-virt)?$|^kmod-' || true)
+    grep -E '^kernel(-core|-modules(-core|-extra)?|-devel(-matched)?|-uki-virt)?$|^kmod-' |
+    grep -vx 'kmod-libs' || true)   # kmod-libs is libkmod (modprobe, depmod, udev), not a kmod
 [ ${#old[@]} -eq 0 ] || rpm -e --nodeps --noscripts "${old[@]}"
 rm -rf /usr/lib/modules/*
 
@@ -36,8 +37,10 @@ for f in /var/usrlocal/sbin/ps5-*; do
     [ -e "$f" ] || continue
     mv "$f" /usr/bin/
 done
-sed -i 's#/usr/local/sbin/#/usr/bin/#g' /etc/systemd/system/ps5-stage-firmware.service \
-    /etc/systemd/system/ps5-bt-quiet.service /etc/systemd/system/ps5-stage-gpu-firmware.service
+# (which units exist depends on the ps5-linux-image version the RPM was built with)
+for u in ps5-stage-firmware ps5-bt-quiet ps5-stage-gpu-firmware; do
+    [ -f "/etc/systemd/system/$u.service" ] && sed -i 's#/usr/local/sbin/#/usr/bin/#g' "/etc/systemd/system/$u.service"
+done
 # ps5-stage-gpu-firmware writes to /usr/lib/firmware, read-only on bootc.
 # ps5-stage-viola-fw (below) does the same job on the boot partition instead.
 rm -f /etc/systemd/system/multi-user.target.wants/ps5-stage-gpu-firmware.service
