@@ -15,8 +15,8 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 
 ## Install
 
-You need a PS5 that runs the [PS5 Linux loader](https://github.com/ps5-linux/ps5-linux-loader) and a USB drive of at
-least 32 GB (an SSD is much faster). Use a different drive from your PS5 Bazzite Deck one, so you can always swap back.
+You need a PS5 that runs the [PS5 Linux loader](https://github.com/VivaLaVent/ps5-linux-loader) (firmware 3.00 to 13.60;
+each release says which loader it was tested with) and a USB drive of at least 32 GB (an SSD is much faster). Use a different drive from your PS5 Bazzite Deck one, so you can always swap back.
 
 1. Download all `.img.7z` parts of the newest release from the [releases page](https://github.com/VivaLaVent/ps5-bazzite-bootc/releases)
    and extract them with [7-Zip](https://www.7-zip.org) (open the `.001` file).
@@ -33,6 +33,9 @@ In Steam: **Settings → System**, check for updates and apply. Or in a terminal
 After an update, restart: the PS5 starts its own system first (a warm restart is skipped once), then run the loader as
 usual and you're on the new version. Your games, settings and files are kept.
 
+Still on the old version after that? The shutdown was probably cut short (power loss, holding the power button) before
+the USB drive was updated. It catches up during the start, so restart once more and run the loader again.
+
 ## Going back to the previous version
 
 `sudo bootc rollback`, then restart and run the loader. If the new version doesn't start at all, the USB drive's
@@ -40,9 +43,12 @@ small `boot` partition has a `ROLLBACK.txt` that explains how to start the previ
 
 ## Boot options (cmdline.txt)
 
-`cmdline.txt` is on the USB drive's small `boot` partition and works as in PS5 Bazzite Deck: add an option at the end of
-the single line, for example `amdgpu.ps5_cu_unlock=3` or `amdgpu.force_1080p=1`. Options you add are kept through updates.
-You can also edit it from a PC.
+On the console: `sudo rpm-ostree kargs --append=amdgpu.ps5_cu_unlock=3` (or `--delete=` to remove one), then restart.
+This is the Bazzite way: the option becomes part of the system and survives updates and rollbacks.
+
+From a PC, for example when the screen stays black: add the option at the end of the single line in `cmdline.txt`, on
+the USB drive's small `boot` partition, for example `amdgpu.force_1080p=1`. Options added there are kept through updates
+too. What the loader reads from the drive is described in [docs/loader-contract.md](docs/loader-contract.md).
 
 ## Problems
 

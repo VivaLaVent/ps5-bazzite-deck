@@ -26,17 +26,22 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Kernel RPM from the kernel-latest release
+      - name: Kernel RPM pinned in pins.env
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release download kernel-latest --pattern 'linux-ps5-*.rpm' --dir kernel
+        run: |
+          . ./pins.env
+          gh release download kernel-latest --pattern "$KERNEL_RPM" --dir kernel
+          echo "$KERNEL_SHA256  kernel/$KERNEL_RPM" | sha256sum -c
 
       - name: Build
         id: build
         run: |
+          . ./pins.env
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE
           VERSION=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
-          podman build --pull=newer --build-arg IMAGE_VERSION="$VERSION" -t "$REF:stable" .
+          podman build --pull=newer --build-arg IMAGE_VERSION="$VERSION" --build-arg LOADER="$LOADER" \
+            -t "$REF:stable" .
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -51,6 +56,25 @@ jobs:
           podman push --digestfile digest "$REF:stable"
           podman push "$REF:stable" "$REF:${VERSION%%.*}"
           echo "digest=$(cat digest)" >> "$GITHUB_OUTPUT"
+
+      - uses: sigstore/cosign-installer@v3
+        if: github.event_name != 'pull_request'
+
+      # Consoles with the public key refuse unsigned images, so a key without a secret is an error.
+      - name: Sign
+        if: github.event_name != 'pull_request'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+          COSIGN_PASSWORD: ""
+          REF: ${{ steps.build.outputs.ref }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            [ ! -f system_files/etc/pki/containers/ps5-bazzite-bootc.pub ] || { echo "SIGNING_SECRET is missing"; exit 1; }
+            echo "not signed: no SIGNING_SECRET"; exit 0
+          fi
+          echo "${{ github.token }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cosign sign -y --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST"
 
       - name: Post to Discord
         if: github.event_name != 'pull_request'

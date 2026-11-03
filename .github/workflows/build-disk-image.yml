@@ -23,15 +23,18 @@ jobs:
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ps5-bazzite-bootc:stable
           sudo podman pull "$REF"
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "digest=$(sudo podman image inspect "$REF" --format '{{.Digest}}')" >> "$GITHUB_OUTPUT"
+          echo "loader=$(sudo podman run --rm "$REF" sed -n 's/^loader=//p' /usr/share/ps5-bazzite-bootc/VERSION)" >> "$GITHUB_OUTPUT"
           echo "tag=v$(date -u +%Y.%m.%d)" >> "$GITHUB_OUTPUT"
 
       - name: bootc-image-builder
         run: |
+          . ./pins.env
           mkdir out
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
             -v "$PWD/bib/config.toml:/config.toml:ro" -v "$PWD/out:/output" \
             -v /var/lib/containers/storage:/var/lib/containers/storage \
-            quay.io/centos-bootc/bootc-image-builder:latest \
+            "$BIB_IMAGE" \
             --type raw --rootfs ext4 --use-librepo=True "${{ steps.img.outputs.ref }}"
 
       - name: Prepare the boot partition for the PS5 loader
@@ -50,7 +53,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > notes.md <<EOF
-          Disk image of \`${{ steps.img.outputs.ref }}\`.
+          Disk image of \`${{ steps.img.outputs.ref }}@${{ steps.img.outputs.digest }}\`.
+          Tested with the loader \`${{ steps.img.outputs.loader }}\`. What the loader reads from the
+          USB drive: [docs/loader-contract.md](https://github.com/${{ github.repository }}/blob/main/docs/loader-contract.md).
 
           ## Installing
           Extract the .7z parts, flash the .img to a USB drive (32 GB or more) with Rufus or dd,

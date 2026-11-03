@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- docs/loader-contract.md: every file the loader reads from the USB drive, and who writes it.
+- pins.env pins bootc-image-builder by digest and the kernel RPM by sha256, and records the loader
+  the image was tested with (`loader=` in VERSION and in the release notes).
+- Images are cosign-signed when SIGNING_SECRET is set; with the public key in system_files the image
+  ships a containers policy for this repository.
+- The boot partition is found as an EFI partition or by the label `boot` (/dev/ps5-boot); vram.txt is
+  no longer copied (the loader's default is the same 512 MB).
+- ps5-bootc-sync warns at boot when an older deployment than the default was started (a cut-off
+  shutdown after an update); the README says what to do.
+- README: kernel options on the console with `rpm-ostree kargs`; links the VivaLaVent loader fork.
+
+## Increment 5
+
 - README for users (install, updating, rollback, boot options), in PS5 Bazzite Deck's style;
   how it works and building moved to docs/building.md.
 

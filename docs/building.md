@@ -34,10 +34,45 @@ ps5-linux-image does for its Bazzite target, with these differences:
   read-only. `ps5-stage-viola-fw` does the same job on the boot partition;
 - no repo.etawen.dev: the kernel comes with the image.
 
+## Pinned inputs
+
+Two builds of the same commit should give the same system, so nothing is fetched as "latest": `pins.env` holds the
+bootc-image-builder digest, the kernel RPM's name and sha256, and the loader the image was last tested with. CI fails
+when the downloaded RPM doesn't match. Update a pin on purpose, in its own commit:
+
+```sh
+cd ~/ps5-bazzite-bootc
+command -v skopeo >/dev/null || sudo apt install -y skopeo
+D=$(skopeo inspect docker://quay.io/centos-bootc/bootc-image-builder:latest --format '{{.Digest}}')
+R=$(basename ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm)
+S=$(sha256sum ~/ps5-build-7.3/linux-bin/"$R" | cut -d' ' -f1)
+L=$(git ls-remote https://github.com/VivaLaVent/ps5-linux-loader HEAD | cut -c1-12)
+printf 'BIB_IMAGE=quay.io/centos-bootc/bootc-image-builder@%s\nKERNEL_RPM=%s\nKERNEL_SHA256=%s\nLOADER=VivaLaVent/ps5-linux-loader@%s\n' "$D" "$R" "$S" "$L" > pins.env
+cat pins.env
+```
+
+`LOADER` is a record, not a download: set it to the loader commit you actually booted the image with.
+
+## Signing
+
+CI signs every pushed image with cosign when the `SIGNING_SECRET` secret is set. Once
+`system_files/etc/pki/containers/ps5-bazzite-bootc.pub` exists, the image also carries a containers policy that only
+accepts signed images from this repository, and CI refuses to push unsigned. A console checks signatures once it
+switches with `sudo bootc switch --enforce-container-sigpolicy ghcr.io/vivalavent/ps5-bazzite-bootc:stable`.
+
+```sh
+cosign generate-key-pair      # empty password; keep cosign.key private and out of git
+gh secret set SIGNING_SECRET --repo VivaLaVent/ps5-bazzite-bootc < cosign.key
+install -Dm644 cosign.pub system_files/etc/pki/containers/ps5-bazzite-bootc.pub
+```
+
+Push the signing secret first and the public key in a later commit, so the image that starts enforcing is already
+signed.
+
 ## Building the image
 
-The image needs the `linux-ps5` RPM, which this repo doesn't build (yet). CI downloads it from
-the release tagged `kernel-latest`. A full ps5-bazzite-deck `build.sh` run leaves it in
+The image needs the `linux-ps5` RPM, which this repo doesn't build (yet). CI downloads the file named in
+`pins.env` from the release tagged `kernel-latest` and checks its sha256. A full ps5-bazzite-deck `build.sh` run leaves it in
 `~/ps5-build-7.3/linux-bin/`. After kernel changes made with `tools/quick-kernel.sh`, repackage
 the same tree (incremental, a few minutes) and replace it:
 
@@ -47,6 +82,8 @@ mkdir -p linux-bin/old && sudo mv linux-bin/*.rpm linux-bin/old/   # an RPM ther
 ./build_image.sh --kernel-only --distro bazzite-deck --kernel "$PWD/work/linux73"
 gh release upload kernel-latest linux-bin/linux-ps5-*.rpm --clobber --repo VivaLaVent/ps5-bazzite-bootc
 ```
+
+Then update `KERNEL_RPM` and `KERNEL_SHA256` in `pins.env` (above) and push.
 
 The first time, create the release instead: `gh release create kernel-latest
 linux-bin/linux-ps5-*.rpm --prerelease --title "PS5 kernel" --notes "linux-ps5 for the image build"`.
@@ -63,7 +100,7 @@ Disk image (or run the *Build disk image* workflow):
 ```sh
 sudo podman run --rm --privileged -v ./bib/config.toml:/config.toml:ro -v ./out:/output \
   -v /var/lib/containers/storage:/var/lib/containers/storage \
-  quay.io/centos-bootc/bootc-image-builder:latest --type raw --rootfs ext4 \
+  "$(. ./pins.env; echo "$BIB_IMAGE")" --type raw --rootfs ext4 \
   localhost/ps5-bazzite-bootc
 sudo tools/finish-disk-image.sh out/image/disk.raw
 ```

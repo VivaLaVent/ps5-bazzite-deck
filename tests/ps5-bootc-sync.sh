@@ -46,5 +46,12 @@ check "second upgrade boots c" "$(cat "$E/bzImage")" kernel-c
 check "karg dropped by the image is gone" "$(grep -c newkarg "$E/cmdline.txt" || true)" 0
 check "a pruned, b kept" "$(ls "$E/ostree")" bbbbbbbbbbbb
 
+grep -o 'ostree=[^ ]*' "$B/loader/entries/ostree-b.conf" > "$T/cmdline"
+check "warns when booted from an older entry" \
+    "$(python3 -I "$SYNC" --boot "$B" --esp "$E" --cmdline "$T/cmdline" | grep -c 'older deployment')" 1
+grep -o 'ostree=[^ ]*' "$B/loader/entries/ostree-c.conf" > "$T/cmdline"
+check "quiet when booted from the default" \
+    "$(python3 -I "$SYNC" --boot "$B" --esp "$E" --cmdline "$T/cmdline" | grep -c 'older deployment' || true)" 0
+
 touch "$E/path-override.txt"; deployment d 3; sync
 check "hands off during a manual rollback" "$(cat "$E/bzImage")" kernel-c

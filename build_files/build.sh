@@ -85,6 +85,19 @@ dnf5 install -y --setopt=install_weak_deps=False \
     kdiff3 gwenview ark okular spectacle chrony cpio
 dnf5 clean all
 
+# --- image signature, once a public key ships in system_files
+KEY=/etc/pki/containers/ps5-bazzite-bootc.pub
+if [ -f "$KEY" ]; then
+    REPO=ghcr.io/vivalavent/ps5-bazzite-bootc
+    jq --arg r "$REPO" --arg k "$KEY" \
+        '.transports.docker[$r] = [{type: "sigstoreSigned", keyPath: $k, signedIdentity: {type: "matchRepository"}}]' \
+        /etc/containers/policy.json > /tmp/policy.json
+    mv /tmp/policy.json /etc/containers/policy.json
+    mkdir -p /etc/containers/registries.d
+    printf 'docker:\n  %s:\n    use-sigstore-attachments: true\n' "$REPO" \
+        > /etc/containers/registries.d/ps5-bazzite-bootc.yaml
+fi
+
 # --- version
 DECK=$(sed -n 's/.* at \(v[0-9.]*\) .*/\1/p' "$CTX/ps5/VENDORED")
 mkdir -p /usr/share/ps5-bazzite-bootc
@@ -93,6 +106,7 @@ version=$IMAGE_VERSION
 base=$BASE_IMAGE
 kernel=$KVER
 deck=$DECK
+loader=$LOADER
 EOF
 echo "$IMAGE_VERSION (bootc, ps5-bazzite-deck $DECK)" > /etc/ps5-bazzite-deck-version   # for ps5-report
 

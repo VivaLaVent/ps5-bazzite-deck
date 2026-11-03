@@ -13,10 +13,11 @@ FROM ${BASE_IMAGE}:${BASE_TAG}
 ARG BASE_IMAGE
 ARG BASE_TAG
 ARG IMAGE_VERSION=dev
+ARG LOADER=unknown
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
-    BASE_IMAGE="${BASE_IMAGE}:${BASE_TAG}" IMAGE_VERSION="${IMAGE_VERSION}" \
+    BASE_IMAGE="${BASE_IMAGE}:${BASE_TAG}" IMAGE_VERSION="${IMAGE_VERSION}" LOADER="${LOADER}" \
     /ctx/build_files/build.sh
 
 RUN --mount=type=tmpfs,target=/run --network=none \

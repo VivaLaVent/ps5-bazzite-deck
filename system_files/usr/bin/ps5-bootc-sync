@@ -52,7 +52,7 @@ def mount_esp():
             return d, False
     d = "/run/ps5-bootc-sync"
     os.makedirs(d, exist_ok=True)
-    if subprocess.run(["mount", "LABEL=boot", d]).returncode == 0:
+    if subprocess.run(["mount", "/dev/ps5-boot", d]).returncode == 0:
         return d, True
     return None, False
 
@@ -97,11 +97,20 @@ def merge_cmdline(current, old_bls, new_bls):
     return " ".join(new_bls.split() + user)
 
 
-def sync(boot, esp, dry):
+def ostree_arg(cmdline):
+    return next((t for t in cmdline.split() if t.startswith("ostree=")), None)
+
+
+def sync(boot, esp, dry, booted=None):
     entries = read_entries(boot)
     if not entries:
         log(f"no boot entries in {boot}/loader/entries, nothing to do")
         return 0
+    # At boot the default should be what's running. It isn't when the shutdown after
+    # an update was cut off before this script ran: the loader started the old one.
+    if booted and ostree_arg(booted) != ostree_arg(entries[0].get("options", "")):
+        log(f"booted an older deployment than the default ({entries[0].get('title', '')}): "
+            "restart and run the loader to start it")
 
     state_file = os.path.join(esp, STATE)
     try:
@@ -176,6 +185,7 @@ def main():
     ap.add_argument("--boot", default="/boot", help="ostree /boot, holds loader/entries")
     ap.add_argument("--esp", help="the FAT partition the PS5 loader reads (found by itself)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--cmdline", help="check the running deployment against this kernel command line")
     a = ap.parse_args()
 
     if os.path.exists(os.path.join(a.esp or "/boot/efi", "path-override.txt")):
@@ -184,10 +194,11 @@ def main():
 
     esp, mounted = (a.esp, False) if a.esp else mount_esp()
     if not esp:
-        log("boot partition (FAT, label 'boot') not found")
+        log("boot partition (/dev/ps5-boot) not found")
         return 1
     try:
-        return sync(a.boot, esp, a.dry_run)
+        booted = open(a.cmdline).read() if a.cmdline and os.path.exists(a.cmdline) else None
+        return sync(a.boot, esp, a.dry_run, booted)
     finally:
         if mounted:
             subprocess.run(["umount", esp])

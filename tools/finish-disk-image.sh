@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Make a bootc-image-builder raw disk bootable by the PS5 loader.
+# Put the kernel, initramfs and cmdline.txt on a bootc-image-builder disk's EFI partition,
+# where the PS5 loader needs them for the first start (docs/loader-contract.md).
 #   sudo tools/finish-disk-image.sh disk.raw
 set -euo pipefail
 IMG=${1:?usage: finish-disk-image.sh disk.raw}
@@ -22,9 +23,8 @@ for p in "$LOOP"p*; do
 done
 [ -n "$ESP" ] && [ -n "$BOOT" ] || { echo "no EFI or /boot partition in $IMG" >&2; exit 1; }
 
-fatlabel "$ESP" boot
+fatlabel "$ESP" boot   # the name ps5-bazzite-deck's docs use; nothing depends on it
 mount "$ESP" "$M/esp"
-cp "$HERE/boot/vram.txt" "$M/esp/"
 "$HERE/system_files/usr/bin/ps5-bootc-sync" --boot "$M/boot" --esp "$M/esp"
 ls -l "$M/esp"
 cat "$M/esp/cmdline.txt"

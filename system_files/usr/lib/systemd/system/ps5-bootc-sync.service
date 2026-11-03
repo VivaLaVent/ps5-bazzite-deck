@@ -12,7 +12,7 @@ Conflicts=shutdown.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/bin/ps5-bootc-sync
+ExecStart=/usr/bin/ps5-bootc-sync --cmdline /proc/cmdline
 ExecStop=/usr/bin/ps5-bootc-sync
 TimeoutStopSec=5min
 
