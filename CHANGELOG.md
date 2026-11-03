@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.1.4] – 2026-11-<DD>
+## [v2.1.4] – 2026-11-03
 > v2.1.3's image with the changed Bluetooth script installed into it, checked file by file.
 - **Fix: Bluetooth adapter gone after the Linux-only address is set on original PS5s (IW620)** (Storm): after the re-initialisation that makes the kernel pick up the new address, the chip needs a moment before it answers HCI commands; the retry came too fast and timed out, taking the adapter down. A `sleep 3` after the power cycle and `sleep 2` before the retry address it; the HCI socket timeout on the retry path also increased from 5 to 10 s
 
