@@ -20,8 +20,8 @@ then starts the new version.
 
 ## Differences from ps5-bazzite-deck
 
-The PS5 scripts, units and rules in `ps5/` are copied unchanged from ps5-bazzite-deck
-(`ps5/VENDORED` says which commit). `build_files/build.sh` installs them, and does what
+`build_files/build.sh` installs the same PS5 scripts, units and rules as the classic update bundle,
+straight from `files/` and the FILES list in `tools/make-update-bundle.sh`, and does what
 ps5-linux-image does for its Bazzite target, with these differences:
 
 - nothing ships in `/usr/local` (it lives in `/var` on bootc, and bootc never updates `/var`):
@@ -41,13 +41,13 @@ bootc-image-builder digest, the kernel RPM's name and sha256, and the loader the
 when the downloaded RPM doesn't match. Update a pin on purpose, in its own commit:
 
 ```sh
-cd ~/ps5-bazzite-bootc
+cd ~/ps5-bazzite-deck/bootc
 command -v skopeo >/dev/null || sudo apt install -y skopeo
 D=$(skopeo inspect docker://quay.io/centos-bootc/bootc-image-builder:latest --format '{{.Digest}}')
 R=$(basename ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm)
 S=$(sha256sum ~/ps5-build-7.3/linux-bin/"$R" | cut -d' ' -f1)
 L=$(git ls-remote https://github.com/VivaLaVent/ps5-linux-loader HEAD | cut -c1-12)
-printf 'BIB_IMAGE=quay.io/centos-bootc/bootc-image-builder@%s\nKERNEL_RPM=%s\nKERNEL_SHA256=%s\nLOADER=VivaLaVent/ps5-linux-loader@%s\n' "$D" "$R" "$S" "$L" > pins.env
+printf 'BIB_IMAGE=quay.io/centos-bootc/bootc-image-builder@%s\nKERNEL_REPO=VivaLaVent/ps5-bazzite-bootc\nKERNEL_TAG=kernel-latest\nKERNEL_RPM=%s\nKERNEL_SHA256=%s\nLOADER=VivaLaVent/ps5-linux-loader@%s\n' "$D" "$R" "$S" "$L" > pins.env
 cat pins.env
 ```
 
@@ -62,7 +62,7 @@ switches with `sudo bootc switch --enforce-container-sigpolicy ghcr.io/vivalaven
 
 ```sh
 cosign generate-key-pair      # empty password; keep cosign.key private and out of git
-gh secret set SIGNING_SECRET --repo VivaLaVent/ps5-bazzite-bootc < cosign.key
+gh secret set SIGNING_SECRET --repo VivaLaVent/ps5-bazzite-deck < cosign.key
 install -Dm644 cosign.pub system_files/etc/pki/containers/ps5-bazzite-bootc.pub
 ```
 
@@ -91,11 +91,11 @@ linux-bin/linux-ps5-*.rpm --prerelease --title "PS5 kernel" --notes "linux-ps5 f
 Locally:
 
 ```sh
-cp ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm kernel/
-podman build -t ps5-bazzite-bootc .
+cp ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm bootc/kernel/     # from the repository root
+podman build -f bootc/Containerfile -t ps5-bazzite-bootc .
 ```
 
-Disk image (or run the *Build disk image* workflow):
+Disk image, from `bootc/` (or run the *Build bootc disk image* workflow):
 
 ```sh
 sudo podman run --rm --privileged -v ./bib/config.toml:/config.toml:ro -v ./out:/output \
@@ -110,7 +110,18 @@ changing `ps5-bootc-sync`.
 
 ## GitHub setup
 
+In the ps5-bazzite-deck repository:
+
 - Settings → Actions → General → Workflow permissions: *Read and write*.
-- Secrets: `DISCORD_RELEASES_WEBHOOK` and `DISCORD_PRERELEASE_WEBHOOK` (the ones
-  ps5-bazzite-deck uses) and `DISCORD_TESTING_WEBHOOK` (posts every image push).
-- After the first push: make the `ps5-bazzite-bootc` package public in its package settings.
+- Secrets: `SIGNING_SECRET` (cosign key) and `DISCORD_TESTING_WEBHOOK` (posts every image push), next to the
+  release webhooks ps5-bazzite-deck already has.
+- The image keeps its name, `ghcr.io/vivalavent/ps5-bazzite-bootc`, so consoles keep updating. Its package
+  settings → *Manage Actions access* → add ps5-bazzite-deck with the *Write* role.
+
+## Releases
+
+- **vX.Y.Z**: the quick kernel package for classic installs, as before. bootc consoles get the change through
+  their next update, since every push to `main` builds the image.
+- **vX.Y**: the same, plus the bootc disk image for new installs. Create the release, then run
+  *Build bootc disk image* with that tag: `gh workflow run bootc-build-disk-image.yml -f release=vX.Y`. It
+  attaches `ps5-bazzite-deck-bootc-vX.Y.img.7z.*` and its `.sha256` to the release.

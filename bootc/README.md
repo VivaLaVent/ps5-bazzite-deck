@@ -18,7 +18,8 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 You need a PS5 that runs the [PS5 Linux loader](https://github.com/VivaLaVent/ps5-linux-loader) (firmware 3.00 to 13.60;
 each release says which loader it was tested with) and a USB drive of at least 32 GB (an SSD is much faster). Use a different drive from your PS5 Bazzite Deck one, so you can always swap back.
 
-1. Download all `.img.7z` parts of the newest release from the [releases page](https://github.com/VivaLaVent/ps5-bazzite-bootc/releases)
+1. Download all `ps5-bazzite-deck-bootc-*.img.7z` parts of the newest X.Y release (v2.2, v2.3, …) from the
+   [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases)
    and extract them with [7-Zip](https://www.7-zip.org) (open the `.001` file).
 2. Write the `.img` to the USB drive with [Rufus](https://rufus.ie). This erases the drive.
 3. Plug it into a **rear** USB-A port of the PS5.
@@ -53,7 +54,7 @@ too. What the loader reads from the drive is described in [docs/loader-contract.
 ## Problems
 
 Run `ps5-report` in a terminal and post the file it makes, with what you did and what happened, on Discord or as a
-[GitHub issue](https://github.com/VivaLaVent/ps5-bazzite-bootc/issues). Mention that it's the bootc version.
+[GitHub issue](https://github.com/VivaLaVent/ps5-bazzite-deck/issues). Mention that it's the bootc version.
 
 ## Join the PS5 Linux community on Discord
 

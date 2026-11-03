@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Part of ps5-bazzite-deck now (bootc/). The PS5 files come straight from `files/` and the classic
+  update bundle's FILES list instead of a vendored copy, so both flavours ship the same scripts (now v2.1.6's).
+- The disk image is attached to an existing X.Y release (`bootc-build-disk-image.yml -f release=vX.Y`).
+- The kernel RPM's location is pinned too (`KERNEL_REPO`, `KERNEL_TAG` in pins.env).
+
+## Increment 9
+
 - `bootc status` shows this image's version instead of Bazzite's (version label set again).
 
 ## Increment 8

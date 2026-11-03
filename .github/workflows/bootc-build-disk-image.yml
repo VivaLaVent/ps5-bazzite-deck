@@ -1,8 +1,12 @@
-name: Build disk image
-# Turns ghcr.io/<owner>/ps5-bazzite-bootc:stable into a flashable .img and publishes it as a
-# pre-release (discord-release.yml announces it). Manual for now; weekly once it's proven.
+name: Build bootc disk image
+# For X.Y releases: turns ghcr.io/<owner>/ps5-bazzite-bootc:stable into a flashable .img and
+# attaches it to that release (which must exist already).
 on:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "release tag to attach the image to, e.g. v2.2"
+        required: true
 
 jobs:
   disk:
@@ -11,6 +15,9 @@ jobs:
     permissions:
       contents: write
       packages: read
+    defaults:
+      run:
+        working-directory: bootc
     steps:
       - uses: actions/checkout@v5
 
@@ -25,7 +32,7 @@ jobs:
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "digest=$(sudo podman image inspect "$REF" --format '{{.Digest}}')" >> "$GITHUB_OUTPUT"
           echo "loader=$(sudo podman run --rm "$REF" sed -n 's/^loader=//p' /usr/share/ps5-bazzite-bootc/VERSION)" >> "$GITHUB_OUTPUT"
-          echo "tag=v$(date -u +%Y.%m.%d)" >> "$GITHUB_OUTPUT"
+          echo "tag=${{ github.event.inputs.release }}" >> "$GITHUB_OUTPUT"
 
       - name: bootc-image-builder
         run: |
@@ -44,25 +51,13 @@ jobs:
 
       - name: Compress
         run: |
-          N=ps5-bazzite-bootc-${{ steps.img.outputs.tag }}.img
+          N=ps5-bazzite-deck-bootc-${{ steps.img.outputs.tag }}.img
           sudo mv out/image/disk.raw "out/$N"
-          cd out && 7z a -v1900m -mx=5 "$N.7z" "$N" >/dev/null && sha256sum "$N".7z.* > SHA256SUMS
+          cd out && 7z a -v1900m -mx=5 "$N.7z" "$N" >/dev/null && sha256sum "$N".7z.* > "$N.sha256"
 
-      - name: Release
+      - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > notes.md <<EOF
-          Disk image of \`${{ steps.img.outputs.ref }}@${{ steps.img.outputs.digest }}\`.
-          Tested with the loader \`${{ steps.img.outputs.loader }}\`. What the loader reads from the
-          USB drive: [docs/loader-contract.md](https://github.com/${{ github.repository }}/blob/main/docs/loader-contract.md).
-
-          ## Installing
-          Extract the .7z parts, flash the .img to a USB drive (32 GB or more) with Rufus or dd,
-          start the PS5 Linux loader as usual. Login: ps5 / ps5.
-
-          ## Updating
-          \`sudo bootc upgrade\`, then restart. To undo an update: \`sudo bootc rollback\`.
-          EOF
-          gh release create "${{ steps.img.outputs.tag }}" out/*.7z.* out/SHA256SUMS \
-            --prerelease --title "PS5 Bazzite bootc ${{ steps.img.outputs.tag }}" --notes-file notes.md
+          gh release upload "${{ steps.img.outputs.tag }}" out/*.7z.* out/*.sha256 --clobber
+          echo "Attached. Image: ${{ steps.img.outputs.ref }}@${{ steps.img.outputs.digest }}, loader: ${{ steps.img.outputs.loader }}"

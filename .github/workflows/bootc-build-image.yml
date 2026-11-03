@@ -1,11 +1,12 @@
-name: Build image
+name: Build bootc image
 # Pushes ghcr.io/<owner>/ps5-bazzite-bootc:{stable,<date>} from main, nightly so Bazzite
 # updates come through, and builds pull requests without pushing.
 on:
   push:
     branches: [main]
-    paths-ignore: ["**.md", "docs/**"]
+    paths: ["bootc/**", "files/**", "tools/**", ".github/workflows/bootc-build-image.yml"]
   pull_request:
+    paths: ["bootc/**", "files/**", "tools/**", ".github/workflows/bootc-build-image.yml"]
   schedule:
     - cron: "41 4 * * *"
   workflow_dispatch:
@@ -23,15 +24,20 @@ jobs:
     permissions:
       contents: read
       packages: write
+    defaults:
+      run:
+        working-directory: bootc
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # tags, for the deck version in the image
 
       - name: Kernel RPM pinned in pins.env
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           . ./pins.env
-          gh release download kernel-latest --pattern "$KERNEL_RPM" --dir kernel
+          gh release download "$KERNEL_TAG" --repo "$KERNEL_REPO" --pattern "$KERNEL_RPM" --dir kernel
           echo "$KERNEL_SHA256  kernel/$KERNEL_RPM" | sha256sum -c
 
       - name: Build
@@ -41,7 +47,7 @@ jobs:
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE
           VERSION=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
           podman build --pull=newer --build-arg IMAGE_VERSION="$VERSION" --build-arg LOADER="$LOADER" \
-            -t "$REF:stable" .
+            --build-arg DECK="$(git describe --tags --always)" -f Containerfile -t "$REF:stable" ..
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 

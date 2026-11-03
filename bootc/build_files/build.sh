@@ -47,14 +47,20 @@ done
 rm -f cyan_skillfish*.xz
 cd /
 
-# --- PS5 files from ps5-bazzite-deck
-grep -v '^#' "$CTX/ps5/install.list" | while read -r src dst mode; do
-    [ -n "$src" ] || continue
-    install -Dm"${mode:-644}" "$CTX/ps5/$src" "$dst"
+# --- PS5 files: the same list the classic update bundle installs (tools/make-update-bundle.sh),
+# with /usr/local moved to /usr. ps5-iw620-modprobe.conf is generated there; here it's
+# system_files/usr/lib/modprobe.d/ps5.conf.
+sed -n "/^cat > \"\$OUT\/FILES\" << 'L'/,/^L\$/p" "$CTX/deck/tools/make-update-bundle.sh" | sed '1d;$d' |
+while read -r src dst mode; do
+    [ "$src" = ps5-iw620-modprobe.conf ] && continue
+    f=$CTX/deck/files/$src; [ -f "$f" ] || f=$CTX/deck/tools/$src
+    dst=$(echo "$dst" | sed -e 's#^/usr/local/s\?bin/#/usr/bin/#' -e 's#^/usr/local/share/#/usr/share/#')
+    install -Dm"${mode:-644}" "$f" "$dst"
     sed -i -e 's#/usr/local/s\?bin/#/usr/bin/#g' -e 's#/usr/local/share/#/usr/share/#g' "$dst"
 done
-[ -e /usr/sbin/kexec ] || ln -s ps5-kexec-shim /usr/bin/kexec
-bash "$CTX/ps5/bt-mainconf.sh" /etc/bluetooth/main.conf
+[ -e /usr/sbin/kexec ] || install -Dm755 "$CTX/deck/files/kexec-shim" /usr/bin/kexec
+sed -i 's#/usr/local/s\?bin/#/usr/bin/#g' /usr/bin/kexec 2>/dev/null || true
+bash "$CTX/deck/tools/bt-mainconf.sh" /etc/bluetooth/main.conf
 
 cp -a "$CTX/system_files/." /
 
@@ -99,7 +105,6 @@ if [ -f "$KEY" ]; then
 fi
 
 # --- version
-DECK=$(sed -n 's/.* at \(v[0-9.]*\) .*/\1/p' "$CTX/ps5/VENDORED")
 mkdir -p /usr/share/ps5-bazzite-bootc
 cat > /usr/share/ps5-bazzite-bootc/VERSION <<EOF
 version=$IMAGE_VERSION
