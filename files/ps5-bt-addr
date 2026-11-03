@@ -105,7 +105,7 @@ def open_hci():
     # struct hci_ufilter is 16 bytes with padding. The kernel rejects 14.
     s.setsockopt(socket.SOL_HCI, socket.HCI_FILTER,
                  struct.pack("<IIIHxx", 1 << 4, (1 << 0x0E) | (1 << 0x0F), 0, 0))
-    s.settimeout(5)
+    s.settimeout(10)  # longer on the retry: chip may still be settling after the power-cycle
     return s
 
 def command(s, opcode, params=b""):
@@ -178,11 +178,13 @@ was_active=0
 [ "$was_active" = 1 ] && systemctl stop bluetooth.service
 btmgmt --index $IDX power off >/dev/null
 btmgmt --index $IDX power on >/dev/null
+sleep 3   # chip needs a moment after the power cycle before it answers HCI commands
 kern=$(kernel_addr)
 echo "kernel uses $kern now"
 if [ "$kern" != "$chip" ]; then
-    # re-initialising made the chip drop the address
+    # re-initialising dropped the address; the chip may still be settling, so wait before retry
     echo "the chip went back to $kern, setting the Linux address again"
+    sleep 2
     PS5_BT_NO_REINIT=1 "$0"
 fi
 [ "$was_active" = 1 ] && systemctl start --no-block bluetooth.service
