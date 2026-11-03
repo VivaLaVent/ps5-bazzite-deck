@@ -110,6 +110,16 @@ loader=$LOADER
 EOF
 echo "$IMAGE_VERSION (bootc, ps5-bazzite-deck $DECK)" > /etc/ps5-bazzite-deck-version   # for ps5-report
 
+# The PS5 kernel has no EROFS, so composefs can't mount the root ("No such device").
+# Without it ostree bind-mounts the deployment, as before composefs.
+C=/usr/lib/ostree/prepare-root.conf
+if grep -q '^\[composefs\]' "$C" 2>/dev/null; then
+    sed -i '/^\[composefs\]/,/^\[/ s/^enabled *=.*/enabled = no/' "$C"
+else
+    printf '[composefs]\nenabled = no\n' >> "$C"
+fi
+cat "$C"
+
 # --- initramfs, last: amdgpu loads from it, so it needs the firmware and options above.
 # Same as Bazzite's build-initramfs.sh.
 mkdir -p /var/roothome   # /root links here; dracut fails without it

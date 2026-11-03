@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- composefs off in prepare-root.conf: the PS5 kernel has no EROFS, so the first real boot stopped in
+  ostree-prepare-root ("Failed to mount composefs: No such device"). Back on once the kernel has EROFS.
+
+## Increment 6
+
 - docs/loader-contract.md: every file the loader reads from the USB drive, and who writes it.
 - pins.env pins bootc-image-builder by digest and the kernel RPM by sha256, and records the loader
   the image was tested with (`loader=` in VERSION and in the release notes).
