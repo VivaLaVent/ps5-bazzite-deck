@@ -39,25 +39,25 @@ def section(text, name):
 
 def files_section(tag, assets):
     base = f"ps5-bazzite-deck-{tag}"
-    lines, used = [], set()
+    lines = []
     vols = sorted(a for a in assets if re.fullmatch(rf"{re.escape(base)}\.img\.7z\.\d{{3}}", a))
     if vols:
-        lines.append(f"- `{base}.img.7z.{'/.'.join(v.rsplit('.', 1)[1] for v in vols)}` – the image as a 7-Zip multi-volume archive (extract from `.001`)")
-        used.update(vols)
-    for name, desc in [(f"{base}.sha256", "checksums of the image volumes"),
-                       (f"{base}-update.tar.xz", "in-place update bundle (see Updating)"),
-                       (f"{base}-update.tar.xz.sha256", "its checksum"),
-                       ("btusb.ko", "Bluetooth module for v1.0.2 users (see Updating)"),
-                       ("VERSIONS.md", "exact upstream versions"),
-                       ("local-changes.diff", "changes applied to the upstream image builder")]:
+        lines.append(f"- `{base}.img.7z.{'/.'.join(v.rsplit('.', 1)[1] for v in vols)}` \u2013 the full image as a 7-Zip multi-volume archive (extract from `.001`)")
+    bootc_vols = sorted(a for a in assets if re.fullmatch(rf"ps5-bazzite-deck-bootc-{re.escape(tag)}\.img\.7z\.\d{{3}}", a))
+    if bootc_vols:
+        lines.append(f"- `ps5-bazzite-deck-bootc-{tag}.img.7z.*` \u2013 bootc disk image as a 7-Zip multi-volume archive (extract from `.001`)")
+    for name, desc in [
+        (f"{base}.sha256", "checksums for the image volumes"),
+        (f"ps5-bazzite-deck-bootc-{tag}.sha256", "checksums for the bootc image volumes"),
+        (f"{base}-update.tar.gz", "in-place update (see Updating above)"),
+        (f"{base}-update.tar.gz.sha256", "checksum for the update"),
+        (f"{base}-update.tar.xz", "in-place update (see Updating above)"),
+        (f"{base}-update.tar.xz.sha256", "checksum for the update"),
+        (f"ps5-linux-loader-{tag}.elf", "PS5 loader ELF, built from source"),
+        (f"ps5-linux-loader-{tag}.elf.sha256", "loader checksum"),
+    ]:
         if name in assets:
-            lines.append(f"- `{name}` – {desc}")
-            used.add(name)
-    patches = sorted(a for a in assets if a.endswith(".patch"))
-    if patches:
-        lines.append(f"- `*.patch` ({len(patches)}) – kernel and driver patches used in this build")
-        used.update(patches)
-    lines += [f"- `{a}`" for a in assets if a not in used]
+            lines.append(f"- `{name}` \u2013 {desc}")
     return "## Files\n" + "\n".join(lines) + "\n"
 
 
