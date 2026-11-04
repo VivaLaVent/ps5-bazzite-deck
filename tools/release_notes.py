@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the GitHub release notes of v1.0.3 and newer in one common structure and update them.
+"""Render the GitHub release notes in one common structure and update them.
 
   python3 tools/release_notes.py            # render to /tmp/release-notes/<tag>.md and update GitHub
   python3 tools/release_notes.py --dry-run  # render only
@@ -90,10 +90,10 @@ def render(tag, tmp):
     problems = (f"**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\n"
                 f"Like the project? Support it on [Ko-fi]({KOFI}).\n")
     if section(per, "Legacy"):
-        # v2.5 on: bootc and legacy each with their own new install and updating
+        # v2.5 on: bootc first (new install, updating), Legacy last as a footnote
         parts = ["## What's new\n" + section(per, "What's new") + "\n",
-                 secs("Bootc (experimental)", "Legacy", "Problems"), known,
-                 secs("What to test", "Sharing logs"), versions, files_section(tag, assets), "---\n" + problems]
+                 secs("bootc", "Bootc (experimental)", "Problems"), known,
+                 secs("What to test", "Sharing logs", "Legacy"), versions, files_section(tag, assets), "---\n" + problems]
         return "\n".join(p for p in parts if p)
     parts = ["## What's new\n" + section(per, "What's new") + "\n",
              ("## VRR test\n" + vrr + "\n") if vrr else "", before, upd + "\n", after,

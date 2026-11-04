@@ -1,5 +1,5 @@
 #!/bin/bash
-# In-place update to this bundle's version (from v1.0.3). On the PS5: bash update.sh
+# In-place update of a Legacy install to this bundle's version. On the PS5: bash update.sh
 set -euo pipefail
 [ -e /run/ostree-booted ] && { echo "This is a bootc install: update with  sudo bootc upgrade"; exit 1; }
 cd "$(dirname "$0")"
