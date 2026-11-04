@@ -10,8 +10,8 @@ RELEASE="${RELEASE:-$(git -C "$SRC" describe --tags --always 2>/dev/null || echo
 REPO="${REPO:-$HOME/ps5-build-7.3}"   # fresh build directory
 OLD="${OLD:-$HOME/ps5-linux-image}"   # previous build dir, only used to reuse its download cache
 BUILDER_COMMIT=52db0a4                 # ps5-linux/ps5-linux-image
-PATCHES_BRANCH=meower                  # rmuxnet/ps5-linux-patches-1, 7.3 port
-KERNEL_TAG=v7.3
+PATCHES_BRANCH=shitshow                # rmuxnet/ps5-linux-patches-1, 7.3.1 port
+KERNEL_TAG=v7.3.1
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
 for t in git docker; do command -v $t >/dev/null || { echo "missing tool: $t"; exit 1; }; done
@@ -49,9 +49,9 @@ cp "$SRC/patches/ps5-iw620-kernel73-compat.patch" extra-patches/
 echo "==> 3. kernel source: $KERNEL_TAG + $PATCHES_BRANCH patches"
 mkdir -p work
 git clone -q -b "$PATCHES_BRANCH" https://github.com/rmuxnet/ps5-linux-patches-1 work/ps5-linux-patches
-git -C work/ps5-linux-patches checkout -q baee34d        # pinned: the commit patches/ is made against
-git -C work/ps5-linux-patches apply "$SRC/patches/ps5-linux-patches-pr4-s2idle.patch"   # suspend-to-idle (Dasloh, PR #4): linux.patch + .config
+git -C work/ps5-linux-patches checkout -q 8de2aff        # pinned: the commit patches/ was ported onto
 sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-viva"/' work/ps5-linux-patches/.config
+sed -i 's/^# CONFIG_SUSPEND is not set/CONFIG_SUSPEND=y/' work/ps5-linux-patches/.config   # suspend-to-idle (patches/ps5-s2idle.patch)
 sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"/' work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_DEBUG_INFO_BTF is not set/CONFIG_DEBUG_INFO_BTF=y/' work/ps5-linux-patches/.config
 sed -i 's/^CONFIG_USB_AUTOSUSPEND_DELAY=.*/CONFIG_USB_AUTOSUSPEND_DELAY=-1/' work/ps5-linux-patches/.config   # USB never sleeps: the kernel default now, not a cmdline option
@@ -63,12 +63,11 @@ sed -i 's/^CONFIG_PS5_GPUFREQ=.*/# CONFIG_PS5_GPUFREQ is not set/' work/ps5-linu
 for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do sed -i "s/^# CONFIG_$o is not set/CONFIG_$o=y/" work/ps5-linux-patches/.config; done   # wheel force feedback, as rmux's meower (36b9828)
 git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git work/linux73
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
-git -C work/linux73 apply "$SRC/patches/ps5-bluetooth.patch"     # MediaTek bulk-OUT endpoint (Slim), PS5 Pro adapter
-git -C work/linux73 apply "$SRC/patches/ps5-display.patch"       # HDMI chip fixes, CEC, VRR, 4K120, USB-C DisplayPort
-git -C work/linux73 apply "$SRC/patches/ps5-gpu-overlay.patch"   # GPU load and temperature for the Steam overlay
-git -C work/linux73 apply "$SRC/patches/ps5-fan.patch"           # fan curve control, no spike at shutdown
-git -C work/linux73 apply "$SRC/patches/ps5-pro.patch"           # PS5 Pro GPU
-git -C work/linux73 apply "$SRC/patches/ps5-cpufreq.patch"       # CPU boost off really off
+git -C work/linux73 apply "$SRC/patches/ps5-s2idle.patch"     # suspend-to-idle (Dasloh, PR #4)
+git -C work/linux73 apply "$SRC/patches/ps5-display.patch"    # re-arm, session switch, EDID keep, SCDC, VRR: what shitshow lacks
+git -C work/linux73 apply "$SRC/patches/ps5-hdmi-sdr-metadata.patch"   # 4K60 in Game Mode on HDMI 2.1 TVs (FRL planner)
+git -C work/linux73 apply "$SRC/patches/ps5-gpu.patch"        # thermal GPU governor, overlay metrics
+git -C work/linux73 apply "$SRC/patches/ps5-fan.patch"        # no fan spike at shutdown
 # committed and at an annotated tag, so the release is exactly <version>-viva (no "+" or "-dirty")
 git -C work/linux73 add -A
 git -C work/linux73 -c user.name=ps5-bazzite-deck -c user.email=ps5-bazzite-deck@users.noreply.github.com commit -qm "PS5 patches"

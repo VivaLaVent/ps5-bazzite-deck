@@ -3,8 +3,10 @@
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
 ## [v2.4.1] – 2026-11-<DD>
-> Picture fix: the kernel is back on the base v2.1.x was built on (Linux 7.3 + rmux's meower), where 4K60 and 4K120 work.
-- **Fixed: black screen in Game Mode at 4K on FLAVA3 consoles with an HDMI 2.1 TV** (v2.4). v2.4's newer kernel base (7.3.1 + rmux's shitshow) used rmux's reworked 4K handling, which stays black there; our own display code shows 4K60 and 4K120 on the same TV. The kernel goes back to the v2.1.x base with v2.4's fixes (fan, no 100 Hz test modes), named `7.3.0-viva`. The 7.3.1 port waits in `patches-next/shitshow/` for a tested rebase
+> The picture at 4K on FLAVA3 consoles with an HDMI 2.1 TV, on v2.4's kernel base (7.3.1 + rmux's shitshow).
+- **Fixed: black screen in Game Mode at 4K** (v2.4), two causes:
+  - rmux's FRL planner refused the SDR metadata gamescope sends with every frame as an HDR conflict, so 4K60 never got a picture (`patches/ps5-hdmi-sdr-metadata.patch`, also for rmux)
+  - the bootc image set `amdgpu dpm=0 gpu_recovery=0`, which v2.4's update carried into classic installs through the initramfs: a GPU hang that the classic image always recovered from became permanent. Both options are gone; classic and bootc now run amdgpu as the classic image always did
 - `ps5-report`: kernel log from dmesg (the journal can be empty), Bluetooth address from btmgmt when sysfs has none, and no more swallowing of lines pasted after it
 - **The kernel is named `<version>-viva`** (`7.3.1-viva`)
 - **Releases are public from the start:** notes first, then files as they're built: update bundle for existing installs, bootc disk image, loader; the notes list each file as it arrives
