@@ -23,7 +23,7 @@ always swap back.
 1. Download all `ps5-bazzite-deck-bootc-*.img.7z` parts of the newest release from the
    [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases)
    and extract them with [7-Zip](https://www.7-zip.org) (open the `.001` file).
-2. Write the `.img` to the drive with [Rufus](https://rufus.ie) in **DD mode** or [Balena Etcher](https://etcher.balena.io). This erases the drive.
+2. Write the `.img` to the drive with [Rufus](https://rufus.ie) in **DD Image mode** (balenaEtcher has produced drives that don't boot). This erases the drive.
 3. Plug it into a **rear** USB-A port of the PS5.
 4. In the PS5 settings: keep USB power on in rest mode, and switch HDMI Device Link off.
 5. Run the jailbreak and bazzite-bootc-loader, and wait until the light stops blinking orange before pressing power.
