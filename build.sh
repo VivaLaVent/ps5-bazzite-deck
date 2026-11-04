@@ -1,20 +1,20 @@
 #!/bin/bash
-# build.sh - one-shot build of the PS5 Bazzite Deck image (kernel 7.3 + VCN + Game Mode + Wi-Fi + MediaTek support).
-# Run from the repo root, in WSL/Linux with Docker:   bash build.sh
-# Output: output/ps5-bazzite-deck-<RELEASE>.img.7z.001/.002/.003 (+ .sha256, VERSIONS.md, local-changes.diff)
+# The PS5 kernel package: Linux 7.3 + rmux's meower patches + patches/, built with ps5-linux-image's
+# builder. CI runs this for every release (.github/workflows/release.yml); locally: bash build.sh
+# Output: $REPO/linux-bin/linux-ps5-*.rpm
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # this repo
 RELEASE="${RELEASE:-$(git -C "$SRC" describe --tags --always 2>/dev/null || echo dev)}"
 
-REPO="$HOME/ps5-build-7.3"            # fresh build directory
+REPO="${REPO:-$HOME/ps5-build-7.3}"   # fresh build directory
 OLD="${OLD:-$HOME/ps5-linux-image}"   # previous build dir, only used to reuse its download cache
 BUILDER_COMMIT=52db0a4                 # ps5-linux/ps5-linux-image
 PATCHES_BRANCH=meower                  # rmuxnet/ps5-linux-patches-1, 7.3 port
 KERNEL_TAG=v7.3
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
-for t in git docker 7z sha256sum losetup; do command -v $t >/dev/null || { echo "missing tool: $t"; exit 1; }; done
+for t in git docker; do command -v $t >/dev/null || { echo "missing tool: $t"; exit 1; }; done
 
 echo "==> 1. builder ($BUILDER_COMMIT)"
 git clone -q https://github.com/ps5-linux/ps5-linux-image "$REPO"
@@ -98,119 +98,11 @@ git -C work/linux73 apply "$SRC/patches/ps5-pro-upstream66.patch"          # PS5
 git -C work/linux73 apply "$SRC/patches/ps5-vrr-hdmi-range.patch"         # HDMI VRR with an open-ended VRRmax, and the HF-SCDB
 git -C work/linux73 apply "$SRC/patches/ps5-pro-gpu-telemetry.patch"      # PS5 Pro: GPU load and metrics with the Viola firmware (after PR #29)
 git -C work/linux73 apply "$SRC/patches/ps5-cpufreq-boost.patch"           # CPU boost off really off, cpufreq stats (rmux b465697)
-git -C work/linux73 apply "$SRC/patches/ps5-icc-device-power-debugfs.patch"   # test: ICC device power in debugfs (issue #36)
 git -C work/linux73 apply "$SRC/patches/ps5-fan-shutdown-spike.patch"    # fan: no spike at shutdown
 cp work/ps5-linux-patches/.config work/linux73/.config
 cp -r work/ps5-linux-patches work/linux73/ps5-linux-patches
 grep -E '^CONFIG_LSM=|^CONFIG_DEBUG_INFO_BTF=|^CONFIG_MT7921E=|^CONFIG_MODULE_ALLOW_BTF_MISMATCH=' work/linux73/.config
 
-echo "==> 4. build image (long)"
-./build_image.sh --distro bazzite-deck --kernel "$PWD/work/linux73"
-IMG=output/ps5-bazzite-deck.img
-[ -f "$IMG" ] || { echo "build did not produce $IMG, see build.log"; exit 1; }
-
-echo "==> 5. post-build: cmdline check + Wi-Fi driver option (needs sudo)"
-LOOP=$(sudo losetup -fP --show "$IMG")
-BOOT=/mnt/ps5boot; ROOT=/mnt/ps5root
-sudo mkdir -p "$BOOT" "$ROOT"
-cleanup() { sudo umount "$BOOT" "$ROOT" 2>/dev/null || true; sudo losetup -d "$LOOP"; }
-trap cleanup EXIT
-sudo mount "${LOOP}p2" "$BOOT"      # FAT32 boot
-sudo mount "${LOOP}p1" "$ROOT"      # ext4 root
-echo "    cmdline: $(cat "$BOOT/cmdline.txt")"
-echo "options moal ps_mode=0" | sudo tee "$ROOT/etc/modprobe.d/ps5-iw620.conf" >/dev/null
-sudo install -Dm644 "$SRC/files/99-ps5-wifi.conf" "$ROOT/etc/NetworkManager/conf.d/99-ps5-wifi.conf"          # stable MAC during scans, DHCP by MAC
-sudo install -Dm644 "$SRC/files/ps5-stage-firmware-no-default-deps.conf" "$ROOT/etc/systemd/system/ps5-stage-firmware.service.d/10-no-default-deps.conf"   # fixes boot ordering cycle (random missing services)
-sudo install -Dm644 "$SRC/files/50-ps5-pro-bt-power.rules" "$ROOT/etc/udev/rules.d/50-ps5-pro-bt-power.rules"     # PS5 Pro BT: no USB autosuspend (else the Salina xHCI dies)
-sudo install -Dm644 "$SRC/files/99-ps5-bt-phantom.rules" "$ROOT/etc/udev/rules.d/99-ps5-bt-phantom.rules"      # MediaTek BT: phantom interfaces, no autosuspend
-sudo install -Dm644 "$SRC/files/btusb-ps5.conf" "$ROOT/etc/modprobe.d/btusb-ps5.conf"
-sudo install -Dm755 "$SRC/files/ps5-bt-addr" "$ROOT/usr/local/sbin/ps5-bt-addr"                                 # IW620: Linux-only BT address, DualSense keeps PS5 + Linux profiles (PR #9, Dasloh)
-sudo install -Dm644 "$SRC/files/ps5-bt-addr.service" "$ROOT/etc/systemd/system/ps5-bt-addr.service"
-sudo install -Dm755 "$SRC/files/ps5-bt-pro-addr" "$ROOT/usr/local/sbin/ps5-bt-pro-addr"                         # PS5 Pro: apply its volatile Linux-only address after Bluetooth is powered
-sudo install -Dm644 "$SRC/files/ps5-bt-pro-addr.service" "$ROOT/etc/systemd/system/ps5-bt-pro-addr.service"
-sudo install -Dm644 "$SRC/files/ps5-bt-connectable.service" "$ROOT/etc/systemd/system/ps5-bt-connectable.service"   # adapter accepts incoming connections (controllers reconnect)
-sudo install -Dm644 "$SRC/files/99-ps5-bt-services.rules" "$ROOT/etc/udev/rules.d/99-ps5-bt-services.rules"   # both services every time the adapter appears
-sudo mkdir -p "$ROOT/etc/systemd/system/bluetooth.target.wants" && for u in ps5-bt-addr ps5-bt-connectable; do sudo ln -sf /etc/systemd/system/$u.service "$ROOT/etc/systemd/system/bluetooth.target.wants/$u.service"; done
-sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /etc/systemd/system/ps5-bt-pro-addr.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-bt-pro-addr.service"
-sudo install -Dm755 "$SRC/files/ps5-bt-revive" "$ROOT/usr/local/sbin/ps5-bt-revive"                             # revive a Bluetooth adapter that hangs after a warm reboot
-sudo install -Dm644 "$SRC/files/ps5-bt-revive.service" "$ROOT/etc/systemd/system/ps5-bt-revive.service"
-sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /etc/systemd/system/ps5-bt-revive.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-bt-revive.service"
-sudo install -Dm644 "$SRC/files/ps5-hidp.conf" "$ROOT/etc/modules-load.d/ps5-hidp.conf"                        # load hidp at boot (first controller connection)
-sudo bash "$SRC/tools/bt-mainconf.sh" "$ROOT/etc/bluetooth/main.conf"                                         # DualSense pairing: JustWorksRepairing = always, PairableTimeout = 0
-sudo install -Dm755 "$SRC/files/ps5-kexec" "$ROOT/usr/local/sbin/ps5-kexec"                                   # warm reboot into Linux (kexec_file_load, no kexec-tools needed)
-sudo install -Dm755 "$SRC/files/ps5-reboot-to-ps5" "$ROOT/usr/local/sbin/ps5-reboot-to-ps5"                     # ...and the way back to the PS5 system
-sudo install -Dm755 "$SRC/files/ps5-warm-reboot" "$ROOT/usr/local/sbin/ps5-warm-reboot"                       # warm reboot: off by default, "ps5-warm-reboot on"
-sudo install -Dm755 "$SRC/files/ps5-bt-address" "$ROOT/usr/local/sbin/ps5-bt-address"                         # IW620: Linux-only BT address, opt-in
-sudo install -Dm755 "$SRC/tools/ps5-report.sh" "$ROOT/usr/local/bin/ps5-report"                            # bug reports: ps5-report
-sudo install -Dm755 "$SRC/tools/vrr-report.sh" "$ROOT/usr/local/bin/vrr-report"                              # VRR test results: vrr-report
-sudo install -Dm755 "$SRC/files/ps5-perf" "$ROOT/usr/local/sbin/ps5-perf"                                     # CPU boost + fan target, default on
-sudo install -Dm644 "$SRC/files/ps5-perf.service" "$ROOT/etc/systemd/system/ps5-perf.service"
-sudo install -Dm755 "$SRC/files/ps5-stage-viola-fw" "$ROOT/usr/local/sbin/ps5-stage-viola-fw"                   # PS5 Pro: Viola GPU firmware into the initrd
-sudo install -Dm644 "$SRC/files/ps5-stage-viola-fw.service" "$ROOT/etc/systemd/system/ps5-stage-viola-fw.service"
-sudo install -Dm644 "$SRC/files/ps5-wifi-powersave.service" "$ROOT/etc/systemd/system/ps5-wifi-powersave.service"
-sudo install -Dm644 "$SRC/files/ps5-wifi-powersave.timer" "$ROOT/etc/systemd/system/ps5-wifi-powersave.timer"
-sudo mkdir -p "$ROOT/etc/systemd/system/timers.target.wants" && sudo ln -sf /etc/systemd/system/ps5-wifi-powersave.timer "$ROOT/etc/systemd/system/timers.target.wants/ps5-wifi-powersave.timer"
-sudo ln -sf /etc/systemd/system/ps5-perf.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-perf.service"
-sudo ln -sf /etc/systemd/system/ps5-stage-viola-fw.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-stage-viola-fw.service"
-sudo install -Dm755 "$SRC/files/ps5-console-defaults" "$ROOT/usr/local/sbin/ps5-console-defaults"
-sudo install -Dm644 "$SRC/files/ps5-console-defaults.service" "$ROOT/etc/systemd/system/ps5-console-defaults.service"
-sudo ln -sf /etc/systemd/system/ps5-console-defaults.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-console-defaults.service"
-# Bazzite's ostree-only services fail at every boot on this non-ostree image: masked (vanilla Bazzite doesn't run them on such installs)
-for u in bootloader-update.service greenboot-healthcheck.service greenboot-success.target; do sudo ln -sf /dev/null "$ROOT/etc/systemd/system/$u"; done
-sudo install -Dm755 "$SRC/files/ps5-wifi-repair" "$ROOT/usr/local/sbin/ps5-wifi-repair"                        # IW620: Wi-Fi back after a warm reboot
-sudo install -Dm644 "$SRC/files/ps5-wifi-repair.service" "$ROOT/etc/systemd/system/ps5-wifi-repair.service"
-sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /etc/systemd/system/ps5-wifi-repair.service "$ROOT/etc/systemd/system/multi-user.target.wants/ps5-wifi-repair.service"
-sudo install -Dm644 "$SRC/files/99-ps5-usb-power.rules" "$ROOT/etc/udev/rules.d/99-ps5-usb-power.rules"       # Bluetooth chips + Salina xHCI: no runtime suspend
-sudo install -Dm755 "$SRC/files/90-ps5-wifi-powersave" "$ROOT/etc/NetworkManager/dispatcher.d/90-ps5-wifi-powersave"   # Wi-Fi power saving off (700 vs 100 Mbit/s)
-sudo install -Dm644 "$SRC/files/ps5-kexec-prepare.service" "$ROOT/etc/systemd/system/ps5-kexec-prepare.service" # loads the kernel when a reboot starts
-sudo install -Dm644 "$SRC/files/ps5-reboot.service" "$ROOT/etc/systemd/system/ps5-reboot.service"               # reboot = kexec when loaded, else normal
-sudo install -Dm644 "$SRC/files/reboot.target" "$ROOT/usr/local/share/ps5-bazzite-deck/reboot.target"          # installed as /etc/systemd/system/reboot.target only by "ps5-warm-reboot on"
-[ -e "$ROOT/usr/sbin/kexec" ] || sudo install -Dm755 "$SRC/files/kexec-shim" "$ROOT/usr/sbin/kexec"            # systemd runs "kexec -e"; stand-in when kexec-tools is absent
-sudo mkdir -p "$ROOT/etc/systemd/system/multi-user.target.wants" && sudo ln -sf /usr/lib/systemd/system/sshd.service "$ROOT/etc/systemd/system/multi-user.target.wants/sshd.service"   # SSH on by default
-echo "$RELEASE" | sudo tee "$ROOT/etc/ps5-bazzite-deck-version" >/dev/null
-sync
-cleanup; trap - EXIT
-
-echo "==> 6. record exact versions"
-SKOPEO_OUT="$(docker run --rm quay.io/skopeo/stable inspect docker://ghcr.io/ublue-os/bazzite-deck:stable 2>/dev/null || true)"
-# no pipe here: with pipefail, grep -m1 closing the pipe early would abort the script
-BAZZITE_DIGEST="$(sed -n '/"Digest"/{s/.*"\(sha256:[0-9a-f]*\)".*/\1/p;q}' <<<"$SKOPEO_OUT")"; [ -n "$BAZZITE_DIGEST" ] || BAZZITE_DIGEST=unknown
-cat > output/VERSIONS.md << V
-# Versions in release $RELEASE (built $(date -u +%Y-%m-%d))
-
-| Component | Version / commit |
-|---|---|
-| Bazzite Deck | \`ghcr.io/ublue-os/bazzite-deck:stable\` @ \`$BAZZITE_DIGEST\` |
-| Linux kernel | \`$KERNEL_TAG\` (kernel.org stable) |
-| PS5 kernel patches | rmuxnet/ps5-linux-patches-1 \`$PATCHES_BRANCH\` @ \`$(git -C work/ps5-linux-patches rev-parse --short HEAD)\` + PR #4 (suspend-to-idle, Dasloh) |
-| Image builder | ps5-linux/ps5-linux-image @ \`$BUILDER_COMMIT\` + local-changes.diff |
-| IW620 Wi-Fi patches | ps5-linux/ps5-linux-mwifiex \`main\` @ \`$(git ls-remote https://github.com/ps5-linux/ps5-linux-mwifiex.git main | cut -c1-7)\` + patches/ps5-iw620-kernel73-compat.patch |
-| NXP mwifiex base driver | \`lf-6.18.2_1.0.0\` |
-| IW620 firmware | not in the image; pcieuartiw620_combo_v1.bin is staged at boot from the loader's boot partition (ps5-stage-firmware) |
-| Kernel config changes | CONFIG_LSM += bpf, CONFIG_DEBUG_INFO_BTF=y, CONFIG_MT7921E=m, CONFIG_MODULE_ALLOW_BTF_MISMATCH=y |
-| Extra kernel patches | ps5-bluetooth, ps5-hdmi-upstream, ps5-hdmi-rearm-pr46, ps5-hdmi-output-fixes, ps5-hdmi-modes, ps5-hdmi-debug-log, ps5-hdmi-link-lock, ps5-gpu-overlay, ps5-hdmi-cec-upstream53, ps5-hdmi-sleep-mute, ps5-hdmi-scdc-source-version (patches/) |
-| Image config | NetworkManager stable MAC (IW620), MediaTek BT udev + modprobe, ps5-stage-firmware boot-cycle drop-in, IW620 Linux-only BT address (ps5-bt-addr), BT connectable, BT revive, hidp preload, BlueZ pairing options, warm reboot into Linux (kexec) (files/, tools/bt-mainconf.sh), SSH enabled |
-| cmdline.txt | $(sed 's/__DISTRO__/bazzite-deck/' boot/cmdline.txt) |
-V
-cat output/VERSIONS.md
-
-NAME="ps5-bazzite-deck-$RELEASE"
-echo "==> 7. in-place update bundle (kernel, modules, settings) - ready to test before the 7-Zip step"
-bash "$SRC/tools/make-update-bundle.sh" "$RELEASE"
-git diff > output/local-changes.diff
-cp "$SRC"/patches/*.patch output/
-
-if [ "${SKIP_7Z:-0}" = 1 ]; then
-  echo "==> 8. 7-Zip volumes skipped (SKIP_7Z=1)"
-else
-  echo "==> 8. package as 7-Zip volumes (GitHub caps assets at 2 GB)"
-  rm -f output/$NAME.img.7z.*
-  7z a -mx=5 -mmt=on -v1900m "output/$NAME.img.7z" "$IMG" >/dev/null
-  (cd output && sha256sum $NAME.img.7z.* > "$NAME.sha256")
-fi
-
-echo
-echo "DONE. Release assets in $REPO/output:"
-ls -lh output/$NAME-update.tar.xz* output/VERSIONS.md output/local-changes.diff output/*.patch
-[ "${SKIP_7Z:-0}" = 1 ] || ls -lh output/$NAME.img.7z.* output/$NAME.sha256
-echo "Flash output/ps5-bazzite-deck.img (raw) to test. On the PS5: uname -r, systemctl status cardwired, nmcli device"
+echo "==> 4. kernel package"
+./build_image.sh --kernel-only --distro bazzite-deck --kernel "$PWD/work/linux73"
+ls -l linux-bin/linux-ps5-*.rpm

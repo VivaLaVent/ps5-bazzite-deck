@@ -1,5 +1,6 @@
-# Installed only while warm reboot is on: every reboot loads the boot partition's kernel first,
-# and ps5-reboot.service kexecs into it.
+# Overrides systemd's reboot.target: every reboot (Steam, the desktop, "sudo reboot") first loads
+# the kernel from the boot partition (ps5-kexec-prepare.service) and then goes through
+# ps5-reboot.service, which warm-reboots into Linux when a kernel is loaded.
 [Unit]
 Description=System Reboot
 Documentation=man:systemd.special(7)

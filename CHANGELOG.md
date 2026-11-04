@@ -3,39 +3,15 @@
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
 ## [v2.3] – 2026-11-<DD>
-> First release with the bootc image and the bazzite-bootc-loader, built from the same tag as the update for existing installs.
+> First release built entirely by GitHub Actions from this repo: kernel, update bundle for existing installs, bazzite-bootc-loader, bootc image and disk image. Releases v2.1.2 to v2.2 are withdrawn.
+- **Wi-Fi and Bluetooth back to v2.1.1.** Every Bluetooth, Wi-Fi and restart script, service and rule from v2.1.2 to v2.2 is reverted to its v2.1.1 version; the kernel's Wi-Fi and Bluetooth parts didn't change after v2.1.1
 - **bootc image (experimental):** `ghcr.io/vivalavent/ps5-bazzite-bootc`, flashed from the release's disk image, updated with `sudo bootc upgrade`, rolled back with `sudo bootc rollback`
-- **bazzite-bootc-loader:** rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source for every release. Understands bootc's boot entries (boot counting and fallback come once the image writes them); starts v2.3 the same way as before
-- **PS5 Pro: D3D9 fix now actually applied.** The swap to AMD's command-processor microcode looked for `cyan_skillfish2_*.bin`, but Bazzite ships linux-firmware compressed (`.bin.xz`), so it silently kept Sony's. It now reads the compressed files
-- **PS5 Pro: 1 GB VRAM and an 80 °C GPU limit by default** (`ps5-console-defaults`, once; later changes are kept). Stops framebuffer pin failures (`-ENOMEM`) under load and leaves the firmware headroom before it cuts power
-- **IW620 Bluetooth no longer disappears when the Linux-only address doesn't stick** (Geov4ni, Storm, Verrek, AdiX, bugloogis_chumbo): the script retried the address right after the adapter reset, which hangs the chip. It now leaves Bluetooth working on the PS5 address and `ps5-report` shows `on, NOT applied`. A kernel-side fix is being tested
-- The update scripts refuse to run on a bootc install and point to `sudo bootc upgrade`
-- Releases: version-only titles, loader and bootc disk image attached by CI, no patch files attached
-
-## [v2.1.6] – 2026-11-<DD>
-> Kernel only, quick package on top of v2.1.5.
-- **Fix: fan briefly at full speed just before shutdown or reboot** (Verrek, xlxdlx, dreamer_599, loseheaven): the fan driver re-uploaded the original parameter table during cleanup, triggering a ramp-up before handing control back to the firmware's AUTO mode
-
-## [v2.1.5] – 2026-11-<DD>
-> v2.1.4's image with the changed staging script and a cmdline.txt note for the M.2 write error.
-- **PS5 Pro: D3D9 games no longer hang at the first 3D frame** (ring gfx_0.0.0 timeout, GRBM_STATUS 0xa061xxxx, DRAW_INDEX_2 in the GE): Sony's CP microcode has a bug with DXVK's D3D9 command stream; the cyan_skillfish2 CE/ME/PFP/MEC/MEC2 firmware from linux-firmware drops in cleanly (same GFX1013 architecture), Sony's RLC and SDMA stay. Confirmed at 60 CU / 2350 MHz / 17.9 TFLOPS with Fable Anniversary and NFSU (reporter). amdgpu loads silently from the initrd on the next start
-- **PS5 Pro + M.2 NVMe: workaround for write errors under sustained load** (`I/O Error (sct 0x0 / sc 0x6)`, `<TAbort+`, ext4 emergency read-only): the NVMe's 64-bit DMA mask lets the kernel hand it pages in the DDR5 range (0x880000000+, ~36 GiB), which the southbridge can't handle. Add `mem=34G` to `cmdline.txt` to keep Linux below that range. Proper fix (DMA mask quirk for 40:02.5) needs the device ID; if you hit this send `lspci -nn | grep 02.5`
-
-## [v2.1.4] – 2026-11-<DD>
-> v2.1.3's image with the changed Bluetooth script installed into it, checked file by file.
-- **Fix: Bluetooth adapter gone after the Linux-only address is set on original PS5s (IW620)** (Storm): after the re-initialisation that makes the kernel pick up the new address, the chip needs a moment before it answers HCI commands; the retry came too fast and timed out, taking the adapter down. A `sleep 3` after the power cycle and `sleep 2` before the retry address it; the HCI socket timeout on the retry path also increased from 5 to 10 s
-
-## [v2.1.3] – 2026-11-03
-> v2.1.2's image with the changed Bluetooth scripts installed into it, checked file by file. No kernel change.
-- **Fix: the Linux-only Bluetooth address wasn't applied with a USB Bluetooth dongle plugged in** (xlxdlx): the scripts assumed the console's own adapter is `hci0`, but a dongle can take that number, so the address went to (or was refused by) the dongle. The console's adapter is now found by its USB ID; the connectable setting goes to every adapter
-
-## [v2.1.2] – 2026-11-03
-> v2.1.1's image with the changed scripts installed into it, checked file by file. No kernel change.
-- **Warm restart fully opt-in:** the reboot override that runs every restart through the warm-restart path is only installed by `ps5-warm-reboot on` (and removed by `off`); with warm restart off, restarts go through plain systemd again
-- **Bluetooth:** one mechanism keeps the adapter connectable (the duplicate `bluetooth.service` drop-in is removed); the hung-adapter revive only acts on IW620 consoles (on others it would also reload a USB dongle's driver)
-- **Wi-Fi config renamed** to `99-ps5-wifi.conf`: it applies to every Wi-Fi chip, not only the IW620
-- `ps5-report`: the Linux-only Bluetooth address line showed `off/n.a.` on every console (it checked a flag from before v1.8.9); it now shows on/off and whether the address is applied, Pro included. `ps5-perf status` says the Pro's CPU clock is left to the console firmware
-- README: on a Pro, start twice after every update; the rest-mode/login-screen problem and USB hubs; Pro memory and fixed VRAM
+- **bazzite-bootc-loader:** rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source for every release. Starts existing installs exactly as the standard loader does
+- **PS5 Pro: D3D9 games work.** AMD's command-processor microcode is now read from Bazzite's compressed linux-firmware; before, the swap silently kept Sony's
+- **PS5 Pro: 1 GB VRAM and an 80 °C GPU limit by default** (`ps5-console-defaults`, once; later changes are kept)
+- **Fan: no spike to full speed at shutdown or reboot**
+- The update refuses to run on a bootc install, and refuses a boot partition that starts a different root (M.2 installs booting from a stick)
+- Removed: the ICC debugfs test patch (issue #36)
 
 ## [v2.1.1] – 2026-11-02
 > v2.1.0's image with the new kernel installed into it, checked file by file.

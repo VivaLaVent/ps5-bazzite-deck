@@ -1,4 +1,5 @@
-# 0e8d:3603: interfaces 3 and 4 are a phantom second controller that blocks the real one.
+# PS5 MediaTek Bluetooth (0e8d:3603): interfaces 3 and 4 expose a second,
+# phantom controller that keeps the real one from working. Disable them.
 ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="0e8d", ATTRS{idProduct}=="3603", ATTR{bInterfaceNumber}=="03", ATTR{authorized}="0"
 ACTION=="add", SUBSYSTEM=="usb", ATTRS{idVendor}=="0e8d", ATTRS{idProduct}=="3603", ATTR{bInterfaceNumber}=="04", ATTR{authorized}="0"
 

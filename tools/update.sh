@@ -21,7 +21,7 @@ sha256sum -c --quiet SHA256SUMS || { echo "STOP: bundle files are damaged, downl
 
 # an M.2 install boots from a stick: only write to the boot partition that starts this root
 want=$(sudo sed -n 's/.*root=LABEL=\([^ ]*\).*/\1/p' "$EFI/cmdline.txt"); have=$(lsblk -no LABEL "$(findmnt -no SOURCE /)" 2>/dev/null || true)
-[ -z "$want" ] || [ -z "$have" ] || [ "$want" = "$have" ] || { echo "STOP: $EFI/cmdline.txt starts root=LABEL=$want, this system runs from LABEL=$have. Mount the boot partition of this install at /efi and run the update again."; exit 1; }
+[ -z "$want" ] || [ -z "$have" ] || [ "$want" = "$have" ] || { echo "STOP: $EFI/cmdline.txt starts root=LABEL=$want, this system runs from LABEL=$have. Mount this install's boot partition at /efi and run the update again."; exit 1; }
 BK=/var/lib/ps5-update-backup/$(date +%Y%m%d-%H%M%S)
 echo "==> backup of the current kernel and modules to $BK"
 sudo mkdir -p "$BK/efi"
@@ -51,11 +51,8 @@ sudo rm -f /etc/systemd/system/ps5-first-start.service /etc/systemd/system/multi
 # the opt-in flag from before v1.8.9
 sudo rm -f /etc/ps5-bazzite-deck/bt-address
 # Bazzite's ostree-only services fail at every boot here
-# the reboot override only while warm reboot is on; old connectable drop-in and Wi-Fi config name
-if [ -e /etc/ps5-bazzite-deck/warm-reboot ]; then sudo install -m644 /usr/local/share/ps5-bazzite-deck/reboot.target /etc/systemd/system/reboot.target
-elif grep -qs ps5-kexec-prepare /etc/systemd/system/reboot.target; then sudo rm -f /etc/systemd/system/reboot.target; fi
-sudo rm -f /etc/systemd/system/bluetooth.service.d/10-ps5-connectable.conf /etc/NetworkManager/conf.d/99-ps5-iw620.conf
-sudo systemctl daemon-reload
+# Wi-Fi config name and reboot override from v2.1.2-v2.2
+sudo rm -f /etc/NetworkManager/conf.d/99-ps5-wifi.conf /usr/local/share/ps5-bazzite-deck/reboot.target
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
 # a leftover hdmi.rearm=0 (before v1.8.9) keeps TVs dark after mode changes
 sudo sed -i 's/ *hdmi\.rearm=0//' "$EFI/cmdline.txt"

@@ -1,10 +1,7 @@
 name: Build bootc image
-# Pushes ghcr.io/<owner>/ps5-bazzite-bootc:{stable,<date>} from main, nightly so Bazzite
-# updates come through, and builds pull requests without pushing.
+# Nightly: ghcr.io/<owner>/ps5-bazzite-bootc:{stable,<date>} from main with the kernel in pins.env,
+# so Bazzite updates come through. Releases call it with the kernel they just built.
 on:
-  push:
-    branches: [main]
-    paths: ["bootc/**", "files/**", "tools/**", ".github/workflows/bootc-build-image.yml"]
   pull_request:
     paths: ["bootc/**", "files/**", "tools/**", ".github/workflows/bootc-build-image.yml"]
   schedule:
@@ -18,6 +15,9 @@ on:
       stable:
         type: boolean
         default: true
+      kernel_artifact:
+        type: string
+        default: ""
 
 env:
   IMAGE: ps5-bazzite-bootc
@@ -40,7 +40,15 @@ jobs:
           ref: ${{ inputs.tag }}
           fetch-depth: 0   # tags, for the deck version in the image
 
+      - name: Kernel RPM from this release's build
+        if: inputs.kernel_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.kernel_artifact }}
+          path: bootc/kernel
+
       - name: Kernel RPM pinned in pins.env
+        if: inputs.kernel_artifact == ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

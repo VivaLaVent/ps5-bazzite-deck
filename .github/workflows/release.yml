@@ -1,43 +1,130 @@
 name: Release
-# Every release gets the bootc image (:<tag>, plus :stable unless it's a pre-release) and the
-# bootc disk image; the kernel, update bundle and loader come from tools/release.sh.
-# Re-runs replay the old workflow file: after a fix, start a fresh run instead:
-#   gh workflow run release.yml -f tag=vX.Y
+# A pushed tag vX.Y builds everything from this repo and publishes a pre-release:
+# kernel RPM, bazzite-bootc-loader, bootc image (:vX.Y) and disk image, update bundle for existing installs.
+# It stays a draft until every part is attached. After a fix, start a fresh run (re-runs replay the old
+# workflow file):  gh workflow run release.yml -f tag=vX.Y
 on:
-  release:
-    types: [published]
+  push:
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "release tag, e.g. v2.2"
+        description: "release tag, e.g. v2.3"
         required: true
+
+concurrency:
+  group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
 
 jobs:
   meta:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     outputs:
       tag: ${{ steps.m.outputs.tag }}
-      stable: ${{ steps.m.outputs.stable }}
     steps:
       - id: m
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: |
-          pre=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q .isPrerelease)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "stable=$([ "$pre" = true ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --prerelease --verify-tag \
+              --title "$TAG" --notes "Release notes follow."
+
+  kernel:
+    needs: meta
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
+      - name: Build
+        run: REPO="$RUNNER_TEMP/ps5-build" bash build.sh
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          mkdir out && cp "$RUNNER_TEMP"/ps5-build/linux-bin/linux-ps5-*.rpm out/
+          gh release upload "$TAG" out/*.rpm --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-rpm
+          path: out/*.rpm
+
+  loader:
+    needs: meta
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      - run: sudo apt-get install -yq clang-18 lld-18 build-essential binutils xxd
+      - name: Build and attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          bash loader/build.sh "$TAG"
+          gh release upload "$TAG" loader/output/bazzite-bootc-loader-$TAG.elf \
+            loader/output/bazzite-bootc-loader-$TAG.elf.sha256 --clobber
 
   image:
-    needs: meta
+    needs: [meta, kernel]
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/bootc-build-image.yml
     with:
       tag: ${{ needs.meta.outputs.tag }}
-      stable: ${{ needs.meta.outputs.stable == 'true' }}
+      stable: false
+      kernel_artifact: kernel-rpm
     secrets: inherit
+
+  bundle:
+    needs: [meta, image]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.meta.outputs.tag }}
+      # the same kernel, initramfs and modules as the bootc image: both start from bazzite-deck + this kernel
+      - name: Kernel parts from the bootc image
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          IMG=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ps5-bazzite-bootc:$TAG
+          echo "${{ github.token }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          podman pull -q "$IMG"
+          K=$(podman run --rm "$IMG" ls /usr/lib/modules)
+          [ "$(echo "$K" | wc -l)" = 1 ] || { echo "expected one kernel, found: $K"; exit 1; }
+          P=$RUNNER_TEMP/kp/parts; mkdir -p "$P/efi" "$P/modules" "$P/files"
+          C=$(podman create "$IMG"); podman cp "$C:/usr/lib/modules/$K" "$P/modules/"; podman rm -q "$C"
+          mv "$P/modules/$K/vmlinuz" "$P/efi/bzImage"; mv "$P/modules/$K/initramfs.img" "$P/efi/initrd.img"
+          echo "options moal ps_mode=0" > "$P/files/ps5-iw620-modprobe.conf"; echo "$K" > "$P/KERNEL"
+          tar -C "$RUNNER_TEMP/kp" -cJf "$RUNNER_TEMP/parts.tar.xz" parts
+      - name: Bundle and attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          B="$RUNNER_TEMP/b" FROM_BUNDLE="$RUNNER_TEMP/parts.tar.xz" bash tools/make-update-bundle.sh "$TAG"
+          gh release upload "$TAG" "$RUNNER_TEMP/b/output/ps5-bazzite-deck-$TAG-update.tar.xz" \
+            "$RUNNER_TEMP/b/output/ps5-bazzite-deck-$TAG-update.tar.xz.sha256" --clobber
 
   disk:
     needs: [meta, image]
@@ -48,20 +135,45 @@ jobs:
     with:
       release: ${{ needs.meta.outputs.tag }}
 
-  notes:
-    needs: [meta, image, disk]
-    if: always()
+  publish:
+    needs: [meta, kernel, loader, image, bundle, disk]
+    if: always() && needs.meta.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: main
       - name: Release notes
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/release_notes.py "${{ needs.meta.outputs.tag }}"
+      - name: Publish as a pre-release
+        if: needs.kernel.result == 'success' && needs.loader.result == 'success' && needs.bundle.result == 'success' && needs.disk.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ needs.meta.outputs.tag }}" --draft=false --prerelease
+      - name: Left as a draft
+        if: needs.kernel.result != 'success' || needs.loader.result != 'success' || needs.bundle.result != 'success' || needs.disk.result != 'success'
+        run: |
+          echo "kernel=${{ needs.kernel.result }} loader=${{ needs.loader.result }} image=${{ needs.image.result }} bundle=${{ needs.bundle.result }} disk=${{ needs.disk.result }}"
+          exit 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: kernel-rpm
+          path: rpm
+      # the nightly bootc build uses this release's kernel from now on
+      - name: Pin the kernel
+        env:
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          R=$(ls rpm/*.rpm); N=$(basename "$R")
+          sed -i -e "s/^KERNEL_REPO=.*/KERNEL_REPO=$GITHUB_REPOSITORY/" -e "s/^KERNEL_TAG=.*/KERNEL_TAG=$TAG/" \
+                 -e "s/^KERNEL_RPM=.*/KERNEL_RPM=$N/" -e "s/^KERNEL_SHA256=.*/KERNEL_SHA256=$(sha256sum "$R" | cut -d' ' -f1)/" bootc/pins.env
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qm "pins: kernel from $TAG" bootc/pins.env && git push -q || echo "pins unchanged"
       - name: Post to the bootc testing channel
-        if: needs.disk.result == 'success'
         env:
           HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
           TAG: ${{ needs.meta.outputs.tag }}

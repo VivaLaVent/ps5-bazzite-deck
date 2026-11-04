@@ -71,42 +71,11 @@ signed.
 
 ## Building the image
 
-The image needs the `linux-ps5` RPM, which this repo doesn't build (yet). CI downloads the file named in
-`pins.env` from the release tagged `kernel-latest` and checks its sha256. A full ps5-bazzite-deck `build.sh` run leaves it in
-`~/ps5-build-7.3/linux-bin/`. After kernel changes made with `tools/quick-kernel.sh`, repackage
-the same tree (incremental, a few minutes) and replace it:
+The image needs the `linux-ps5` RPM. A release builds it from this repo (`build.sh`, in
+`.github/workflows/release.yml`) and hands it to the image build; the nightly build downloads the RPM named in
+`pins.env` and checks its sha256. Each release updates `pins.env` to its own kernel.
 
-```sh
-cd ~/ps5-build-7.3
-mkdir -p linux-bin/old && sudo mv linux-bin/*.rpm linux-bin/old/   # an RPM there skips the build
-./build_image.sh --kernel-only --distro bazzite-deck --kernel "$PWD/work/linux73"
-gh release upload kernel-latest linux-bin/linux-ps5-*.rpm --clobber --repo VivaLaVent/ps5-bazzite-bootc
-```
-
-Then update `KERNEL_RPM` and `KERNEL_SHA256` in `pins.env` (above) and push.
-
-The first time, create the release instead: `gh release create kernel-latest
-linux-bin/linux-ps5-*.rpm --prerelease --title "PS5 kernel" --notes "linux-ps5 for the image build"`.
-
-Locally:
-
-```sh
-cp ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm bootc/kernel/     # from the repository root
-podman build -f bootc/Containerfile -t ps5-bazzite-bootc .
-```
-
-Disk image, from `bootc/` (or run the *Build bootc disk image* workflow):
-
-```sh
-sudo podman run --rm --privileged -v ./bib/config.toml:/config.toml:ro -v ./out:/output \
-  -v /var/lib/containers/storage:/var/lib/containers/storage \
-  "$(. ./pins.env; echo "$BIB_IMAGE")" --type raw --rootfs ext4 \
-  localhost/ps5-bazzite-bootc
-sudo tools/finish-disk-image.sh out/image/disk.raw
-```
-
-`tests/ps5-bootc-sync.sh` checks the sync logic against fake boot entries; run it after
-changing `ps5-bootc-sync`.
+Locally, `bash build.sh` produces the same RPM in `~/ps5-build-7.3/linux-bin/`.
 
 ## GitHub setup
 
