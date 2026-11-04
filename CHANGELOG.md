@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.5.1] – 2026-11-<DD>
+## [v2.5.1] – 2026-11-04
 > Bluetooth driver as in v1.8.9/v2.1.x, replayed onto 7.3.1 (`patches/ps5-bluetooth.patch`).
 - **Original PS5 (IW620): Bluetooth finds new devices again.** rmux's tree re-adds `BROKEN_EXT_SCAN` and `BROKEN_EXT_CREATE_CONN`, which v2.1.1 removed: the chip scanned with the legacy command family while advertising with the extended one and refused the mix ("Busy")
 - **PS5 Pro: the complete Bluetooth fixes.** v2.5 carried an early draft from rmux's squash: no retry of the first HCI Reset after a cold boot (mfoster978, PR #30), and the interface-3 routing wasn't undone before setup and shutdown, so turning Bluetooth off and on or waking from sleep could fail
