@@ -1,8 +1,7 @@
 name: Release
-# A pushed tag vX.Y builds everything from this repo and publishes a pre-release:
-# kernel RPM, bazzite-bootc-loader, bootc image (:vX.Y) and disk image, update bundle for existing installs.
-# It stays a draft until every part is attached. After a fix, start a fresh run (re-runs replay the old
-# workflow file):  gh workflow run release.yml -f tag=vX.Y
+# A pushed tag vX.Y builds everything from this repo. The pre-release is public with its notes from the
+# start; files are added as they're built: update bundle for existing installs, bootc disk image, loader.
+# After a fix, start a fresh run (re-runs replay the old workflow file):  gh workflow run release.yml -f tag=vX.Y
 on:
   push:
     tags: ["v*"]
@@ -27,6 +26,9 @@ jobs:
     outputs:
       tag: ${{ steps.m.outputs.tag }}
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
       - id: m
         env:
           GH_TOKEN: ${{ github.token }}
@@ -34,8 +36,9 @@ jobs:
         run: |
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --prerelease --verify-tag \
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --prerelease --verify-tag \
               --title "$TAG" --notes "Release notes follow."
+          python3 tools/release_notes.py "$TAG"
 
   kernel:
     needs: meta
@@ -71,7 +74,7 @@ jobs:
           path: out/*.rpm
 
   loader:
-    needs: meta
+    needs: [meta, disk]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -88,6 +91,7 @@ jobs:
           bash loader/build.sh "$TAG"
           gh release upload "$TAG" loader/output/bazzite-bootc-loader-$TAG.elf \
             loader/output/bazzite-bootc-loader-$TAG.elf.sha256 --clobber
+          python3 tools/release_notes.py "$TAG"
 
   image:
     needs: [meta, kernel]
@@ -122,7 +126,7 @@ jobs:
           K=$(podman run --rm "$IMG" ls /usr/lib/modules)
           [ "$(echo "$K" | wc -l)" = 1 ] || { echo "expected one kernel, found: $K"; exit 1; }
           P=$RUNNER_TEMP/kp/parts; mkdir -p "$P/efi" "$P/modules" "$P/files"
-          C=$(podman create "$IMG"); podman cp "$C:/usr/lib/modules/$K" "$P/modules/"; podman rm -q "$C"
+          C=$(podman create "$IMG"); podman cp "$C:/usr/lib/modules/$K" "$P/modules/"; podman rm "$C" >/dev/null
           mv "$P/modules/$K/vmlinuz" "$P/efi/bzImage"; mv "$P/modules/$K/initramfs.img" "$P/efi/initrd.img"
           echo "options moal ps_mode=0" > "$P/files/ps5-iw620-modprobe.conf"; echo "$K" > "$P/KERNEL"
           tar -C "$RUNNER_TEMP/kp" -cJf "$RUNNER_TEMP/parts.tar.xz" parts
@@ -134,6 +138,7 @@ jobs:
           B="$RUNNER_TEMP/b" FROM_BUNDLE="$RUNNER_TEMP/parts.tar.xz" bash tools/make-update-bundle.sh "$TAG"
           gh release upload "$TAG" "$RUNNER_TEMP/b/output/ps5-bazzite-deck-$TAG-update.tar.xz" \
             "$RUNNER_TEMP/b/output/ps5-bazzite-deck-$TAG-update.tar.xz.sha256" --clobber
+          python3 tools/release_notes.py "$TAG"
 
   disk:
     needs: [meta, image]
@@ -144,7 +149,7 @@ jobs:
     with:
       release: ${{ needs.meta.outputs.tag }}
 
-  publish:
+  finish:
     needs: [meta, kernel, loader, image, bundle, disk]
     if: always() && needs.meta.result == 'success'
     runs-on: ubuntu-24.04
@@ -153,22 +158,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: main
-      - name: Release notes
+          ref: ${{ needs.meta.outputs.tag }}
+      - name: Release notes with every file
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/release_notes.py "${{ needs.meta.outputs.tag }}"
-      - name: Publish as a pre-release
-        if: needs.kernel.result == 'success' && needs.loader.result == 'success' && needs.bundle.result == 'success' && needs.disk.result == 'success'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release edit "${{ needs.meta.outputs.tag }}" --draft=false --prerelease
-      - name: Left as a draft
-        if: needs.kernel.result != 'success' || needs.loader.result != 'success' || needs.bundle.result != 'success' || needs.disk.result != 'success'
-        run: |
-          echo "kernel=${{ needs.kernel.result }} loader=${{ needs.loader.result }} image=${{ needs.image.result }} bundle=${{ needs.bundle.result }} disk=${{ needs.disk.result }}"
-          exit 1
       - name: Post to the bootc testing channel
+        if: needs.disk.result == 'success' && needs.loader.result == 'success'
         env:
           HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
           TAG: ${{ needs.meta.outputs.tag }}
@@ -177,6 +173,11 @@ jobs:
           [ -n "$HOOK" ] || exit 0
           jq -n --arg tag "$TAG" --arg u "$URL" --arg repo "$GITHUB_REPOSITORY" '
             {embeds: [{title: "New bootc release: \($tag)", url: $u, color: 3447003,
-              description: "The disk image and `bazzite-bootc-loader-\($tag).elf` are attached to the release.\n\nNew install: extract the `.7z.001`, flash it with Rufus (DD mode), Balena Etcher or `dd`, start it with the loader.\nAlready on bootc: `sudo bootc upgrade`, then restart.\n\nReport results here with `sudo bootc status` and `ps5-report`.",
+              description: "The disk image and `bazzite-bootc-loader-\($tag).elf` are attached to the release.\n\nNew install: extract the `.7z.001`, flash it with Rufus (DD mode), Balena Etcher or `dd`, start it with the loader.\nAlready on bootc: `sudo bootc switch ghcr.io/vivalavent/ps5-bazzite-bootc:\($tag)`, then restart (`sudo bootc rollback` goes back).\n\nReport results here with `sudo bootc status` and `ps5-report`.",
               footer: {text: "\($repo) • \($tag)"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"
+      - name: Report missing parts
+        if: needs.kernel.result != 'success' || needs.loader.result != 'success' || needs.bundle.result != 'success' || needs.disk.result != 'success'
+        run: |
+          echo "::error::kernel=${{ needs.kernel.result }} image=${{ needs.image.result }} bundle=${{ needs.bundle.result }} disk=${{ needs.disk.result }} loader=${{ needs.loader.result }}"
+          exit 1

@@ -43,10 +43,17 @@ jobs:
             BODY=$(gh api "repos/$REPO/releases/tags/$TAG" --jq .body 2>/dev/null || printf '%s' "$BODY")
           done
 
-          # the part people read first: everything before "## Updating" (What's new, VRR test),
-          # cut to fit Discord's 4096-character embed limit
-          DESC=$(printf '%s\n' "$BODY" | awk '/^## Updating/{exit} {print}' | head -c 3500)
-          [ -n "$DESC" ] || DESC=$(printf '%s' "$BODY" | head -c 3500)
+          # "What's new" (up to the --- separator), whole lines, at most 3500 characters (Discord's
+          # embed limit is 4096 characters; cutting by bytes could split one), then a link to the rest
+          DESC=$(printf '%s\n' "$BODY" | python3 -c '
+          import sys
+          out = []; n = 0
+          for l in sys.stdin.read().split("\n"):
+              if l.strip() == "---" or l.startswith("## Updating") or n + len(l) + 1 > 3500:
+                  break
+              out.append(l); n += len(l) + 1
+          print("\n".join(out).rstrip())')
+          DESC="$DESC"$'\n\n'"[Full notes and downloads]($URL)"
 
           jq -n --arg title "$LABEL: $NAME" --arg url "$URL" \
                 --arg desc "$DESC" --arg repo "$REPO" --arg tag "$TAG" \

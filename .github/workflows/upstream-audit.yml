@@ -1,0 +1,16 @@
+name: Upstream audit
+# Weekly: do our kernel and loader patches still apply to rmux's newest kernel branch and the newest
+# upstream loader? The report is the run's summary. Every X.Y release starts from it (docs/releasing.md).
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash tools/audit-upstream.sh "$RUNNER_TEMP/audit" | tee -a "$GITHUB_STEP_SUMMARY"

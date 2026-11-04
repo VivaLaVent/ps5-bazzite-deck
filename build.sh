@@ -50,6 +50,7 @@ echo "==> 3. kernel source: $KERNEL_TAG + $PATCHES_BRANCH patches"
 mkdir -p work
 git clone -q -b "$PATCHES_BRANCH" https://github.com/rmuxnet/ps5-linux-patches-1 work/ps5-linux-patches
 git -C work/ps5-linux-patches checkout -q 8de2aff        # pinned: the commit patches/ was ported onto
+sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-viva"/' work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_SUSPEND is not set/CONFIG_SUSPEND=y/' work/ps5-linux-patches/.config   # suspend-to-idle (patches/ps5-s2idle.patch)
 sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"/' work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_DEBUG_INFO_BTF is not set/CONFIG_DEBUG_INFO_BTF=y/' work/ps5-linux-patches/.config
@@ -66,6 +67,10 @@ git -C work/linux73 apply "$SRC/patches/ps5-s2idle.patch"     # suspend-to-idle 
 git -C work/linux73 apply "$SRC/patches/ps5-display.patch"    # re-arm, session switch, EDID keep, SCDC, VRR: what shitshow lacks
 git -C work/linux73 apply "$SRC/patches/ps5-gpu.patch"        # thermal GPU governor, overlay metrics
 git -C work/linux73 apply "$SRC/patches/ps5-fan.patch"        # no fan spike at shutdown
+# committed and at an annotated tag, so the release is exactly <version>-viva (no "+" or "-dirty")
+git -C work/linux73 add -A
+git -C work/linux73 -c user.name=ps5-bazzite-deck -c user.email=ps5-bazzite-deck@users.noreply.github.com commit -qm "PS5 patches"
+git -C work/linux73 -c user.name=ps5-bazzite-deck -c user.email=ps5-bazzite-deck@users.noreply.github.com tag -f -a "$KERNEL_TAG" -m "$KERNEL_TAG with PS5 patches"
 cp work/ps5-linux-patches/.config work/linux73/.config
 cp -r work/ps5-linux-patches work/linux73/ps5-linux-patches
 grep -E '^CONFIG_LSM=|^CONFIG_DEBUG_INFO_BTF=|^CONFIG_MT7921E=|^CONFIG_MODULE_ALLOW_BTF_MISMATCH=' work/linux73/.config

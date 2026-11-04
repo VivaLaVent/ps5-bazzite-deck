@@ -2,6 +2,14 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [Unreleased]
+- **The kernel is named `<version>-viva`** (`7.3.1-viva`)
+- **Releases are public from the start:** notes first, then files as they're built: update bundle for existing installs, bootc disk image, loader; the notes list each file as it arrives
+- **`ps5-report` starts with a fastfetch-style block:** console (original, Slim, Pro), HDMI chip, wireless chip, install type, kernel, display, Bluetooth and Wi-Fi state; then Bluetooth, Wi-Fi, USB, display, GPU and system sections with their logs. Kernel log counts are no longer doubled
+- Discord: the post carries the notes' "What's new" cut at a line (a byte cut could break a character and the post), plus a link to the full notes; the bootc post gives the `bootc switch` command for pre-releases
+- Weekly upstream audit (`upstream-audit.yml`, `tools/audit-upstream.sh`): do our patches apply to rmux's newest kernel branch and the newest loader. Every X.Y release starts from it (`docs/releasing.md`)
+- Fixed: the update bundle step (`podman rm` has no `-q`)
+
 ## [v2.4] – 2026-11-04
 > First release built entirely by GitHub Actions from this repo: kernel, update bundle for existing installs, bazzite-bootc-loader, bootc image and disk image. Kernel: Linux 7.3.1 + rmux's shitshow (8de2aff) with our own work ported on top; 40 patch files became 5. Releases v2.1.2 to v2.3 are withdrawn.
 - **Wi-Fi and Bluetooth back to v2.1.1.** Every Bluetooth, Wi-Fi and restart script, service and rule from v2.1.2 to v2.2 is reverted to its v2.1.1 version (the scripts, services and rules; the kernel's Bluetooth is rmux's newer code, below)
