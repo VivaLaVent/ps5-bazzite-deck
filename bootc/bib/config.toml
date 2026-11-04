@@ -4,11 +4,10 @@ name = "ps5"
 password = "ps5"
 groups = ["wheel"]
 
-# bootc raw images reject customizations.filesystem ("not supported") and fall back to a root sized
-# from the container, which the 6 GB of layers no longer fit. 24 GiB keeps the disk under a 32 GB
-# drive; ps5-grow-root fills the rest on the first start.
+# bootc raw images take the root size from customizations.disk (customizations.filesystem is "not
+# supported"). The 6.4 GB of layers unpack to about 25 GiB; ps5-grow-root fills the drive at first start.
 [[customizations.disk.partitions]]
 type = "plain"
 mountpoint = "/"
 fs_type = "ext4"
-minsize = "24 GiB"
+minsize = "32 GiB"

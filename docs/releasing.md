@@ -4,6 +4,8 @@
 
 Before tagging: the CHANGELOG entry, `docs/release-notes/vX.Y.md` (cumulative since the last release people actually ran) and `docs/update-sections/vX.Y.md`.
 
+A failed part doesn't need a full rebuild: `gh workflow run release.yml -f tag=vX.Y -f resume=true` reuses the kernel RPM on the release and the `:vX.Y` image, and redoes the bundle, disk image and loader.
+
 After testers confirm: `gh release edit vX.Y --prerelease=false --latest`. That makes it the release `update-latest.sh` installs and, through `pin-kernel.yml`, the kernel of the nightly `:stable` bootc image.
 
 ## X.Y releases rebase

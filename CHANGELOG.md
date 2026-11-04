@@ -9,6 +9,8 @@ All notable changes to the images. Exact upstream versions are in each release's
 - Discord: the post carries the notes' "What's new" cut at a line (a byte cut could break a character and the post), plus a link to the full notes; the bootc post gives the `bootc switch` command for pre-releases
 - Weekly upstream audit (`upstream-audit.yml`, `tools/audit-upstream.sh`): do our patches apply to rmux's newest kernel branch and the newest loader. Every X.Y release starts from it (`docs/releasing.md`)
 - Fixed: the update bundle step (`podman rm` has no `-q`)
+- Fixed: the bootc disk image's root partition is 32 GiB (24 GiB was too small for the unpacked image); bootc needs a 64 GB drive
+- `gh workflow run release.yml -f tag=vX.Y -f resume=true` redoes only the bundle, disk image and loader
 
 ## [v2.4] – 2026-11-04
 > First release built entirely by GitHub Actions from this repo: kernel, update bundle for existing installs, bazzite-bootc-loader, bootc image and disk image. Kernel: Linux 7.3.1 + rmux's shitshow (8de2aff) with our own work ported on top; 40 patch files became 5. Releases v2.1.2 to v2.3 are withdrawn.
