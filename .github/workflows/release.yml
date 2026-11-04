@@ -11,6 +11,10 @@ on:
       tag:
         description: "release tag, e.g. v2.3"
         required: true
+      hosted:
+        description: "build the kernel on GitHub's runner instead of the self-hosted one"
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
@@ -35,7 +39,8 @@ jobs:
 
   kernel:
     needs: meta
-    runs-on: ubuntu-24.04
+    # Gilles' PC (WSL, label ps5-kernel): more cores and a warm Docker cache. hosted=true when it's off.
+    runs-on: ${{ inputs.hosted && 'ubuntu-24.04' || fromJSON('["self-hosted", "linux", "x64", "ps5-kernel"]') }}
     timeout-minutes: 300
     permissions:
       contents: write
@@ -44,18 +49,22 @@ jobs:
         with:
           ref: ${{ needs.meta.outputs.tag }}
       - name: Free disk space
+        if: runner.environment == 'github-hosted'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           df -h /
       - name: Build
-        run: REPO="$RUNNER_TEMP/ps5-build" bash build.sh
+        run: |
+          if [ "$RUNNER_ENVIRONMENT" = self-hosted ]; then D=$HOME/ps5-ci-kernel; else D=$RUNNER_TEMP/ps5-build; fi
+          # the builder leaves root-owned files; the previous build goes through Docker
+          [ ! -d "$D" ] || docker run --rm -v "$(dirname "$D")":/p alpine rm -rf "/p/$(basename "$D")"
+          REPO="$D" bash build.sh
+          mkdir -p out && rm -f out/*.rpm && cp "$D"/linux-bin/linux-ps5-*.rpm out/
       - name: Attach
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          mkdir out && cp "$RUNNER_TEMP"/ps5-build/linux-bin/linux-ps5-*.rpm out/
-          gh release upload "$TAG" out/*.rpm --clobber
+        run: gh release upload "$TAG" out/*.rpm --clobber
       - uses: actions/upload-artifact@v4
         with:
           name: kernel-rpm
@@ -159,20 +168,6 @@ jobs:
         run: |
           echo "kernel=${{ needs.kernel.result }} loader=${{ needs.loader.result }} image=${{ needs.image.result }} bundle=${{ needs.bundle.result }} disk=${{ needs.disk.result }}"
           exit 1
-      - uses: actions/download-artifact@v4
-        with:
-          name: kernel-rpm
-          path: rpm
-      # the nightly bootc build uses this release's kernel from now on
-      - name: Pin the kernel
-        env:
-          TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          R=$(ls rpm/*.rpm); N=$(basename "$R")
-          sed -i -e "s/^KERNEL_REPO=.*/KERNEL_REPO=$GITHUB_REPOSITORY/" -e "s/^KERNEL_TAG=.*/KERNEL_TAG=$TAG/" \
-                 -e "s/^KERNEL_RPM=.*/KERNEL_RPM=$N/" -e "s/^KERNEL_SHA256=.*/KERNEL_SHA256=$(sha256sum "$R" | cut -d' ' -f1)/" bootc/pins.env
-          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -qm "pins: kernel from $TAG" bootc/pins.env && git push -q || echo "pins unchanged"
       - name: Post to the bootc testing channel
         env:
           HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}

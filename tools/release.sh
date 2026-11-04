@@ -14,5 +14,6 @@ git fetch -q origin main --tags
 git rev-parse -q --verify "refs/tags/$V" >/dev/null && { echo "STOP: tag $V exists"; exit 1; }
 sed -i "s/^## \[$V\] – .*/## [$V] – $(date +%F)/" CHANGELOG.md
 git commit -qam "$V" && git push -q
+pgrep -f "actions-runner/bin/Runner.Listener" >/dev/null || echo "The kernel job waits for the self-hosted runner: start ~/actions-runner/run.sh"
 git tag -a "$V" -m "$V" && git push -q origin "$V"
 echo "Building $V in CI: https://github.com/VivaLaVent/ps5-bazzite-deck/actions/workflows/release.yml"

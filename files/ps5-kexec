@@ -1,8 +1,5 @@
 #!/usr/bin/python3
-# Warm reboot into Linux: load the kernel from the boot partition with the kexec_file_load
-# system call (no kexec-tools needed), unload it, or execute it. Used by ps5-kexec-prepare.service
-# (started by reboot.target, so cmdline.txt and a freshly updated kernel are always current) and
-# by the /usr/sbin/kexec shim systemd runs at the end of a kexec reboot.
+# Warm reboot into Linux: load, unload or execute the boot partition kernel (kexec_file_load, no kexec-tools).
 import ctypes, os, subprocess, sys
 
 SYS_kexec_file_load = 320          # x86_64

@@ -33,10 +33,8 @@ if [ -n "${QUICK_REMOVE:-}" ]; then mkdir -p "$O/files"; printf '%s\n' $QUICK_RE
 echo "$R" > "$O/KERNEL"; echo "$L" > "$O/LABEL"
 cat > "$O/install.sh" << 'EOI'
 #!/bin/bash
-# Installs a quick test kernel (bzImage + amdgpu module) with a backup. Undo command at the end.
-# amdgpu usually sits in the initrd too: instead of rebuilding the initrd, a small cpio archive
-# with the new module is appended to the untouched original (the kernel reads concatenated
-# archives, later files replace earlier ones). The original is kept as initrd.img.base.
+# Test kernel with a backup: amdgpu is appended to the original initrd as a small cpio (later files
+# replace earlier ones), so the initrd needs no rebuild. The original stays as initrd.img.base.
 set -euo pipefail
 cd "$(dirname "$0")"
 K=${QUICK_KERNEL:-$(uname -r)}; [ "$K" = "$(cat KERNEL)" ] || { echo "STOP: running kernel $K, this build is $(cat KERNEL)"; exit 1; }   # QUICK_KERNEL: installing into an image (chroot)
@@ -65,10 +63,8 @@ if [ -x /usr/lib/dracut/skipcpio ] && sudo /usr/lib/dracut/skipcpio "$BASE" > "$
 else sudo cp "$BASE" "$W/main.img"; : > "$W/early.cpio"; fi
 MAGIC=$(head -c4 "$W/main.img" | od -An -tx1 | tr -d ' ')
 case "$MAGIC" in 28b52ffd) DEC="zstd -dc"; ENC="zstd -19 -T0 -q";; 1f8b*) DEC="gzip -dc"; ENC="gzip -9";; fd377a58) DEC="xz -dc"; ENC="xz --check=crc32 -9";; *) DEC="cat"; ENC="cat";; esac
-# decompress tolerantly: an initrd that already got an overlay appended has trailing data
-# after the compressed stream, which zstd/gzip report as an error after a complete decode
-# the unpack root MUST be root-owned: the archive's "." entry becomes the initrd's "/", and systemd
-# refuses a root directory owned by a normal user (no boot). The first in-initrd installer got this wrong.
+# Decompress tolerantly (an appended overlay is trailing data), and keep the unpack root root-owned:
+# it becomes the initrd's "/", and systemd refuses a root owned by a user.
 sudo mkdir -m 755 "$W/root" && (cd "$W/root" && { $DEC ../main.img 2>/dev/null || true; } | sudo cpio -idm --quiet 2>/dev/null || true)
 [ -n "$(ls -A "$W/root" 2>/dev/null)" ] || { echo "STOP: could not unpack the initrd (format $MAGIC); nothing changed"; sudo cp "$BK/bzImage" "$EFI/"; sudo rm -rf "$W"; exit 1; }
 [ -e "$W/root/$IP" ] || echo "note: $IP wasn't in the initrd; adding it"

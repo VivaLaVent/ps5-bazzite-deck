@@ -1,0 +1,27 @@
+name: Pin kernel
+# A release promoted to stable (gh release edit vX.Y --prerelease=false --latest) becomes the kernel of
+# the nightly :stable bootc image. Pre-releases never reach :stable this way.
+on:
+  release:
+    types: [released]
+
+jobs:
+  pin:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'linux-ps5-*.rpm' --dir rpm ||
+            { echo "$TAG has no kernel RPM, nothing to pin"; exit 0; }
+          R=$(ls rpm/*.rpm); N=$(basename "$R")
+          sed -i -e "s/^KERNEL_REPO=.*/KERNEL_REPO=$GITHUB_REPOSITORY/" -e "s/^KERNEL_TAG=.*/KERNEL_TAG=$TAG/" \
+                 -e "s/^KERNEL_RPM=.*/KERNEL_RPM=$N/" -e "s/^KERNEL_SHA256=.*/KERNEL_SHA256=$(sha256sum "$R" | cut -d' ' -f1)/" bootc/pins.env
+          git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -qm "pins: kernel from $TAG" bootc/pins.env && git push -q || echo "pins unchanged"

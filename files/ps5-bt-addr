@@ -1,8 +1,6 @@
 #!/bin/bash
-# Gives the IW620 Bluetooth chip a Linux-only address (PR #9 by Dasloh). See docs/dualsense-profiles.md.
-# Runs every time the adapter appears (udev), and makes sure the kernel and bluetoothd use the new
-# address too: otherwise pairings are stored under the old address on some boots and under the new
-# one on others, and controllers have to be paired again.
+# IW620: a Linux-only Bluetooth address (PR #9, Dasloh), applied so kernel and bluetoothd use it too:
+# otherwise pairings end up under different addresses on different boots.
 set -u
 command -v btmgmt >/dev/null && command -v python3 >/dev/null || { echo "btmgmt or python3 missing"; exit 0; }
 
@@ -22,10 +20,8 @@ if [ "$id" = "0e8d:3603" ] && [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
     exit 0
 fi
 if [ "$id" = "0e8d:3603" ]; then
-    # MediaTek: the kernel can set this chip's address itself (btmgmt public-addr, powered off),
-    # so the new address is known to kernel and bluetoothd right away. v1.8.9: reuse the address
-    # saved on first run (same reasoning as IW620 below: a freshly derived address isn't guaranteed
-    # stable across cold boots on every unit).
+    # MediaTek: the kernel sets the address itself (btmgmt public-addr while powered off); reuse the
+    # saved one, a freshly derived address is not stable across cold boots on every unit.
     SAVED=/etc/ps5-bazzite-deck/bt-address-value
     cur=$(kernel_addr); first=$((16#${cur%%:*}))
     new=$(cat "$SAVED" 2>/dev/null || true)
@@ -43,10 +39,8 @@ if [ "$id" = "0e8d:3603" ]; then
     btmgmt --index 0 power on >/dev/null
     for _ in 1 2 3 4 5 6; do kern=$(kernel_addr); [ "$kern" = "$new" ] && break; sleep 0.5; done
     if [ "$kern" != "$new" ]; then
-        # v1.8.9: btmgmt's public-addr isn't applied on every MT7961 (hsgodd: "Set Public Address complete"
-        # but the old address stayed). Fallback: MediaTek's own vendor command, the one the kernel's
-        # btmtk_set_bdaddr sends (0xFC1A, the address little-endian), then a power cycle so the kernel
-        # reads the new address back, as on the IW620 path.
+        # Some MT7961 ignore public-addr: send MediaTek's vendor command (0xFC1A, little-endian) and
+        # power-cycle so the kernel reads the address back.
         python3 -I - "$new" <<'PY' && { btmgmt --index 0 power off >/dev/null; btmgmt --index 0 power on >/dev/null; }
 import socket, struct, sys
 s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_RAW, socket.BTPROTO_HCI)

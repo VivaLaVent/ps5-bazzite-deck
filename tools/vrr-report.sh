@@ -17,7 +17,7 @@ echo "cmdline: $(grep -o 'hdmi\.[a-z_0-9]*=[^ ]*' /proc/cmdline | paste -sd' ')"
 echo "=== vrr parameters"; for p in /sys/module/hdmi/parameters/vrr_*; do [ -e "$p" ] && printf '%s=%s ' "${p##*/}" "$(cat "$p")"; done; echo
 echo "=== vrr log (this boot)"
 k | grep -e 'PS5 VRR' -e 'PS5 DPCD' -e 'VRR prep' -e 'VRR phy reply' -e 'VSync block' -e 'HF-VSIF' -e 'FreeSync' -e 'VTEM' -e 'picture up' -e 'got real edid' -e 're-arm' -e 'Link Training' | sed 's/^\[ *\([0-9.]*\)\]/[\1]/' | tail -60
-echo "counts: switched on=$(k | grep -c 'VRR: switched on') switched off=$(k | grep -c 'VRR: switched off') got real edid=$(k | grep -c 'got real edid') picture up=$(k | grep -c 'picture up')"
+echo "counts: switched on=$(k | grep -c 'VRR: switched on') switched off=$(k | grep -c 'VRR: switched off') got real edid=$(k | grep -ciE 'got real (hdmi )?edid') picture up=$(k | grep -c 'picture up')"
 echo "=== gpu"; k | grep -i -e 'ring .* timeout' -e 'page fault' -e 'wedged' | tail -4
 } 2>&1 | tee "$OUT"
 echo; echo "saved to $OUT: post this file (not a photo of the terminal) in #bazzite-prereleases-experimental, one post per test variant"

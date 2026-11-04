@@ -2,9 +2,9 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.3] – 2026-11-04
-> First release built entirely by GitHub Actions from this repo: kernel, update bundle for existing installs, bazzite-bootc-loader, bootc image and disk image. Releases v2.1.2 to v2.2 are withdrawn.
-- **Wi-Fi and Bluetooth back to v2.1.1.** Every Bluetooth, Wi-Fi and restart script, service and rule from v2.1.2 to v2.2 is reverted to its v2.1.1 version; the kernel's Wi-Fi and Bluetooth parts didn't change after v2.1.1
+## [v2.4] – 2026-11-<DD>
+> First release built entirely by GitHub Actions from this repo: kernel, update bundle for existing installs, bazzite-bootc-loader, bootc image and disk image. Kernel: Linux 7.3.1 + rmux's shitshow (8de2aff) with our own work ported on top; 40 patch files became 5. Releases v2.1.2 to v2.3 are withdrawn.
+- **Wi-Fi and Bluetooth back to v2.1.1.** Every Bluetooth, Wi-Fi and restart script, service and rule from v2.1.2 to v2.2 is reverted to its v2.1.1 version (the scripts, services and rules; the kernel's Bluetooth is rmux's newer code, below)
 - **bootc image (experimental):** `ghcr.io/vivalavent/ps5-bazzite-bootc`, flashed from the release's disk image, updated with `sudo bootc upgrade`, rolled back with `sudo bootc rollback`
 - **bazzite-bootc-loader:** rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source for every release. Starts existing installs exactly as the standard loader does
 - **PS5 Pro: D3D9 games work.** AMD's command-processor microcode is now read from Bazzite's compressed linux-firmware; before, the swap silently kept Sony's
@@ -12,6 +12,14 @@ All notable changes to the images. Exact upstream versions are in each release's
 - **Fan: no spike to full speed at shutdown or reboot**
 - The update refuses to run on a bootc install, and refuses a boot partition that starts a different root (M.2 installs booting from a stick)
 - Removed: the ICC debugfs test patch (issue #36)
+- **rmux's newer kernel work comes in:** IW620 and MediaTek Bluetooth fixes (including the IW620 fix for `0x2039` timeouts), native FRL with 4:2:0 fallback, ALLM and bounded recovery, RGB range from DRM ("Broadcast RGB"), his mode policy, the PS5 Pro frequency drivers with Pro clock limits
+- **Ported from ours, which his tree doesn't have:** VRR on FLAVA3, HDMI re-arm and session-switch fixes, EDID keep and fallback, SCDC Source Version and TMDS_Config, sleep mute, full-rate DP link, Verde game content, the thermal GPU governor (85 °C limit), overlay GPU load and temperature, the fan shutdown fix, suspend-to-idle
+- Dropped where rmux has his own: our mode list (no more "1080p60 preferred" default), `hdmi.rgb_range`, the HDMI debug log, the 100 Hz test modes
+- Wi-Fi driver unchanged
+- `ps5-report` and `vrr-report`: count the new kernel's "got real HDMI EDID" lines; `ps5-report` recognizes both PS5 Pro GPU IDs (13da, 13dc)
+- A release's kernel reaches the nightly `:stable` bootc image only when the release is promoted to stable (`pin-kernel.yml`), so a test kernel never does
+- Comments in our kernel patches and scripts cut to the reason, one or two lines
+- The release kernel builds on a self-hosted runner (label `ps5-kernel`); `gh workflow run release.yml -f tag=vX.Y -f hosted=true` uses GitHub's runner instead
 
 ## [v2.1.1] – 2026-11-02
 > v2.1.0's image with the new kernel installed into it, checked file by file.
