@@ -1,0 +1,956 @@
+diff --git a/.config b/.config
+index 68b6c61..f62ed5d 100644
+--- a/.config
++++ b/.config
+@@ -585,14 +585,22 @@ CONFIG_ARCH_HAS_ADD_PAGES=y
+ #
+ # Power management and ACPI options
+ #
+-# CONFIG_SUSPEND is not set
++CONFIG_SUSPEND=y
++CONFIG_SUSPEND_FREEZER=y
++# CONFIG_SUSPEND_SKIP_SYNC is not set
+ # CONFIG_HIBERNATION is not set
++CONFIG_PM_SLEEP=y
++CONFIG_PM_SLEEP_SMP=y
++# CONFIG_PM_AUTOSLEEP is not set
++# CONFIG_PM_USERSPACE_AUTOSLEEP is not set
++# CONFIG_PM_WAKELOCKS is not set
+ # CONFIG_PM_QOS_CPU_SYSTEM_WAKEUP is not set
+ CONFIG_PM=y
+ # CONFIG_PM_DEBUG is not set
+ CONFIG_PM_CLK=y
+ CONFIG_PM_GENERIC_DOMAINS=y
+ CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y
++CONFIG_PM_GENERIC_DOMAINS_SLEEP=y
+ CONFIG_ENERGY_MODEL=y
+ CONFIG_ARCH_SUPPORTS_ACPI=y
+ CONFIG_ACPI=y
+@@ -604,6 +612,7 @@ CONFIG_ACPI_THERMAL_LIB=y
+ # CONFIG_ACPI_SPCR_TABLE is not set
+ # CONFIG_ACPI_FPDT is not set
+ CONFIG_ACPI_LPIT=y
++CONFIG_ACPI_SLEEP=y
+ CONFIG_ACPI_REV_OVERRIDE_POSSIBLE=y
+ # CONFIG_ACPI_EC is not set
+ # CONFIG_ACPI_AC is not set
+@@ -611,6 +620,7 @@ CONFIG_ACPI_REV_OVERRIDE_POSSIBLE=y
+ CONFIG_ACPI_BUTTON=y
+ CONFIG_ACPI_VIDEO=m
+ # CONFIG_ACPI_FAN is not set
++# CONFIG_ACPI_TAD is not set
+ # CONFIG_ACPI_DOCK is not set
+ CONFIG_ACPI_CPU_FREQ_PSS=y
+ CONFIG_ACPI_PROCESSOR_CSTATE=y
+@@ -1950,6 +1960,7 @@ CONFIG_FW_LOADER_USER_HELPER=y
+ CONFIG_FW_LOADER_COMPRESS=y
+ CONFIG_FW_LOADER_COMPRESS_XZ=y
+ CONFIG_FW_LOADER_COMPRESS_ZSTD=y
++CONFIG_FW_CACHE=y
+ # CONFIG_FW_UPLOAD is not set
+ # end of Firmware loader
+ 
+@@ -2883,6 +2894,7 @@ CONFIG_TTY=y
+ CONFIG_VT=y
+ CONFIG_CONSOLE_TRANSLATIONS=y
+ CONFIG_VT_CONSOLE=y
++CONFIG_VT_CONSOLE_SLEEP=y
+ CONFIG_VT_HW_CONSOLE_BINDING=y
+ CONFIG_UNIX98_PTYS=y
+ # CONFIG_LEGACY_PTYS is not set
+@@ -4577,6 +4589,7 @@ CONFIG_X86_PLATFORM_DEVICES=y
+ # CONFIG_AMD_HSMP_PLAT is not set
+ # end of AMD HSMP Driver
+ 
++# CONFIG_AMD_PMC is not set
+ # CONFIG_AMD_HFI is not set
+ # CONFIG_AMD_3D_VCACHE is not set
+ # CONFIG_AMD_WBRF is not set
+diff --git a/docs/suspend-to-idle.md b/docs/suspend-to-idle.md
+new file mode 100644
+index 0000000..7cda7db
+--- /dev/null
++++ b/docs/suspend-to-idle.md
+@@ -0,0 +1,158 @@
++# Suspend-to-idle on the PS5
++
++## Overview
++
++The PS5 kernel supports suspend-to-idle (s2idle).
++The PS5 has no ACPI. Thus s2idle is the only sleep state.
++In s2idle, the kernel stops all tasks and puts the devices to sleep.
++The power button wakes the system.
++When the system wakes, all tasks continue from the same point.
++A game that runs before sleep continues after sleep.
++
++## Kernel configuration
++
++Set `CONFIG_SUSPEND=y`.
++The kernel then also sets `CONFIG_PM_SLEEP=y`.
++
++## How to use
++
++1. Start the sleep: push the power button for a short time, or use `systemctl suspend`.
++   In game mode, you can also use the Sleep button of Steam.
++2. Make sure that the screen goes dark and that the indicator becomes orange.
++3. To wake the system, push the power button for a short time.
++   The system controller makes one short beep.
++
++The power button is the only wake source.
++The Bluetooth controller disconnects from the DualSense during sleep.
++After sleep, push the PS button to connect the controller again.
++
++## Parameters
++
++| Parameter | Default | Effect |
++|---|---|---|
++| `spcie.wake_beep` | `Y` | One short beep when the system wakes. |
++| `spcie.sleep_led` | `Y` | Orange indicator during sleep. The previous indicator setting comes back after sleep. |
++
++## Driver changes
++
++### spcie (Salina glue, `drivers/ps5/spcie.c`)
++
++The system controller (ICC) sends the power button, fan, HDMI and thermal messages.
++These messages go through the ICC mailbox of the spcie function.
++
++Before this change, spcie had no PM callbacks.
++Thus the PCI core cleared bus mastering before sleep.
++The ICC interrupt then stopped, and the power button could not wake the system.
++
++The changes are:
++
++- In the `suspend_noirq` callback, the driver saves the PCI state.
++  Thus the PCI core keeps the function in D0 with bus mastering on.
++- The ICC interrupt uses `IRQF_NO_SUSPEND`.
++  The interrupt stays on during sleep.
++  A wake interrupt is not correct here, because thermal and HDMI messages also use this interrupt.
++  These messages must not wake the system.
++- During sleep, a power button push calls `pm_wakeup_dev_event()`.
++  This wakes the system.
++- During sleep, the driver does not send button messages to the input device.
++  If user space gets `KEY_POWER`, it can start a new sleep immediately.
++- A PM notifier does the work before and after sleep:
++  - Before sleep, it sets the indicator to orange.
++  - After sleep, it sends the last indicator setting again, and makes one beep.
++  - After sleep, it sends `KEY_WAKEUP`. The ACPI button driver does the same.
++- During sleep, the driver keeps ICC notifications in its queue.
++  The driver processes them after sleep, when the GPU and the displays are on again.
++  If the driver processes an HDMI message during sleep, the EDID read fails.
++  The connector then has no modes, and the screen stays dark after sleep.
++
++### led (`drivers/ps5/led/core.c`)
++
++The LED class devices do not use `LED_CORE_SUSPENDRESUME`.
++With this flag, the LED core turned the indicator off before sleep.
++After sleep, the indicator stayed off.
++Now spcie sets the indicator before and after sleep.
++
++### mts (Ethernet, `drivers/net/phy/mts/mts_main.c`)
++
++Before this change, mts had no PM callbacks.
++The PCI core cleared bus mastering while RX DMA was active.
++The MAC then reported `HW error 0x20000 rx-axi`.
++After resume, RX did not work until reboot.
++
++The changes are:
++
++- At suspend, the driver stops the queue, the link poll, NAPI and DMA.
++  This is the same sequence as `ndo_stop`.
++- At resume, the driver does the full bringup again.
++  This is the same sequence as `ndo_open`.
++- At resume, the driver also writes the RX filter again.
++  The MAC reset in `gbe_init_hw()` clears the RX filter.
++
++### ahci_salina (SATA, `drivers/ata/ahci_salina.c`)
++
++The PM code did not compile with `CONFIG_PM_SLEEP=y`.
++`ata_host_suspend()` returns no value.
++The change removes the return value check.
++
++### amdgpu (display)
++
++Without ACPI, amdgpu does not do a suspend for s2idle.
++The GPU stays on, and the screen shows the last frame.
++
++On the PS5, amdgpu now turns off the displays at suspend.
++It uses the same state cache as the full suspend: `dm_cache_state()`.
++At resume, it uses `dm_destroy_cached_state()` to turn on the displays again.
++The modeset at resume also configures the HDMI bridge again.
++
++### Salina xHCI (Bluetooth, `drivers/usb/host/xhci*.c`)
++
++The IW620 Bluetooth controller is a USB device (1286:2059) on the Salina xHCI (104d:9108).
++
++Interrupts:
++
++- The Salina xHCI does not clear `IMAN.IP` after it sends an MSI.
++  Thus the controller sent only one interrupt after boot.
++- The driver now clears `IMAN.IP` itself (`ip_autoclear = false`).
++  The controller now sends one interrupt for each event.
++
++Sleep:
++
++- The Bluetooth controller does not accept a USB suspend.
++  When its port goes to U3, the port goes to the Resume state without a port change.
++  After sleep, the device disconnects and comes back at full speed only.
++  It then stays in this state until power off.
++- Thus, during s2idle, the Salina xHCI stays on, and its ports stay in U0:
++  - `xhci_pci_suspend()` and `xhci_pci_resume()` do not halt or restart the controller.
++    The driver keeps one more `pci_enable_device()` reference during sleep.
++    Thus `pci_disable_device()` in `suspend_common()` does not clear bus mastering.
++  - `SetPortFeature(USB_PORT_FEAT_SUSPEND)` does nothing for the Salina ports.
++  - `xhci_bus_suspend()` does not set U3 on the Salina ports.
++  - The Salina xHCI interrupt is not a wake source.
++- The Salina xHCI does not go to D3 (`PCI_DEV_FLAGS_NO_D3`).
++  The PHY setup from `xhci_salina_init()` does not survive D3.
++- The software poller stops during sleep and starts again after sleep.
++  If the poller runs during sleep, the system can stop in sleep.
++- The poller does not read the registers while the controller is not accessible.
++  Before this change, the poller read `0xffffffff` during sleep and marked the controller dead.
++
++## Limits
++
++- The GPU and its memory stay on during sleep.
++- The kernel command line has `idle=halt`. Thus the CPU cores stay in C1.
++- Thus the power decrease is small. This is not the rest mode of the PS5 system software.
++- The Bluetooth controller and the Salina xHCI stay on during sleep.
++- A DualSense cannot wake the system.
++
++## Test procedure
++
++Use `CONFIG_PM_DEBUG=y` for steps 1 and 2.
++
++1. Write `freezer` to `/sys/power/pm_test`, then write `freeze` to `/sys/power/state`.
++   The system stops all tasks for 5 seconds, then continues.
++2. Do step 1 again with `devices`, then with `platform`.
++3. Write `none` to `/sys/power/pm_test`, then write `freeze` to `/sys/power/state`.
++   Wake the system with the power button.
++4. Start a sleep and wake the system five times, one after the other.
++5. After each sleep, make sure that these items work: display, audio, Ethernet, Wi-Fi, Bluetooth.
++6. After each step, examine `dmesg`.
++   Make sure that there are no new warnings or errors.
+diff --git a/linux.patch b/linux.patch
+index 7814cbb..86778db 100644
+--- a/linux.patch
++++ b/linux.patch
+@@ -526,10 +526,10 @@ index b96025abd45e..654ccbee2943 100644
+  obj-$(CONFIG_PDC_ADMA)		+= pdc_adma.o
+ diff --git a/drivers/ata/ahci_salina.c b/drivers/ata/ahci_salina.c
+ new file mode 100644
+-index 000000000000..c020194eb44a
++index 000000000000..619fd84445fc
+ --- /dev/null
+ +++ b/drivers/ata/ahci_salina.c
+-@@ -0,0 +1,340 @@
++@@ -0,0 +1,337 @@
+ +// SPDX-License-Identifier: GPL-2.0-only
+ +/*
+ + * PlayStation 5 Salina SATA / BD-ROM AHCI host driver
+@@ -786,7 +786,6 @@ index 000000000000..c020194eb44a
+ +	struct ahci_host_priv *hpriv;
+ +	void __iomem *mmio;
+ +	u32 ctl;
+-+	int rc;
+ +
+ +	if (!host)
+ +		return 0;
+@@ -799,9 +798,7 @@ index 000000000000..c020194eb44a
+ +	writel(ctl, mmio + HOST_CTL);
+ +	readl(mmio + HOST_CTL);
+ +
+-+	rc = ata_host_suspend(host, PMSG_SUSPEND);
+-+	if (rc)
+-+		return rc;
+++	ata_host_suspend(host, PMSG_SUSPEND);
+ +
+ +	pci_save_state(pdev);
+ +	pci_set_power_state(pdev, PCI_D3hot);
+@@ -1812,7 +1809,7 @@ index a3f7dabd4955..77f616a11b1c 100644
+   * dmi_name_in_serial - Check if string is in the DMI product serial information
+   * @str: string to check for
+ diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu.h b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
+-index a9c6f5d4a639..e9a285527a2b 100644
++index a9c6f5d4a639..270cc20c237e 100644
+ --- a/drivers/gpu/drm/amd/amdgpu/amdgpu.h
+ +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
+ @@ -269,6 +269,10 @@ extern int amdgpu_ptl;
+@@ -1826,6 +1823,16 @@ index a9c6f5d4a639..e9a285527a2b 100644
+  #define AMDGPU_SG_THRESHOLD			(256*1024*1024)
+  #define AMDGPU_WAIT_IDLE_TIMEOUT_IN_MS	        3000
+  #define AMDGPU_MAX_USEC_TIMEOUT			100000	/* 100 ms */
++@@ -858,6 +862,9 @@ struct amdgpu_device {
++ 	bool				in_s4;
++ 	bool				in_s0ix;
++ 	suspend_state_t			last_suspend_state;
+++#ifdef CONFIG_X86_PS5
+++	bool				ps5_displays_off;
+++#endif
++ 
++ 	enum pp_mp1_state               mp1_state;
++ 	struct amdgpu_doorbell_index doorbell_index;
+ diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
+ index 08ed1eb69558..71d9e999fdc9 100644
+ --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_bios.c
+@@ -1918,7 +1925,7 @@ index 7ab2ad2c5ba9..2e7169925903 100644
+  		break;
+  	default:
+ diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+-index d9d794a7db96..5cb169f07e4a 100644
++index d9d794a7db96..21b391e92733 100644
+ --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+ +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+ @@ -40,6 +40,10 @@
+@@ -1965,6 +1972,32 @@ index d9d794a7db96..5cb169f07e4a 100644
+  	if ((pdev->class >> 8) == PCI_CLASS_DISPLAY_VGA ||
+  	    (pdev->class >> 8) == PCI_CLASS_DISPLAY_OTHER) {
+  		if (drm_firmware_drivers_only() && amdgpu_modeset == -1)
++@@ -2646,6 +2662,11 @@ static int amdgpu_pmops_suspend(struct device *dev)
++ 				     pm_suspend_target_state);
++ 			return -EINVAL;
++ 		}
+++#endif
+++#if IS_ENABLED(CONFIG_X86_PS5) && IS_ENABLED(CONFIG_DRM_AMD_DC)
+++		if (amdgpu_device_has_dc_support(adev) &&
+++		    !amdgpu_dm_ps5_displays_off(adev))
+++			adev->ps5_displays_off = true;
++ #endif
++ 		return 0;
++ 	}
++@@ -2688,6 +2709,13 @@ static int amdgpu_pmops_resume(struct device *dev)
++ 	struct amdgpu_device *adev = drm_to_adev(drm_dev);
++ 	int r;
++ 
+++#if IS_ENABLED(CONFIG_X86_PS5) && IS_ENABLED(CONFIG_DRM_AMD_DC)
+++	if (adev->ps5_displays_off) {
+++		adev->ps5_displays_off = false;
+++		amdgpu_dm_ps5_displays_on(adev);
+++		return 0;
+++	}
+++#endif
++ 	if (!adev->in_s0ix && !adev->in_s3)
++ 		return 0;
++ 
+ diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_fdinfo.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_fdinfo.c
+ index b349bb3676d5..23eb2286e981 100644
+ --- a/drivers/gpu/drm/amd/amdgpu/amdgpu_fdinfo.c
+@@ -2408,7 +2441,7 @@ index 0442bfcfd384..d9634611eed5 100644
+  	vcn_v2_0_enable_static_power_gating(vinst);
+  
+ diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+-index 47a0ff2ed035..f2d72308b019 100644
++index 47a0ff2ed035..499ac8347def 100644
+ --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+ +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+ @@ -87,6 +87,10 @@
+@@ -2480,7 +2513,26 @@ index 47a0ff2ed035..f2d72308b019 100644
+  
+  	amdgpu_dm_fini(adev);
+  	return 0;
+-@@ -4922,6 +4954,28 @@ static void amdgpu_dm_update_hdcp(struct drm_atomic_commit *state)
++@@ -1565,6 +1597,18 @@ static void dm_destroy_cached_state(struct amdgpu_device *adev)
++ 	dm->cached_state = NULL;
++ }
++ 
+++#ifdef CONFIG_X86_PS5
+++int amdgpu_dm_ps5_displays_off(struct amdgpu_device *adev)
+++{
+++	return dm_cache_state(adev);
+++}
+++
+++void amdgpu_dm_ps5_displays_on(struct amdgpu_device *adev)
+++{
+++	dm_destroy_cached_state(adev);
+++}
+++#endif
+++
++ static int dm_suspend(struct amdgpu_ip_block *ip_block)
++ {
++ 	struct amdgpu_device *adev = ip_block->adev;
++@@ -4922,6 +4966,28 @@ static void amdgpu_dm_update_hdcp(struct drm_atomic_commit *state)
+  	}
+  }
+  
+@@ -2509,7 +2561,7 @@ index 47a0ff2ed035..f2d72308b019 100644
+  static int amdgpu_dm_atomic_setup_commit(struct drm_atomic_commit *state)
+  {
+  	struct drm_crtc *crtc;
+-@@ -5054,12 +5108,55 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
++@@ -5054,12 +5120,55 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+  	drm_atomic_helper_update_legacy_modeset_state(dev, state);
+  	drm_dp_mst_atomic_wait_for_dependencies(state);
+  
+@@ -2566,7 +2618,7 @@ index 47a0ff2ed035..f2d72308b019 100644
+  
+  	/* Handle connector state changes */
+ diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h
+-index 881c8d1c3cc0..884e7e4bb801 100644
++index 881c8d1c3cc0..1520d7167453 100644
+ --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h
+ +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.h
+ @@ -742,8 +742,23 @@ struct amdgpu_display_manager {
+@@ -2593,6 +2645,18 @@ index 881c8d1c3cc0..884e7e4bb801 100644
+  enum dsc_clock_force_state {
+  	DSC_CLK_FORCE_DEFAULT = 0,
+  	DSC_CLK_FORCE_ENABLE,
++@@ -1089,6 +1104,11 @@ struct dm_connector_state {
++ 
++ void amdgpu_dm_trigger_timing_sync(struct drm_device *dev);
++ 
+++#ifdef CONFIG_X86_PS5
+++int amdgpu_dm_ps5_displays_off(struct amdgpu_device *adev);
+++void amdgpu_dm_ps5_displays_on(struct amdgpu_device *adev);
+++#endif
+++
++ /* 3D LUT max size is 17x17x17 (4913 entries) */
++ #define MAX_COLOR_3DLUT_SIZE 17
++ #define MAX_COLOR_3DLUT_BITDEPTH 12
+ diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+ index 45a69bf43971..1a9d9fb41120 100644
+ --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+@@ -3179,10 +3243,10 @@ index 000000000000..119cdcd49a63
+ +#endif /* _MTS_H */
+ diff --git a/drivers/net/phy/mts/mts_main.c b/drivers/net/phy/mts/mts_main.c
+ new file mode 100644
+-index 000000000000..7cfde3e6ef88
++index 000000000000..b13dffd1cdd1
+ --- /dev/null
+ +++ b/drivers/net/phy/mts/mts_main.c
+-@@ -0,0 +1,874 @@
++@@ -0,0 +1,920 @@
+ +// SPDX-License-Identifier: GPL-2.0-only
+ +/*
+ + * PlayStation 5 Gigabit Ethernet driver
+@@ -4039,6 +4103,51 @@ index 000000000000..7cfde3e6ef88
+ +	free_netdev(netdev);
+ +}
+ +
+++static int gbe_suspend(struct device *dev)
+++{
+++	struct net_device *netdev = dev_get_drvdata(dev);
+++	struct gbe_priv *p = netdev_priv(netdev);
+++
+++	if (!netif_running(netdev))
+++		return 0;
+++
+++	netif_device_detach(netdev);
+++	netif_carrier_off(netdev);
+++	cancel_delayed_work_sync(&p->link_poll);
+++	napi_disable(&p->napi);
+++	gbe_stop_dma(p);
+++
+++	return 0;
+++}
+++
+++static int gbe_resume(struct device *dev)
+++{
+++	struct net_device *netdev = dev_get_drvdata(dev);
+++	struct gbe_priv *p = netdev_priv(netdev);
+++
+++	if (!netif_running(netdev))
+++		return 0;
+++
+++	p->link_up = 0;
+++	gbe_init_hw(p);
+++	gbe_rx_fill(p);
+++	gbe_init_rings_hw(p);
+++
+++	netif_addr_lock_bh(netdev);
+++	gbe_set_rx_mode(netdev);
+++	netif_addr_unlock_bh(netdev);
+++
+++	napi_enable(&p->napi);
+++	netif_device_attach(netdev);
+++
+++	gbe_link_change(p);
+++	schedule_delayed_work(&p->link_poll, HZ);
+++
+++	return 0;
+++}
+++
+++static DEFINE_SIMPLE_DEV_PM_OPS(gbe_pm_ops, gbe_suspend, gbe_resume);
+++
+ +static const struct pci_device_id gbe_pci_tbl[] = {
+ +	{ PCI_DEVICE(PCI_VENDOR_ID_SONY, PCI_DEVICE_ID_GBE) },
+ +	{ }
+@@ -4050,6 +4159,7 @@ index 000000000000..7cfde3e6ef88
+ +	.id_table	= gbe_pci_tbl,
+ +	.probe		= gbe_probe,
+ +	.remove		= gbe_remove,
+++	.driver.pm	= pm_sleep_ptr(&gbe_pm_ops),
+ +};
+ +
+ +module_pci_driver(gbe_driver);
+@@ -8443,10 +8553,10 @@ index 000000000000..38cfacb315b2
+ +obj-y += core.o presets.o
+ diff --git a/drivers/ps5/led/core.c b/drivers/ps5/led/core.c
+ new file mode 100644
+-index 000000000000..796cc0edc859
++index 000000000000..1bf0632ea257
+ --- /dev/null
+ +++ b/drivers/ps5/led/core.c
+-@@ -0,0 +1,158 @@
++@@ -0,0 +1,157 @@
+ +// SPDX-License-Identifier: GPL-2.0-only
+ +
+ +#include <linux/module.h>
+@@ -8552,7 +8662,6 @@ index 000000000000..796cc0edc859
+ +		node->cdev.name            = name;
+ +		node->cdev.max_brightness  = 255;
+ +		node->cdev.brightness_set_blocking = ps5_led_brightness_set;
+-+		node->cdev.flags           = LED_CORE_SUSPENDRESUME;
+ +
+ +		ret = devm_led_classdev_register(&pdev->dev, &node->cdev);
+ +		if (ret)
+@@ -9523,10 +9632,10 @@ index 000000000000..5ea1519823c3
+ +#endif /* _PS5_FAN_H */
+ diff --git a/drivers/ps5/spcie.c b/drivers/ps5/spcie.c
+ new file mode 100644
+-index 000000000000..547b1457ac62
++index 000000000000..d0d2b8820870
+ --- /dev/null
+ +++ b/drivers/ps5/spcie.c
+-@@ -0,0 +1,974 @@
++@@ -0,0 +1,1111 @@
+ +// SPDX-License-Identifier: GPL-2.0-only
+ +
+ +#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+@@ -9539,6 +9648,8 @@ index 000000000000..547b1457ac62
+ +#include <linux/dmi.h>
+ +#include <linux/delay.h>
+ +#include <linux/kfifo.h>
+++#include <linux/pm_wakeup.h>
+++#include <linux/suspend.h>
+ +
+ +#define PCI_DEVICE_ID_SPCIE	0x9107
+ +#define SPCIE_SUBFUNC_ICC	12
+@@ -9566,6 +9677,10 @@ index 000000000000..547b1457ac62
+ +
+ +#define ICC_TIMEOUT_MSECS	12000
+ +
+++#define ICC_BUTTON_POWER_DOWN	0x8010
+++
+++#define ICC_BUZZER_SHORT	1
+++
+ +#define ICC_IOC_MAGIC		'I'
+ +
+ +#define ICC_FAN_CHANGE_SERVO_PATTERN	_IOW(ICC_IOC_MAGIC, 1, u8)
+@@ -9586,6 +9701,7 @@ index 000000000000..547b1457ac62
+ +	u8 reply[ICC_MSG_MAX_SIZE];
+ +	u16 reply_length;
+ +	bool reply_ready;
+++	bool suspended;
+ +};
+ +
+ +struct spcie_dev {
+@@ -9629,6 +9745,26 @@ index 000000000000..547b1457ac62
+ +	0x00
+ +};
+ +
+++static const u8 indicator_orange[] = {
+++	0x03, 0x00, 0x00, 0x00, 0x10, 0x01, 0x02, 0x00, 0x05, 0x03, 0x00, 0x11,
+++	0x01, 0x02, 0x00, 0x05, 0x03, 0x00, 0x12, 0x01, 0x02, 0xFF, 0x05, 0x03,
+++	0x00
+++};
+++
+++static DEFINE_MUTEX(icc_led_lock);
+++static u8 icc_led_last[ICC_MSG_MAX_SIZE];
+++static size_t icc_led_last_size;
+++
+++static struct notifier_block spcie_pm_nb;
+++
+++static bool wake_beep = true;
+++module_param(wake_beep, bool, 0644);
+++MODULE_PARM_DESC(wake_beep, "Beep when the system wakes up");
+++
+++static bool sleep_led = true;
+++module_param(sleep_led, bool, 0644);
+++MODULE_PARM_DESC(sleep_led, "Orange indicator while the system sleeps");
+++
+ +static u16 icc_checksum(struct icc_msg *msg)
+ +{
+ +	u16 i;
+@@ -9948,7 +10084,7 @@ index 000000000000..547b1457ac62
+ +}
+ +EXPORT_SYMBOL(icc_device_power_get);
+ +
+-+int icc_indicator_set_led(const u8 setting[], size_t setting_size)
+++static int __icc_indicator_set_led(const u8 setting[], size_t setting_size)
+ +{
+ +	u8 buf[ICC_MSG_MAX_SIZE] = {};
+ +	struct icc_msg *msg = (struct icc_msg *)buf;
+@@ -9960,8 +10096,36 @@ index 000000000000..547b1457ac62
+ +
+ +	return icc_query(buf, buf);
+ +}
+++
+++int icc_indicator_set_led(const u8 setting[], size_t setting_size)
+++{
+++	int ret;
+++
+++	mutex_lock(&icc_led_lock);
+++	ret = __icc_indicator_set_led(setting, setting_size);
+++	if (!ret && setting_size <= sizeof(icc_led_last)) {
+++		memcpy(icc_led_last, setting, setting_size);
+++		icc_led_last_size = setting_size;
+++	}
+++	mutex_unlock(&icc_led_lock);
+++
+++	return ret;
+++}
+ +EXPORT_SYMBOL(icc_indicator_set_led);
+ +
+++static void icc_beep(void)
+++{
+++	u8 buf[ICC_MSG_MAX_SIZE] = {};
+++	struct icc_msg *msg = (struct icc_msg *)buf;
+++
+++	msg->service_id = ICC_SERVICE_ID_INDICATOR;
+++	msg->msg_type = 0x00;
+++	msg->length = ICC_MSG_MIN_SIZE;
+++	msg->data[0] = ICC_BUZZER_SHORT;
+++
+++	icc_query(buf, buf);
+++}
+++
+ +int icc_indicator_set_led_white(u8 level)
+ +{
+ +	switch (level) {
+@@ -10034,7 +10198,8 @@ index 000000000000..547b1457ac62
+ +	memcpy(entry.notification, msg, msg->length);
+ +
+ +	if (kfifo_in_spinlocked(&icc_notification_fifo, &entry, 1, &icc_notification_lock)) {
+-+		schedule_work(&icc_notification_work);
+++		if (!READ_ONCE(icc_dev->suspended))
+++			schedule_work(&icc_notification_work);
+ +	} else {
+ +		pr_warn_ratelimited("icc notification buffer full\n");
+ +	}
+@@ -10042,6 +10207,17 @@ index 000000000000..547b1457ac62
+ +	return 0;
+ +}
+ +
+++static bool icc_button_wakeup(struct spcie_icc_dev *icc_dev, struct icc_msg *msg)
+++{
+++	if (msg->service_id != ICC_SERVICE_ID_BUTTON || !READ_ONCE(icc_dev->suspended))
+++		return false;
+++
+++	if (msg->msg_type == ICC_BUTTON_POWER_DOWN)
+++		pm_wakeup_dev_event(&icc_dev->pdev->dev, 0, true);
+++
+++	return true;
+++}
+++
+ +static irqreturn_t icc_interrupt(int irq, void *dev)
+ +{
+ +	struct spcie_icc_dev *icc_dev = dev;
+@@ -10068,7 +10244,8 @@ index 000000000000..547b1457ac62
+ +
+ +				writel(ICC_ACK, icc_dev->icc_doorbell_base + ICC_REG_DOORBELL);
+ +
+-+				icc_notification_handler(msg->service_id, icc_dev->notification);
+++				if (!icc_button_wakeup(icc_dev, (struct icc_msg *)icc_dev->notification))
+++					icc_notification_handler(msg->service_id, icc_dev->notification);
+ +			} else if (msg->msg_type & ICC_MSG_TYPE_REPLY) {
+ +				icc_dev->reply_length = min(msg->length, ICC_MSG_MAX_SIZE);
+ +				memcpy(icc_dev->reply, msg, icc_dev->reply_length);
+@@ -10127,6 +10304,7 @@ index 000000000000..547b1457ac62
+ +	icc_dev->idev->id.bustype = BUS_HOST;
+ +	icc_dev->idev->dev.parent = NULL;
+ +	input_set_capability(icc_dev->idev, EV_KEY, KEY_POWER);
+++	input_set_capability(icc_dev->idev, EV_KEY, KEY_WAKEUP);
+ +
+ +	return input_register_device(icc_dev->idev);
+ +}
+@@ -10166,9 +10344,11 @@ index 000000000000..547b1457ac62
+ +
+ +	/* Request IRQ for icc subfunc */
+ +	vector = pci_irq_vector(sdev->pdev, SPCIE_SUBFUNC_ICC);
+-+	ret = devm_request_irq(&sdev->pdev->dev, vector, icc_interrupt, 0, "icc", icc_dev);
+++	ret = devm_request_irq(&sdev->pdev->dev, vector, icc_interrupt,
+++			       IRQF_NO_SUSPEND, "icc", icc_dev);
+ +	if (ret)
+ +		return ret;
+++	device_init_wakeup(&sdev->pdev->dev, true);
+ +
+ +	/* Enable IRQs */
+ +	writel(ICC_SEND | ICC_ACK, icc_dev->icc_doorbell_base + ICC_REG_INTR_MASK);
+@@ -10462,6 +10642,7 @@ index 000000000000..547b1457ac62
+ +	spcie_initialized = true;
+ +
+ +	pci_set_drvdata(pdev, sdev);
+++	register_pm_notifier(&spcie_pm_nb);
+ +	return 0;
+ +}
+ +
+@@ -10469,6 +10650,7 @@ index 000000000000..547b1457ac62
+ +{
+ +	struct spcie_dev *sdev = pci_get_drvdata(pdev);
+ +	if (sdev) {
+++		unregister_pm_notifier(&spcie_pm_nb);
+ +		spcie_icc_remove(sdev);
+ +		pci_free_irq_vectors(pdev);
+ +	}
+@@ -10482,6 +10664,69 @@ index 000000000000..547b1457ac62
+ +	}
+ +}
+ +
+++static void spcie_sleep_enter(void)
+++{
+++	WRITE_ONCE(icc_dev->suspended, true);
+++
+++	if (sleep_led) {
+++		mutex_lock(&icc_led_lock);
+++		__icc_indicator_set_led(indicator_orange, sizeof(indicator_orange));
+++		mutex_unlock(&icc_led_lock);
+++	}
+++}
+++
+++static void spcie_sleep_exit(void)
+++{
+++	struct input_dev *idev = icc_dev->idev;
+++
+++	if (sleep_led) {
+++		mutex_lock(&icc_led_lock);
+++		if (icc_led_last_size)
+++			__icc_indicator_set_led(icc_led_last, icc_led_last_size);
+++		mutex_unlock(&icc_led_lock);
+++	}
+++
+++	if (wake_beep)
+++		icc_beep();
+++
+++	WRITE_ONCE(icc_dev->suspended, false);
+++	schedule_work(&icc_notification_work);
+++
+++	input_report_key(idev, KEY_WAKEUP, 1);
+++	input_sync(idev);
+++	input_report_key(idev, KEY_WAKEUP, 0);
+++	input_sync(idev);
+++}
+++
+++static int spcie_pm_notify(struct notifier_block *nb, unsigned long action,
+++			   void *data)
+++{
+++	switch (action) {
+++	case PM_SUSPEND_PREPARE:
+++		spcie_sleep_enter();
+++		break;
+++	case PM_POST_SUSPEND:
+++		spcie_sleep_exit();
+++		break;
+++	}
+++
+++	return NOTIFY_DONE;
+++}
+++
+++static struct notifier_block spcie_pm_nb = {
+++	.notifier_call = spcie_pm_notify,
+++};
+++
+++static int spcie_suspend_noirq(struct device *dev)
+++{
+++	pci_save_state(to_pci_dev(dev));
+++	return 0;
+++}
+++
+++static const struct dev_pm_ops spcie_pm_ops = {
+++	NOIRQ_SYSTEM_SLEEP_PM_OPS(spcie_suspend_noirq, NULL)
+++};
+++
+ +static const struct pci_device_id spcie_ids[] = {
+ +	{ PCI_DEVICE(PCI_VENDOR_ID_SONY, PCI_DEVICE_ID_SPCIE) },
+ +	{ 0, }
+@@ -10494,6 +10739,7 @@ index 000000000000..547b1457ac62
+ +	.probe		= spcie_probe,
+ +	.remove		= spcie_remove,
+ +	.shutdown	= spcie_shutdown,
+++	.driver.pm	= pm_sleep_ptr(&spcie_pm_ops),
+ +};
+ +
+ +module_pci_driver(spcie_driver);
+@@ -11039,8 +11285,36 @@ index 174580c1281a..87d0ec62b3d1 100644
+  obj-$(CONFIG_USB_XHCI_PCI_PROM21)	+= xhci-pci-prom21.o
+  obj-$(CONFIG_USB_XHCI_PCI_RENESAS)	+= xhci-pci-renesas.o
+  obj-$(CONFIG_USB_XHCI_PLATFORM) += xhci-plat-hcd.o
++diff --git a/drivers/usb/host/xhci-hub.c b/drivers/usb/host/xhci-hub.c
++index 470bafe1802b..9202c9af27b6 100644
++--- a/drivers/usb/host/xhci-hub.c
+++++ b/drivers/usb/host/xhci-hub.c
++@@ -1285,6 +1285,8 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
++ 		/* FIXME: What new port features do we need to support? */
++ 		switch (wValue) {
++ 		case USB_PORT_FEAT_SUSPEND:
+++			if (xhci->quirks & XHCI_PS5_SALINA_PHY)
+++				break;
++ 			portsc = xhci_portsc_readl(port);
++ 			if ((portsc & PORT_PLS_MASK) != XDEV_U0) {
++ 				/* Resume the port to U0 first */
++@@ -1756,9 +1758,11 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
++ 			}
++ 			xhci_dbg(xhci, "port %d-%d not suspended\n",
++ 				 hcd->self.busnum, port_index + 1);
++-			t2 &= ~PORT_PLS_MASK;
++-			t2 |= PORT_LINK_STROBE | XDEV_U3;
++-			set_bit(port_index, &bus_state->bus_suspended);
+++			if (!(xhci->quirks & XHCI_PS5_SALINA_PHY)) {
+++				t2 &= ~PORT_PLS_MASK;
+++				t2 |= PORT_LINK_STROBE | XDEV_U3;
+++				set_bit(port_index, &bus_state->bus_suspended);
+++			}
++ 		}
++ 		/* USB core sets remote wake mask for USB 3.0 hubs,
++ 		 * including the USB 3.0 roothub, but only if CONFIG_PM
+ diff --git a/drivers/usb/host/xhci-pci.c b/drivers/usb/host/xhci-pci.c
+-index a8889081ae82..3c69c9bb8016 100644
++index a8889081ae82..685fec11a4e5 100644
+ --- a/drivers/usb/host/xhci-pci.c
+ +++ b/drivers/usb/host/xhci-pci.c
+ @@ -19,6 +19,7 @@
+@@ -11101,7 +11375,27 @@ index a8889081ae82..3c69c9bb8016 100644
+  	xhci->xhc_state |= XHCI_STATE_REMOVING;
+  
+  	if (pci_choose_state(dev, PMSG_SUSPEND) == PCI_D0)
+-@@ -959,6 +982,7 @@ static const struct pci_device_id pci_ids[] = {
++@@ -817,6 +840,9 @@ static int xhci_pci_suspend(struct usb_hcd *hcd, bool do_wakeup)
++ 	struct pci_dev		*pdev = to_pci_dev(hcd->self.controller);
++ 	int			ret;
++ 
+++	if (xhci_salina_suspend(xhci))
+++		return 0;
+++
++ 	/*
++ 	 * Systems with the TI redriver that loses port status change events
++ 	 * need to have the registers polled during D3, so avoid D3cold.
++@@ -858,6 +884,9 @@ static int xhci_pci_resume(struct usb_hcd *hcd, pm_message_t msg)
++ 	bool power_lost = msg.event == PM_EVENT_RESTORE;
++ 	bool is_auto_resume = msg.event == PM_EVENT_AUTO_RESUME;
++ 
+++	if (xhci_salina_resume(xhci))
+++		return 0;
+++
++ 	reset_control_reset(xhci->reset);
++ 
++ 	/* The BIOS on systems with the Intel Panther Point chipset may or may
++@@ -959,6 +988,7 @@ static const struct pci_device_id pci_ids[] = {
+  	/* handle any USB 3.0 xHCI controller */
+  	{ PCI_DEVICE_CLASS(PCI_CLASS_SERIAL_USB_XHCI, ~0),
+  	},
+@@ -11111,10 +11405,10 @@ index a8889081ae82..3c69c9bb8016 100644
+  MODULE_DEVICE_TABLE(pci, pci_ids);
+ diff --git a/drivers/usb/host/xhci-ps5.c b/drivers/usb/host/xhci-ps5.c
+ new file mode 100644
+-index 000000000000..b1c2ff265c7e
++index 000000000000..a8a3e485e07b
+ --- /dev/null
+ +++ b/drivers/usb/host/xhci-ps5.c
+-@@ -0,0 +1,516 @@
++@@ -0,0 +1,552 @@
+ +/*
+ +* Playstation 5 Salina XHCI driver helper
+ +* Author: https://github.com/c0w-ar
+@@ -11128,6 +11422,7 @@ index 000000000000..b1c2ff265c7e
+ +#include <linux/usb.h>
+ +#include <linux/usb/hcd.h>
+ +#include <linux/workqueue.h>
+++#include <linux/suspend.h>
+ +#include <asm/delay.h>
+ +#include "xhci-ps5.h"
+ +#include "xhci.h"
+@@ -11459,6 +11754,7 @@ index 000000000000..b1c2ff265c7e
+ +    }
+ +
+ +    xhci_salina_phy_init();
+++    pdev->dev_flags |= PCI_DEV_FLAGS_NO_D3;
+ +
+ +    dev_info(&pdev->dev, "PS5 Salina xHCI PHY initialized\n");
+ +    return 0;
+@@ -11576,6 +11872,9 @@ index 000000000000..b1c2ff265c7e
+ +        goto resched;
+ +    }
+ +
+++    if (!HCD_HW_ACCESSIBLE(xhci_to_hcd(xhci)))
+++        goto unlock;
+++
+ +    u32 status = readl(&xhci->op_regs->status);
+ +    if (status == ~(u32)0) {
+ +        xhci_hc_died(xhci);
+@@ -11631,18 +11930,51 @@ index 000000000000..b1c2ff265c7e
+ +    salina_poll.running = false;
+ +    salina_poll.xhci = NULL;
+ +}
+++
+++static bool salina_kept_running;
+++
+++bool xhci_salina_suspend(struct xhci_hcd *xhci)
+++{
+++	struct pci_dev *pdev = to_pci_dev(xhci_to_hcd(xhci)->self.controller);
+++
+++	if (!(xhci->quirks & XHCI_PS5_SALINA_PHY) ||
+++	    pm_suspend_target_state != PM_SUSPEND_TO_IDLE)
+++		return false;
+++
+++	if (pci_enable_device(pdev))
+++		return false;
+++
+++	salina_stop_xhci_poller();
+++	salina_kept_running = true;
+++	return true;
+++}
+++
+++bool xhci_salina_resume(struct xhci_hcd *xhci)
+++{
+++	struct pci_dev *pdev = to_pci_dev(xhci_to_hcd(xhci)->self.controller);
+++
+++	if (!(xhci->quirks & XHCI_PS5_SALINA_PHY) || !salina_kept_running)
+++		return false;
+++
+++	pci_disable_device(pdev);
+++	salina_kept_running = false;
+++	salina_start_xhci_poller(xhci);
+++	return true;
+++}
+ diff --git a/drivers/usb/host/xhci-ps5.h b/drivers/usb/host/xhci-ps5.h
+ new file mode 100755
+-index 000000000000..90d41d3dc524
++index 000000000000..949e3558e9bb
+ --- /dev/null
+ +++ b/drivers/usb/host/xhci-ps5.h
+-@@ -0,0 +1,9 @@
++@@ -0,0 +1,11 @@
+ +#include <linux/pci.h>
+ +#include "xhci.h"
+ +
+ +int xhci_salina_reset(struct xhci_hcd *xhci, u64 timeout_us);
+ +int xhci_salina_init(struct pci_dev *pdev);
+ +void xhci_salina_exit(void);
+++bool xhci_salina_suspend(struct xhci_hcd *xhci);
+++bool xhci_salina_resume(struct xhci_hcd *xhci);
+ +
+ +void salina_start_xhci_poller(struct xhci_hcd *xhci);
+ +void salina_stop_xhci_poller(void);
+@@ -11715,7 +12047,7 @@ index 000000000000..193ac03a3074
+ +dma_addr_t xhci_trb_virt_to_dma(struct xhci_segment *seg, union xhci_trb *trb);
+ +int xhci_handle_events(struct xhci_hcd *xhci, struct xhci_interrupter *ir, bool skip_events);
+ diff --git a/drivers/usb/host/xhci.c b/drivers/usb/host/xhci.c
+-index a9e47e178c28..e694e16819b0 100644
++index a9e47e178c28..348ec158830b 100644
+ --- a/drivers/usb/host/xhci.c
+ +++ b/drivers/usb/host/xhci.c
+ @@ -27,6 +27,7 @@
+@@ -11748,6 +12080,15 @@ index a9e47e178c28..e694e16819b0 100644
+  	return 0;
+  }
+  
++@@ -635,7 +644,7 @@ int xhci_run(struct usb_hcd *hcd)
++ 	 */
++ 
++ 	hcd->uses_new_polling = 1;
++-	if (hcd->msi_enabled)
+++	if (hcd->msi_enabled && !(xhci->quirks & XHCI_PS5_SALINA_PHY))
++ 		ir->ip_autoclear = true;
++ 
++ 	if (!usb_hcd_is_primary_hcd(hcd))
+ diff --git a/drivers/usb/host/xhci.h b/drivers/usb/host/xhci.h
+ index c7bfa7f028d3..71877c71cfc0 100644
+ --- a/drivers/usb/host/xhci.h

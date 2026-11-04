@@ -1,0 +1,26 @@
+PS5 fan on 7.3.1 + rmux shitshow
+
+- No parameter re-upload at cleanup: it spun the fan up to full speed just before shutdown or reboot
+---
+diff --git a/drivers/ps5/fan.c b/drivers/ps5/fan.c
+index d5a077532..ba07eef9a 100644
+--- a/drivers/ps5/fan.c
++++ b/drivers/ps5/fan.c
+@@ -855,15 +855,14 @@ ATTRIBUTE_GROUPS(ps5_curve);
+ static void ps5_fan_hwmon_cleanup(void *arg)
+ {
+ 	struct ps5_fan_data *data = arg;
+-	int ret;
+ 
+ 	mutex_lock(&data->lock);
+ 	data->suspended = true;
+ 	mutex_unlock(&data->lock);
+ 	cancel_delayed_work_sync(&data->work);
+-	ret = icc_fan_update_param(data->original);
++	/* no parameter re-upload here: it spins the fan up before AUTO takes over (burst at shutdown) */
+ 	data->wire_mode = -1;
+-	if (ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO) || ret)
++	if (ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO))
+ 		dev_err(data->dev,
+ 			"original fan state could not be fully restored\n");
+ }

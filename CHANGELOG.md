@@ -2,9 +2,10 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [Unreleased]
+## [v2.4.1] – 2026-11-<DD>
+> Picture fix: the kernel is back on the base v2.1.x was built on (Linux 7.3 + rmux's meower), where 4K60 and 4K120 work.
+- **Fixed: black screen in Game Mode at 4K on FLAVA3 consoles with an HDMI 2.1 TV** (v2.4). v2.4's newer kernel base (7.3.1 + rmux's shitshow) used rmux's reworked 4K handling, which stays black there; our own display code shows 4K60 and 4K120 on the same TV. The kernel goes back to the v2.1.x base with v2.4's fixes (fan, no 100 Hz test modes), named `7.3.0-viva`. The 7.3.1 port waits in `patches-next/shitshow/` for a tested rebase
 - `ps5-report`: kernel log from dmesg (the journal can be empty), Bluetooth address from btmgmt when sysfs has none, and no more swallowing of lines pasted after it
-- **Fixed: black screen in Game Mode at 4K60 on FLAVA3 consoles with an HDMI 2.1 TV** (v2.4). gamescope sends SDR metadata with every commit, and the FRL planner refused it as an HDR conflict (`patches/ps5-hdmi-sdr-metadata.patch`, also for rmux)
 - **The kernel is named `<version>-viva`** (`7.3.1-viva`)
 - **Releases are public from the start:** notes first, then files as they're built: update bundle for existing installs, bootc disk image, loader; the notes list each file as it arrives
 - **`ps5-report` starts with a fastfetch-style block:** console (original, Slim, Pro), HDMI chip, wireless chip, install type, kernel, display, Bluetooth and Wi-Fi state; then Bluetooth, Wi-Fi, USB, display, GPU and system sections with their logs. Kernel log counts are no longer doubled

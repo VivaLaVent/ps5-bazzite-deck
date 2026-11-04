@@ -1,0 +1,1962 @@
+PS5 Pro GPU: Viola firmware, GPU governor, telemetry, no PS5 frequency drivers
+
+- PS5 Pro GPU support (upstream #58 by Borchev, ported to 7.3)
+- PS5 Pro: CPU and GPU frequency drivers left out
+- PS5 Pro: upstream #66 (Borchev), ported to 7.3
+- PS5 Pro: GPU load and metrics with the Viola firmware
+---
+diff --git a/arch/x86/Kconfig b/arch/x86/Kconfig
+index 47fd2b07b..a698cc291 100644
+--- a/arch/x86/Kconfig
++++ b/arch/x86/Kconfig
+@@ -611,6 +611,8 @@ config X86_PS5
+ 	depends on PCI
+ 	select CEC_CORE
+ 	select HWMON
++	select PM_DEVFREQ
++	select DEVFREQ_GOV_SIMPLE_ONDEMAND
+ 	help
+ 	  Select to include support for the Sony PlayStation 5 game console.
+ 
+diff --git a/drivers/cpufreq/ps5-cpufreq.c b/drivers/cpufreq/ps5-cpufreq.c
+index 922a5d288..573871977 100644
+--- a/drivers/cpufreq/ps5-cpufreq.c
++++ b/drivers/cpufreq/ps5-cpufreq.c
+@@ -1,5 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0-only
+ 
++#include <linux/pci.h>
+ #include <linux/bitfield.h>
+ #include <linux/cpufreq.h>
+ #include <linux/init.h>
+@@ -141,6 +142,18 @@ static struct cpufreq_driver ps5_cpufreq_driver = {
+ 
+ static int __init ps5_cpufreq_init(void)
+ {
++	/*
++	 * Not on the PS5 Pro (GPU 1002:13da): its frequency requests to the power
++	 * controller (MP1 UniversalModeEntry, 0x22) come back "busy" without end there
++	 * The Pro keeps the CPU clock its firmware sets.
++	 */
++	struct pci_dev *pro = pci_get_device(PCI_VENDOR_ID_ATI, 0x13da, NULL);
++
++	if (pro) {
++		pci_dev_put(pro);
++		pr_info("PS5 Pro: CPU clock control left to the firmware\n");
++		return -ENODEV;
++	}
+ 	pr_info("Strawberry was here\n");
+ 	return cpufreq_register_driver(&ps5_cpufreq_driver);
+ }
+diff --git a/drivers/devfreq/ps5-gpufreq.c b/drivers/devfreq/ps5-gpufreq.c
+index 6b007ece9..17abb0581 100644
+--- a/drivers/devfreq/ps5-gpufreq.c
++++ b/drivers/devfreq/ps5-gpufreq.c
+@@ -286,10 +286,28 @@ static struct platform_driver ps5_gpufreq_driver = {
+ 
+ static struct platform_device *ps5_gpufreq_pdev;
+ 
++/*
++ * Not on the PS5 Pro (GPU 1002:13da). There its requests to the power controller
++ * (MP1) come back "busy" without end, flooding the log every 0.27 s (
++ * where the Pro's own SMU backend from upstream #58 talks to the same controller). The Pro
++ * keeps the clocks its firmware sets, as with the upstream kernel, which has no such driver.
++ */
++static bool ps5_gpufreq_is_pro(void)
++{
++	struct pci_dev *p = pci_get_device(PCI_VENDOR_ID_ATI, 0x13da, NULL);
++
++	pci_dev_put(p);
++	return p;
++}
++
+ static int __init ps5_gpufreq_init(void)
+ {
+ 	int ret;
+ 
++	if (ps5_gpufreq_is_pro()) {
++		pr_info("PS5 Pro: GPU clock control left to the firmware\n");
++		return 0;
++	}
+ 	pr_info("Strawberry was here\n");
+ 
+ 	ret = platform_driver_register(&ps5_gpufreq_driver);
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu.h b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
+index 270cc20c2..943c50da5 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu.h
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
+@@ -270,6 +270,7 @@ extern int amdgpu_ptl;
+ extern uint amdgpu_hdmi_hpd_debounce_delay_ms;
+ 
+ #ifdef CONFIG_X86_PS5
++#include <linux/ps5.h>
+ extern int amdgpu_force_1080p;
+ #endif
+ 
+@@ -967,6 +968,21 @@ struct amdgpu_device {
+ 
+ 	struct amdgpu_uma_carveout_info uma_info;
+ 
++#ifdef CONFIG_X86_PS5
++	/* PS5 Pro loaded its own GFX/SDMA firmware, amdgpu/viola_*.bin */
++	bool                            ps5_viola_fw;
++	/* ps5-gpufreq: gfx/compute busy time */
++	spinlock_t			ps5_busy_lock;
++	unsigned int			ps5_busy_sources;
++	ktime_t				ps5_busy_since;
++	u64				ps5_busy_ns;
++	u64				ps5_slot;	/* last 100 ms boundary */
++	u64				ps5_slot_busy[6];	/* busy time at last 6 boundaries */
++	struct hrtimer			ps5_kfd_timer;	/* KFD GUI_ACTIVE sampling */
++	bool				ps5_kfd_busy;
++	struct platform_device		*ps5_gpufreq;
++#endif
++
+ 	/* KFD
+ 	 * Must be last --ends in a flexible-array member.
+ 	 */
+@@ -989,6 +1005,30 @@ static inline uint32_t amdgpu_ip_version_full(const struct amdgpu_device *adev,
+ 	return adev->ip_versions[ip][inst];
+ }
+ 
++/* Viola is the Cyan Skillfish variant in the PS5 Pro, device ID 0x13DA. */
++static inline bool amdgpu_is_viola(struct amdgpu_device *adev)
++{
++#ifdef CONFIG_X86_PS5
++	return adev->asic_type == CHIP_CYAN_SKILLFISH &&
++	       ps5_is_viola(adev->pdev->device);
++#else
++	return false;
++#endif
++}
++
++/*
++ * The PS5 Pro (Viola) settings are applied only with the Viola firmware.
++ * With the Cyan Skillfish firmware a PS5 Pro is driven like a base PS5.
++ */
++static inline bool amdgpu_ps5_viola_fw(struct amdgpu_device *adev)
++{
++#ifdef CONFIG_X86_PS5
++	return adev->ps5_viola_fw;
++#else
++	return false;
++#endif
++}
++
+ static inline struct amdgpu_device *drm_to_adev(struct drm_device *ddev)
+ {
+ 	return container_of(ddev, struct amdgpu_device, ddev);
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+index 96a741cd2..52ab4c8d7 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -3742,6 +3742,14 @@ static int amdgpu_device_sys_interface_init(struct amdgpu_device *adev)
+ 	amdgpu_uma_sysfs_init(adev);
+ 	amdgpu_ptl_sysfs_init(adev);
+ 
++#ifdef CONFIG_X86_PS5
++	/* A Pro without Viola firmware loses its SMU mailbox. */
++	if (adev->asic_type == CHIP_CYAN_SKILLFISH &&
++	    (!amdgpu_is_viola(adev) || amdgpu_ps5_viola_fw(adev)))
++		adev->ps5_gpufreq = ps5_gpufreq_register(adev->dev,
++							 amdgpu_fence_ps5_busy_ns);
++#endif
++
+ 	return r;
+ }
+ 
+@@ -3762,6 +3770,11 @@ static void amdgpu_device_sys_interface_fini(struct amdgpu_device *adev)
+ 	amdgpu_xcp_sysfs_fini(adev);
+ 	amdgpu_uma_sysfs_fini(adev);
+ 	amdgpu_ptl_sysfs_fini(adev);
++#ifdef CONFIG_X86_PS5
++	amdgpu_fence_ps5_kfd_active(adev, false);
++	platform_device_unregister(adev->ps5_gpufreq);
++	adev->ps5_gpufreq = NULL;
++#endif
+ }
+ 
+ static bool
+@@ -3868,6 +3881,9 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+ 		return r;
+ 
+ 	spin_lock_init(&adev->mmio_idx_lock);
++#ifdef CONFIG_X86_PS5
++	amdgpu_fence_ps5_init(adev);
++#endif
+ 	spin_lock_init(&adev->mm_stats.lock);
+ 	spin_lock_init(&adev->virt.rlcg_reg_lock);
+ 	spin_lock_init(&adev->wb.lock);
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c
+index 2e7169925..cd16717fd 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_discovery.c
+@@ -2571,6 +2571,26 @@ static int amdgpu_discovery_set_psp_ip_blocks(struct amdgpu_device *adev)
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_X86_PS5
++static int ps5_smu = 1;
++module_param(ps5_smu, int, 0444);
++MODULE_PARM_DESC(ps5_smu, "PS5 Pro SMU backend for GPU clock/temperature reporting, with the Viola firmware only (1 = enable (default), 0 = disable)");
++#endif
++
++/*
++ * PS5 loads its GPU firmware directly, where the SMU block is normally added
++ * only with amdgpu.dpm=1.  The PS5 Pro SMU backend never changes clocks, so
++ * add it unless DPM is disabled.  Only on a PS5 Pro with the Viola firmware.
++ */
++static bool amdgpu_discovery_ps5_smu(struct amdgpu_device *adev)
++{
++#ifdef CONFIG_X86_PS5
++	return ps5_smu && amdgpu_dpm && amdgpu_ps5_viola_fw(adev);
++#else
++	return false;
++#endif
++}
++
+ static int amdgpu_discovery_set_smu_ip_blocks(struct amdgpu_device *adev)
+ {
+ 	switch (amdgpu_ip_version(adev, MP1_HWIP, 0)) {
+@@ -2597,6 +2617,10 @@ static int amdgpu_discovery_set_smu_ip_blocks(struct amdgpu_device *adev)
+ 	case IP_VERSION(11, 0, 8):
+ 		if (adev->apu_flags & AMD_APU_IS_CYAN_SKILLFISH2)
+ 			amdgpu_device_ip_block_add(adev, &smu_v11_0_ip_block);
++#ifdef CONFIG_X86_PS5
++		else if (amdgpu_discovery_ps5_smu(adev))
++			amdgpu_device_ip_block_add(adev, &smu_v11_0_ip_block);
++#endif
+ 		break;
+ 	case IP_VERSION(12, 0, 0):
+ 	case IP_VERSION(12, 0, 1):
+@@ -3327,6 +3351,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
+ 			adev->ip_versions[UVD_HWIP][0] = IP_VERSION(2, 0, 3);
+ #ifdef CONFIG_X86_PS5
+ 			adev->ip_versions[DCE_HWIP][0] = IP_VERSION(2, 0, 3);
++			amdgpu_ucode_ps5_viola_init(adev);
+ #endif
+ 		}
+ 		break;
+@@ -3710,7 +3735,7 @@ int amdgpu_discovery_set_ip_blocks(struct amdgpu_device *adev)
+ 
+ 	if ((adev->firmware.load_type == AMDGPU_FW_LOAD_DIRECT &&
+ 	     !amdgpu_sriov_vf(adev) &&
+-	     amdgpu_dpm == 1) ||
++	     (amdgpu_dpm == 1 || amdgpu_discovery_ps5_smu(adev))) ||
+ 	    (adev->firmware.load_type == AMDGPU_FW_LOAD_RLC_BACKDOOR_AUTO &&
+ 	     amdgpu_dpm == 1)) {
+ 		r = amdgpu_discovery_set_smu_ip_blocks(adev);
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+index 787e122ec..8d82fea5a 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c
+@@ -2186,6 +2186,7 @@ static const struct pci_device_id pciidlist[] = {
+ 	/* CYAN_SKILLFISH */
+ 	{ PCI_DEVICE(0x1002, 0x13DA), .driver_data = CHIP_CYAN_SKILLFISH|AMD_IS_APU },
+ 	{ PCI_DEVICE(0x1002, 0x13DB), .driver_data = CHIP_CYAN_SKILLFISH|AMD_IS_APU },
++	{ PCI_DEVICE(0x1002, 0x13DC), .driver_data = CHIP_CYAN_SKILLFISH|AMD_IS_APU },
+ 	{ PCI_DEVICE(0x1002, 0x13F9), .driver_data = CHIP_CYAN_SKILLFISH|AMD_IS_APU },
+ 	{ PCI_DEVICE(0x1002, 0x13FA), .driver_data = CHIP_CYAN_SKILLFISH|AMD_IS_APU },
+ 	{ PCI_DEVICE(0x1002, 0x13FB), .driver_data = CHIP_CYAN_SKILLFISH|AMD_IS_APU },
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_fence.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_fence.c
+index 3017ddcef..725efa344 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_fence.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_fence.c
+@@ -89,6 +89,137 @@ static u32 amdgpu_fence_read(struct amdgpu_ring *ring)
+ 	return seq;
+ }
+ 
++#ifdef CONFIG_X86_PS5
++#define PS5_SLOT_NS	(100 * NSEC_PER_MSEC)
++
++/* Called with ps5_busy_lock held. */
++static u64 amdgpu_fence_ps5_busy(struct amdgpu_device *adev, ktime_t now)
++{
++	return adev->ps5_busy_ns +
++	       (adev->ps5_busy_sources ? now - adev->ps5_busy_since : 0);
++}
++
++/* Record busy time at the 100 ms boundaries passed, before any busy change. */
++static void amdgpu_fence_ps5_slots(struct amdgpu_device *adev, ktime_t now)
++{
++	const unsigned int n = ARRAY_SIZE(adev->ps5_slot_busy);
++	u64 slot = div_u64(now, PS5_SLOT_NS);
++	u64 s = max(adev->ps5_slot, slot > n ? slot - n : 0) + 1;
++
++	for (; s <= slot; s++)
++		adev->ps5_slot_busy[s % n] = amdgpu_fence_ps5_busy(adev,
++								   s * PS5_SLOT_NS);
++	adev->ps5_slot = slot;
++}
++
++/* The GPU is busy while any source is. Called with ps5_busy_lock held. */
++static void amdgpu_fence_ps5_set(struct amdgpu_device *adev, bool *src,
++				 bool busy)
++{
++	ktime_t now;
++
++	if (*src == busy)
++		return;
++	now = ktime_get();
++	amdgpu_fence_ps5_slots(adev, now);
++	*src = busy;
++	if (busy && !adev->ps5_busy_sources++)
++		adev->ps5_busy_since = now;
++	else if (!busy && !--adev->ps5_busy_sources)
++		adev->ps5_busy_ns += now - adev->ps5_busy_since;
++}
++
++/* ps5-gpufreq: a gfx/compute ring is busy while it has fences in flight. */
++static void amdgpu_fence_ps5_update(struct amdgpu_ring *ring)
++{
++	struct amdgpu_device *adev = ring->adev;
++	unsigned long flags;
++
++	if (ring->funcs->type != AMDGPU_RING_TYPE_GFX &&
++	    ring->funcs->type != AMDGPU_RING_TYPE_COMPUTE)
++		return;
++
++	spin_lock_irqsave(&adev->ps5_busy_lock, flags);
++	amdgpu_fence_ps5_set(adev, &ring->ps5_busy,
++			     ring->fence_drv.sync_seq !=
++			     atomic_read(&ring->fence_drv.last_seq));
++	spin_unlock_irqrestore(&adev->ps5_busy_lock, flags);
++}
++
++/* KFD user queues bypass fences: sample GUI_ACTIVE every 1 ms instead. */
++static enum hrtimer_restart amdgpu_fence_ps5_kfd_sample(struct hrtimer *t)
++{
++	struct amdgpu_device *adev = container_of(t, struct amdgpu_device,
++						  ps5_kfd_timer);
++	struct amdgpu_ip_block *gfx =
++		amdgpu_device_ip_get_ip_block(adev, AMD_IP_BLOCK_TYPE_GFX);
++	bool busy = gfx && !adev->in_suspend && !amdgpu_in_reset(adev) &&
++		    !gfx->version->funcs->is_idle(gfx);
++	unsigned long flags;
++
++	spin_lock_irqsave(&adev->ps5_busy_lock, flags);
++	amdgpu_fence_ps5_set(adev, &adev->ps5_kfd_busy, busy);
++	spin_unlock_irqrestore(&adev->ps5_busy_lock, flags);
++	hrtimer_forward_now(t, ms_to_ktime(1));
++	return HRTIMER_RESTART;
++}
++
++void amdgpu_fence_ps5_init(struct amdgpu_device *adev)
++{
++	spin_lock_init(&adev->ps5_busy_lock);
++	hrtimer_setup(&adev->ps5_kfd_timer, amdgpu_fence_ps5_kfd_sample,
++		      CLOCK_MONOTONIC, HRTIMER_MODE_REL_SOFT);
++}
++
++/* True when the first KFD user compute queue starts, false after the last. */
++void amdgpu_fence_ps5_kfd_active(struct amdgpu_device *adev, bool active)
++{
++	unsigned long flags;
++
++	if (active) {
++		if (!IS_ERR_OR_NULL(adev->ps5_gpufreq))
++			hrtimer_start(&adev->ps5_kfd_timer, ms_to_ktime(1),
++				      HRTIMER_MODE_REL_SOFT);
++		return;
++	}
++	hrtimer_cancel(&adev->ps5_kfd_timer);
++	spin_lock_irqsave(&adev->ps5_busy_lock, flags);
++	amdgpu_fence_ps5_set(adev, &adev->ps5_kfd_busy, false);
++	spin_unlock_irqrestore(&adev->ps5_busy_lock, flags);
++}
++
++u64 amdgpu_fence_ps5_busy_ns(struct device *dev)
++{
++	struct amdgpu_device *adev = drm_to_adev(dev_get_drvdata(dev));
++	unsigned long flags;
++	u64 ns;
++
++	spin_lock_irqsave(&adev->ps5_busy_lock, flags);
++	ns = amdgpu_fence_ps5_busy(adev, ktime_get());
++	spin_unlock_irqrestore(&adev->ps5_busy_lock, flags);
++	return ns;
++}
++
++/* Load over the last 0.5-0.6 s, whenever it is read. */
++u32 amdgpu_fence_ps5_busy_percent(struct amdgpu_device *adev)
++{
++	const unsigned int n = ARRAY_SIZE(adev->ps5_slot_busy);
++	unsigned long flags;
++	u64 first, busy;
++	ktime_t now;
++	u32 pct;
++
++	spin_lock_irqsave(&adev->ps5_busy_lock, flags);
++	now = ktime_get();
++	amdgpu_fence_ps5_slots(adev, now);
++	first = adev->ps5_slot - (n - 1);
++	busy = amdgpu_fence_ps5_busy(adev, now) - adev->ps5_slot_busy[first % n];
++	pct = div64_u64(100 * busy, now - first * PS5_SLOT_NS);
++	spin_unlock_irqrestore(&adev->ps5_busy_lock, flags);
++	return min(pct, 100);
++}
++#endif
++
+ /**
+  * amdgpu_fence_emit - emit a fence on the requested ring
+  *
+@@ -116,6 +247,9 @@ void amdgpu_fence_emit(struct amdgpu_ring *ring, struct amdgpu_fence *af,
+ 
+ 	amdgpu_ring_emit_fence(ring, ring->fence_drv.gpu_addr,
+ 			       seq, flags | AMDGPU_FENCE_FLAG_INT);
++#ifdef CONFIG_X86_PS5
++	amdgpu_fence_ps5_update(ring);
++#endif
+ 
+ 	pm_runtime_get_noresume(adev_to_drm(adev)->dev);
+ 	ptr = &ring->fence_drv.fences[seq & ring->fence_drv.num_fences_mask];
+@@ -223,6 +357,10 @@ bool amdgpu_fence_process(struct amdgpu_ring *ring)
+ 	if (unlikely(seq == last_seq))
+ 		return false;
+ 
++#ifdef CONFIG_X86_PS5
++	if (seq == ring->fence_drv.sync_seq)
++		amdgpu_fence_ps5_update(ring);
++#endif
+ 	last_seq &= drv->num_fences_mask;
+ 	seq &= drv->num_fences_mask;
+ 
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_ring.h b/drivers/gpu/drm/amd/amdgpu/amdgpu_ring.h
+index 015623b8f..1f8cb0e21 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_ring.h
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_ring.h
+@@ -180,6 +180,12 @@ signed long amdgpu_fence_wait_polling(struct amdgpu_ring *ring,
+ 				      uint32_t wait_seq,
+ 				      signed long timeout);
+ unsigned amdgpu_fence_count_emitted(struct amdgpu_ring *ring);
++#ifdef CONFIG_X86_PS5
++void amdgpu_fence_ps5_init(struct amdgpu_device *adev);
++void amdgpu_fence_ps5_kfd_active(struct amdgpu_device *adev, bool active);
++u64 amdgpu_fence_ps5_busy_ns(struct device *dev);
++u32 amdgpu_fence_ps5_busy_percent(struct amdgpu_device *adev);
++#endif
+ 
+ void amdgpu_fence_driver_isr_toggle(struct amdgpu_device *adev, bool stop);
+ 
+@@ -425,6 +431,9 @@ struct amdgpu_ring {
+ 	unsigned int    entry_index;
+ 	/* store the cached rptr to restore after reset */
+ 	uint64_t cached_rptr;
++#ifdef CONFIG_X86_PS5
++	bool			ps5_busy;
++#endif
+ };
+ 
+ #define amdgpu_ring_parse_cs(r, p, job, ib) ((r)->funcs->parse_cs((p), (job), (ib)))
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.c
+index 4f1c711df..c2f08ad57 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.c
+@@ -24,6 +24,9 @@
+ #include <linux/firmware.h>
+ #include <linux/slab.h>
+ #include <linux/module.h>
++#ifdef CONFIG_X86_PS5
++#include <linux/ps5.h>
++#endif
+ 
+ #include "amdgpu.h"
+ #include "amdgpu_ucode.h"
+@@ -1323,6 +1326,8 @@ static const char *amdgpu_ucode_legacy_naming(struct amdgpu_device *adev, int bl
+ 		case IP_VERSION(5, 0, 0):
+ 			return "navi10_sdma";
+ 		case IP_VERSION(5, 0, 1):
++			if (amdgpu_ps5_viola_fw(adev))
++				return "viola_sdma";
+ 			return "cyan_skillfish2_sdma";
+ 		case IP_VERSION(5, 0, 2):
+ 			return "navi14_sdma";
+@@ -1423,6 +1428,8 @@ static const char *amdgpu_ucode_legacy_naming(struct amdgpu_device *adev, int bl
+ 			return "yellow_carp";
+ 		case IP_VERSION(10, 1, 3):
+ 		case IP_VERSION(10, 1, 4):
++			if (amdgpu_ps5_viola_fw(adev))
++				return "viola";
+ 			return "cyan_skillfish2";
+ 		}
+ 	}
+@@ -1489,6 +1496,70 @@ void amdgpu_ucode_ip_version_decode(struct amdgpu_device *adev, int block_type,
+ 	snprintf(ucode_prefix, len, "%s_%d_%d_%d", ip_name, maj, min, rev);
+ }
+ 
++#ifdef CONFIG_X86_PS5
++static int ps5_viola_fw = 1;
++module_param(ps5_viola_fw, int, 0444);
++MODULE_PARM_DESC(ps5_viola_fw, "PS5 Pro: use the Viola GPU firmware amdgpu/viola_*.bin when all of it is present (1 = enable (default), 0 = always use the Cyan Skillfish firmware)");
++
++/* The Viola counterparts of the cyan_skillfish2 GFX and SDMA files. */
++static const char * const ps5_viola_fw_names[] = {
++	"amdgpu/viola_ce.bin",
++	"amdgpu/viola_me.bin",
++	"amdgpu/viola_mec.bin",
++	"amdgpu/viola_mec2.bin",
++	"amdgpu/viola_pfp.bin",
++	"amdgpu/viola_rlc.bin",
++	"amdgpu/viola_sdma.bin",
++	"amdgpu/viola_sdma1.bin",
++};
++MODULE_FIRMWARE("amdgpu/viola_ce.bin");
++MODULE_FIRMWARE("amdgpu/viola_me.bin");
++MODULE_FIRMWARE("amdgpu/viola_mec.bin");
++MODULE_FIRMWARE("amdgpu/viola_mec2.bin");
++MODULE_FIRMWARE("amdgpu/viola_pfp.bin");
++MODULE_FIRMWARE("amdgpu/viola_rlc.bin");
++MODULE_FIRMWARE("amdgpu/viola_sdma.bin");
++MODULE_FIRMWARE("amdgpu/viola_sdma1.bin");
++
++/*
++ * Runs before the IP blocks are added.  On a PS5 Pro, switch to the Viola
++ * firmware if every file of it loads and has a valid header, along with the
++ * Viola SMU setup and thermal sensors.  Otherwise keep the Cyan Skillfish
++ * firmware.
++ */
++void amdgpu_ucode_ps5_viola_init(struct amdgpu_device *adev)
++{
++	const struct firmware *fw;
++	bool valid;
++	int i;
++
++	adev->ps5_viola_fw = false;
++	if (!ps5_viola_fw || !amdgpu_is_viola(adev))
++		return;
++
++	for (i = 0; i < ARRAY_SIZE(ps5_viola_fw_names); i++) {
++		if (firmware_request_nowarn(&fw, ps5_viola_fw_names[i], adev->dev)) {
++			dev_dbg(adev->dev, "PS5 Pro: %s not found\n",
++				ps5_viola_fw_names[i]);
++			return;
++		}
++		valid = fw->size >= sizeof(struct common_firmware_header) &&
++			!amdgpu_ucode_validate(fw);
++		release_firmware(fw);
++		if (!valid) {
++			dev_warn(adev->dev, "PS5 Pro: %s is invalid, using Cyan Skillfish firmware\n",
++				 ps5_viola_fw_names[i]);
++			return;
++		}
++	}
++
++	adev->ps5_viola_fw = true;
++	dev_info(adev->dev, "PS5 Pro: using Viola firmware\n");
++
++	ps5_mp1_viola_init();
++}
++#endif
++
+ /*
+  * amdgpu_ucode_request - Fetch and validate amdgpu microcode
+  *
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.h b/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.h
+index f316776fe..93a162641 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.h
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_ucode.h
+@@ -650,5 +650,8 @@ const char *amdgpu_ucode_name(enum AMDGPU_UCODE_ID ucode_id);
+ 
+ void amdgpu_ucode_ip_version_decode(struct amdgpu_device *adev, int block_type, char *ucode_prefix, int len);
+ bool amdgpu_is_kicker_fw(struct amdgpu_device *adev);
++#ifdef CONFIG_X86_PS5
++void amdgpu_ucode_ps5_viola_init(struct amdgpu_device *adev);
++#endif
+ 
+ #endif
+diff --git a/drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c b/drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c
+index 41f4f110b..45ecaf7b5 100644
+--- a/drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c
++++ b/drivers/gpu/drm/amd/amdgpu/gfx_v10_0.c
+@@ -3578,43 +3578,87 @@ static const struct soc15_reg_golden golden_settings_gc_10_3_5[] = {
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmUTCL1_CTRL, 0xffbfffff, 0x00a00000)
+ };
+ 
++/*
++ * Cyan Skillfish, common to all variants (BC-250, PS5, PS5 Pro).
++ * GRBM_GFX_INDEX stays first: it makes the writes after it broadcast.
++ */
+ static const struct soc15_reg_golden golden_settings_gc_10_0_cyan_skillfish[] = {
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGRBM_GFX_INDEX, 0xffffffff, 0xe0000000),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGE_FAST_CLKS, 0x3fffffff, 0x0000493e),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCGTT_CPF_CLK_CTRL, 0xfcff8fff, 0xf8000100),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCGTT_SPI_CLK_CTRL, 0xff7f0fff, 0x3c000100),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCB_HW_CONTROL_3, 0xa0000000, 0xa0000000),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCB_HW_CONTROL_4, 0x00008000, 0x003c8014),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCH_DRAM_BURST_CTRL, 0x00000010, 0x00000017),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCH_PIPE_STEER, 0xffffffff, 0xd8d8d8d8),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCH_VC5_ENABLE, 0x00000003, 0x00000003),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCP_SD_CNTL, 0x800007ff, 0x000005ff),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_DEBUG, 0xffffffff, 0x20000000),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_DEBUG3, 0xffffffff, 0x00000200),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_DEBUG4, 0xffffffff, 0x04800000),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_LAST_OF_BURST_CONFIG, 0xffffffff, 0x03860210),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGB_ADDR_CONFIG, 0x0c1800ff, 0x00000044),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGCR_GENERAL_CNTL, 0x00009d00, 0x00008500),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGCMC_VM_CACHEABLE_DRAM_ADDRESS_END, 0xffffffff, 0x000fffff),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL1_DRAM_BURST_CTRL, 0x00000010, 0x00000017),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL1_PIPE_STEER, 0xfcfcfcfc, 0xd8d8d8d8),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2_PIPE_STEER_0, 0x77707770, 0x21302130),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2_PIPE_STEER_1, 0x77707770, 0x21302130),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2A_ADDR_MATCH_MASK, 0xffffffff, 0xffffffcf),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2C_ADDR_MATCH_MASK, 0xffffffff, 0xffffffcf),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2C_CGTT_SCLK_CTRL, 0x10000000, 0x10000100),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmSQ_LDS_CLK_CTRL, 0xffffffff, 0xffffffff)
++};
++
++/* BC-250 and PS5 (Oberon), and a PS5 Pro without the Viola firmware. */
++static const struct soc15_reg_golden golden_settings_gc_10_0_oberon[] = {
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCB_HW_CONTROL_3, 0xa0000000, 0xa0000000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCB_HW_CONTROL_4, 0x00008000, 0x003c8014),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_DEBUG4, 0xffffffff, 0x04800000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGCR_GENERAL_CNTL, 0x00009d00, 0x00008500),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGE_FAST_CLKS, 0x3fffffff, 0x0000493e),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL1_PIPE_STEER, 0xfcfcfcfc, 0xd8d8d8d8),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2_PIPE_STEER_0, 0x77707770, 0x21302130),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2_PIPE_STEER_1, 0x77707770, 0x21302130),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2C_CTRL2, 0xfc02002f, 0x9402002f),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2C_CTRL3, 0x00002188, 0x00000188),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_ENHANCE, 0x08000009, 0x08000009),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_BINNER_EVENT_CNTL_0, 0xcc3fcc03, 0x842a4c02),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_ENHANCE, 0x08000009, 0x08000009),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_LINE_STIPPLE_STATE, 0x0000000f, 0x00000000),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmRMI_SPARE, 0xffff3109, 0xffff3101),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmSQ_ARB_CONFIG, 0x00000100, 0x00000130),
+-	SOC15_REG_GOLDEN_VALUE(GC, 0, mmSQ_LDS_CLK_CTRL, 0xffffffff, 0xffffffff),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmTA_CNTL_AUX, 0x00030008, 0x01030000),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmUTCL1_CTRL, 0x00800000, 0x00800000)
+ };
+ 
++/*
++ * PS5 Pro (Viola), instead of the Oberon list, only with the Viola
++ * firmware: the rest of the golden table Sony's kernel programs on Viola.
++ */
++static const struct soc15_reg_golden golden_settings_gc_10_0_viola[] = {
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCB_HW_CONTROL_3, 0xffffffbf, 0xa0000000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCB_HW_CONTROL_4, 0xffffffff, 0x003c8014),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_DEBUG4, 0xffffffff, 0x04900000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_DFSM_CONFIG, 0xffffffff, 0x00bb8000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmDB_DFSM_PRIMS_IN_FLIGHT, 0x0000ffff, 0x0000001f),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGCR_GENERAL_CNTL, 0x1ff0ffff, 0x00008500),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGE_FAST_CLKS, 0xffffffff, 0x0493924f),
++	/* Replicated from inspection of stock firmware */
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGE_PC_CNTL, 0x00010000, 0x00010000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGE_PRIV_CONTROL, 0x0001ffff, 0x000181fe),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGFX_PIPE_CONTROL, 0x0003ffff, 0x00010000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL1_PIPE_STEER, 0xffffffff, 0xd8d8d8d8),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2_PIPE_STEER_0, 0x77777777, 0x21302130),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2_PIPE_STEER_1, 0x77777777, 0x21302130),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2C_CTRL2, 0xffffffff, 0x9402002f),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGL2C_CTRL3, 0xffffbfff, 0x00000188),
++	/* Replicated from inspection of stock firmware */
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmGUS_DRAM_COMBINE_RD_WR_EN, 0xffffffff, 0x00000fff),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_BINNER_EVENT_CNTL_0, 0xffffffff, 0x842a4c02),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_BINNER_TIMEOUT_COUNTER, 0xffffffff, 0x00001000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_ENHANCE, 0x3fffffff, 0x08000009),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmPA_SC_LINE_STIPPLE_STATE, 0x0000ff0f, 0x00000000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmRMI_SPARE, 0xffffffff, 0xffff3101),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmSQ_ARB_CONFIG, 0x00000133, 0x00000130),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmSQ_CONFIG, 0xeffdff7f, 0x02000010),
++	/* Replicated from inspection of stock firmware */
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmSQC_CONFIG, 0xffffffff, 0x470a2000),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmTA_CNTL_AUX, 0xfff7ffff, 0x0103000a),
++	SOC15_REG_GOLDEN_VALUE(GC, 0, mmUTCL1_CTRL, 0xffffffff, 0x00400000)
++};
++
+ static const struct soc15_reg_golden golden_settings_gc_10_3_6[] = {
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCGTT_SPI_CS_CLK_CTRL, 0xff7f0fff, 0x78000100),
+ 	SOC15_REG_GOLDEN_VALUE(GC, 0, mmCH_PIPE_STEER, 0x000000ff, 0x00000044),
+@@ -3980,6 +4024,14 @@ static void gfx_v10_0_init_golden_registers(struct amdgpu_device *adev)
+ 		soc15_program_register_sequence(adev,
+ 						golden_settings_gc_10_0_cyan_skillfish,
+ 						(const u32)ARRAY_SIZE(golden_settings_gc_10_0_cyan_skillfish));
++		if (amdgpu_ps5_viola_fw(adev))
++			soc15_program_register_sequence(adev,
++							golden_settings_gc_10_0_viola,
++							(const u32)ARRAY_SIZE(golden_settings_gc_10_0_viola));
++		else
++			soc15_program_register_sequence(adev,
++							golden_settings_gc_10_0_oberon,
++							(const u32)ARRAY_SIZE(golden_settings_gc_10_0_oberon));
+ 		break;
+ 	case IP_VERSION(10, 3, 6):
+ 		soc15_program_register_sequence(adev,
+@@ -7560,6 +7612,12 @@ static int gfx_v10_0_hw_init(struct amdgpu_ip_block *ip_block)
+ 	if (r)
+ 		return r;
+ 
++#ifdef CONFIG_X86_PS5
++	/* PS5 Pro: WGPs can only be enabled once the RLC runs. */
++	if (amdgpu_ps5_viola_fw(adev))
++		mp1_viola_enable_wgps();
++#endif
++
+ 	if (amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(10, 3, 0))
+ 		gfx_v10_3_program_pbb_mode(adev);
+ 
+@@ -7853,6 +7911,12 @@ static int gfx_v10_0_early_init(struct amdgpu_ip_block *ip_block)
+ 
+ 	adev->gfx.funcs = &gfx_v10_0_gfx_funcs;
+ 
++	/* PS5 Pro with Viola firmware: 2 SE x 2 SH x 8 WGPs = 64 CUs.
++	 * Raise the hardcoded 10 CUs per SH before anything sizes itself
++	 * from it (GDS below, CU info in hw_init). */
++	if (amdgpu_ps5_viola_fw(adev))
++		adev->gfx.config.max_cu_per_sh = 16;
++
+ 	switch (amdgpu_ip_version(adev, GC_HWIP, 0)) {
+ 	case IP_VERSION(10, 1, 10):
+ 	case IP_VERSION(10, 1, 1):
+@@ -10177,6 +10241,7 @@ static int gfx_v10_0_get_cu_info(struct amdgpu_device *adev,
+ 	 * (verified empirically on BC-250). */
+ 	if (ps5_cu_unlock > 0) {
+ 		int ps5_se, ps5_sh;
++		u32 ps5_wgp_mask = amdgpu_ps5_viola_fw(adev) ? 0xff : 0x1f;
+ 		for (ps5_se = 0; ps5_se < adev->gfx.config.max_shader_engines; ps5_se++) {
+ 			for (ps5_sh = 0; ps5_sh < adev->gfx.config.max_sh_per_se; ps5_sh++) {
+ 				u32 ps5_cc_orig, ps5_cc_after, ps5_spi_orig, ps5_spi_after;
+@@ -10184,12 +10249,18 @@ static int gfx_v10_0_get_cu_info(struct amdgpu_device *adev,
+ 					continue;
+ 				gfx_v10_0_select_se_sh(adev, ps5_se, ps5_sh, 0xffffffff, 0);
+ 				ps5_cc_orig = RREG32_SOC15(GC, 0, mmCC_GC_SHADER_ARRAY_CONFIG);
+-				WREG32_SOC15(GC, 0, mmCC_GC_SHADER_ARRAY_CONFIG, 0);
++				if (amdgpu_ps5_viola_fw(adev))
++					/* Clear harvest bits for WGP0-7 only; WGP8-15 do not exist. */
++					WREG32_SOC15(GC, 0, mmCC_GC_SHADER_ARRAY_CONFIG,
++						     ps5_cc_orig & ~(ps5_wgp_mask <<
++								     CC_GC_SHADER_ARRAY_CONFIG__INACTIVE_WGPS__SHIFT));
++				else
++					WREG32_SOC15(GC, 0, mmCC_GC_SHADER_ARRAY_CONFIG, 0);
+ 				ps5_cc_after = RREG32_SOC15(GC, 0, mmCC_GC_SHADER_ARRAY_CONFIG);
+ 				ps5_spi_orig = RREG32_SOC15(GC, 0, mmSPI_PG_ENABLE_STATIC_WGP_MASK);
+-				WREG32_SOC15(GC, 0, mmSPI_PG_ENABLE_STATIC_WGP_MASK, 0x1f);
++				WREG32_SOC15(GC, 0, mmSPI_PG_ENABLE_STATIC_WGP_MASK, ps5_wgp_mask);
+ 				ps5_spi_after = RREG32_SOC15(GC, 0, mmSPI_PG_ENABLE_STATIC_WGP_MASK);
+-				WREG32_SOC15(GC, 0, mmRLC_PG_ALWAYS_ON_WGP_MASK, 0x1f);
++				WREG32_SOC15(GC, 0, mmRLC_PG_ALWAYS_ON_WGP_MASK, ps5_wgp_mask);
+ 				if (ps5_cu_unlock == 1 || ps5_cu_unlock == 4) {
+ 					WREG32_SOC15(GC, 0, mmCC_GC_SHADER_ARRAY_CONFIG, ps5_cc_orig);
+ 					WREG32_SOC15(GC, 0, mmSPI_PG_ENABLE_STATIC_WGP_MASK, ps5_spi_orig);
+@@ -10200,7 +10271,8 @@ static int gfx_v10_0_get_cu_info(struct amdgpu_device *adev,
+ 						ps5_spi_orig, ps5_spi_after);
+ 				} else {
+ 					dev_info(adev->dev,
+-						"ps5-40cu-enable: mode=%d se=%d sh=%d CC=0x%08x->0x%08x SPI=0x%08x->0x%08x",
++						"ps5-%dcu-enable: mode=%d se=%d sh=%d CC=0x%08x->0x%08x SPI=0x%08x->0x%08x",
++						amdgpu_ps5_viola_fw(adev) ? 64 : 40,
+ 						ps5_cu_unlock, ps5_se, ps5_sh,
+ 						ps5_cc_orig, ps5_cc_after,
+ 						ps5_spi_orig, ps5_spi_after);
+diff --git a/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c b/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c
+index 459482498..63ed43f73 100644
+--- a/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c
++++ b/drivers/gpu/drm/amd/amdkfd/kfd_device_queue_manager.c
+@@ -516,6 +516,12 @@ static void increment_queue_count(struct device_queue_manager *dqm,
+ 	dqm->active_queue_count++;
+ 	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE)
+ 		dqm->active_cp_queue_count++;
++#ifdef CONFIG_X86_PS5
++	/* ps5-gpufreq: sample GUI_ACTIVE while user compute queues run. */
++	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE &&
++	    dqm->active_cp_queue_count == 1)
++		amdgpu_fence_ps5_kfd_active(dqm->dev->adev, true);
++#endif
+ 
+ 	if (q->properties.is_gws) {
+ 		dqm->gws_queue_count++;
+@@ -530,6 +536,11 @@ static void decrement_queue_count(struct device_queue_manager *dqm,
+ 	dqm->active_queue_count--;
+ 	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE)
+ 		dqm->active_cp_queue_count--;
++#ifdef CONFIG_X86_PS5
++	if (q->properties.type == KFD_QUEUE_TYPE_COMPUTE &&
++	    !dqm->active_cp_queue_count)
++		amdgpu_fence_ps5_kfd_active(dqm->dev->adev, false);
++#endif
+ 
+ 	if (q->properties.is_gws) {
+ 		dqm->gws_queue_count--;
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+index efe2bcf4f..3c7cd1926 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -512,23 +512,9 @@ static struct device_attribute ps5_dev_attr_gpu_busy =
+ /*
+  * GPU temperature for the PS5. amdgpu's hwmon sensors also come from the SMU,
+  * so there are none. CPU and GPU are one die, and its one temperature sensor
+- * is what k10temp reports as Tctl; read the same register (SMN 0x59800, same
+- * decoding as k10temp) and report it as the GPU's "edge" temperature, so
+- * overlays show the chip temperature for the GPU too.
++ * is Tctl (ps5_soc_temp(), the same reading as k10temp); report it as the
++ * GPU's "edge" temperature, so overlays show the chip temperature for the GPU too.
+  */
+-#define PS5_SMN_REPORTED_TEMP_CTRL	0x00059800
+-
+-static int ps5_soc_temp(long *val)
+-{
+-	u32 regval;
+-
+-	if (amd_smn_read(0, PS5_SMN_REPORTED_TEMP_CTRL, &regval))
+-		return -EIO;
+-	*val = (regval >> 21) * 125;
+-	if ((regval & BIT(19)) || (regval & GENMASK(17, 16)) == GENMASK(17, 16))
+-		*val -= 49000;
+-	return 0;
+-}
+ 
+ static umode_t ps5_hwmon_is_visible(const void *data, enum hwmon_sensor_types type,
+ 				    u32 attr, int channel)
+@@ -540,9 +526,14 @@ static umode_t ps5_hwmon_is_visible(const void *data, enum hwmon_sensor_types ty
+ static int ps5_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
+ 			  u32 attr, int channel, long *val)
+ {
+-	if (type == hwmon_temp && attr == hwmon_temp_input)
+-		return ps5_soc_temp(val);
+-	return -EOPNOTSUPP;
++	int t, ret;
++
++	if (type != hwmon_temp || attr != hwmon_temp_input)
++		return -EOPNOTSUPP;
++	ret = ps5_soc_temp(&t);
++	if (!ret)
++		*val = t;
++	return ret;
+ }
+ 
+ static int ps5_hwmon_read_string(struct device *dev, enum hwmon_sensor_types type,
+@@ -921,10 +912,15 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
+ #ifdef CONFIG_X86_PS5
+ 	/* lets the HDMI bridge driver re-arm the output when the sink re-announces */
+ 	ps5_hdmi_register_drm(adev_to_drm(adev));
+-	if (device_create_file(adev->dev, &ps5_dev_attr_gpu_busy))
++	/*
++	 * With the Viola firmware amdgpu's own gpu_busy_percent works (its SMU load
++	 * sensor), and a second file of that name failed with -EEXIST; removing it
++	 * at teardown then removed amdgpu's.
++	 */
++	if (!amdgpu_ps5_viola_fw(adev) && device_create_file(adev->dev, &ps5_dev_attr_gpu_busy))
+ 		drm_info(adev_to_drm(adev), "PS5: gpu_busy_percent not created (already there?)\n");
+ 	{
+-		long t;
++		int t;
+ 
+ 		if (!ps5_soc_temp(&t)) {
+ 			ps5_hwmon = hwmon_device_register_with_info(adev->dev, "amdgpu", NULL,
+@@ -987,7 +983,8 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
+ 
+ #ifdef CONFIG_X86_PS5
+ 	ps5_hdmi_unregister_drm(adev_to_drm(adev));
+-	device_remove_file(adev->dev, &ps5_dev_attr_gpu_busy);
++	if (!amdgpu_ps5_viola_fw(adev))
++		device_remove_file(adev->dev, &ps5_dev_attr_gpu_busy);
+ 	if (ps5_hwmon) {
+ 		hwmon_device_unregister(ps5_hwmon);
+ 		ps5_hwmon = NULL;
+diff --git a/drivers/gpu/drm/amd/display/dc/core/dc_resource.c b/drivers/gpu/drm/amd/display/dc/core/dc_resource.c
+index a498c6fcf..fd7e1e1ac 100644
+--- a/drivers/gpu/drm/amd/display/dc/core/dc_resource.c
++++ b/drivers/gpu/drm/amd/display/dc/core/dc_resource.c
+@@ -210,7 +210,8 @@ enum dce_version resource_parse_asic_id(struct hw_asic_id asic_id)
+ 		    asic_id.chip_id == DEVICE_ID_NV_13FB ||
+ 		    asic_id.chip_id == DEVICE_ID_NV_13FC ||
+ 		    asic_id.chip_id == DEVICE_ID_NV_13DA ||
+-		    asic_id.chip_id == DEVICE_ID_NV_13DB) {
++		    asic_id.chip_id == DEVICE_ID_NV_13DB ||
++		    asic_id.chip_id == DEVICE_ID_NV_13DC) {
+ 			dc_version = DCN_VERSION_2_01;
+ 			break;
+ 		}
+diff --git a/drivers/gpu/drm/amd/display/include/dal_asic_id.h b/drivers/gpu/drm/amd/display/include/dal_asic_id.h
+index 747191f25..5a454a1f7 100644
+--- a/drivers/gpu/drm/amd/display/include/dal_asic_id.h
++++ b/drivers/gpu/drm/amd/display/include/dal_asic_id.h
+@@ -219,6 +219,7 @@ enum {
+ #define DEVICE_ID_NV_13FC 0x13FC
+ #define DEVICE_ID_NV_13DA 0x13DA
+ #define DEVICE_ID_NV_13DB 0x13DB
++#define DEVICE_ID_NV_13DC 0x13DC
+ #define FAMILY_VGH 144
+ #define DEVICE_ID_VGH_163F 0x163F
+ #define DEVICE_ID_VGH_1435 0x1435
+diff --git a/drivers/gpu/drm/amd/pm/amdgpu_pm.c b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
+index c0e677328..aa55a8347 100644
+--- a/drivers/gpu/drm/amd/pm/amdgpu_pm.c
++++ b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
+@@ -2702,7 +2702,8 @@ static int default_attr_update(struct amdgpu_device *adev, struct amdgpu_device_
+ 			dev_attr->store = NULL;
+ 		}
+ 	} else if (DEVICE_ATTR_IS(gpu_metrics)) {
+-		if (gc_ver < IP_VERSION(9, 1, 0))
++		/* Viola: no SMU metrics table, every read fails; MangoHud then shows zeros */
++		if (amdgpu_ps5_viola_fw(adev) || gc_ver < IP_VERSION(9, 1, 0))
+ 			*states = ATTR_STATE_UNSUPPORTED;
+ 	} else if (DEVICE_ATTR_IS(pp_power_profile_mode)) {
+ 		if (amdgpu_dpm_get_power_profile_mode(adev, NULL) == -EOPNOTSUPP)
+@@ -3862,6 +3863,20 @@ static umode_t hwmon_attributes_visible(struct kobject *kobj,
+ 	     attr == &sensor_dev_attr_in1_label.dev_attr.attr))
+ 		return 0;
+ 
++#ifdef CONFIG_X86_PS5
++	/* the PS5 Pro SMU backend has no voltage telemetry */
++	if (amdgpu_ps5_viola_fw(adev) &&
++	    (((attr == &sensor_dev_attr_in0_input.dev_attr.attr ||
++	       attr == &sensor_dev_attr_in0_label.dev_attr.attr) &&
++	      amdgpu_pm_get_sensor_generic(adev, AMDGPU_PP_SENSOR_VDDGFX,
++					   (void *)&tmp) == -EOPNOTSUPP) ||
++	     ((attr == &sensor_dev_attr_in1_input.dev_attr.attr ||
++	       attr == &sensor_dev_attr_in1_label.dev_attr.attr) &&
++	      amdgpu_pm_get_sensor_generic(adev, AMDGPU_PP_SENSOR_VDDNB,
++					   (void *)&tmp) == -EOPNOTSUPP)))
++		return 0;
++#endif
++
+ 	/* only few boards support vddboard */
+ 	if ((attr == &sensor_dev_attr_in2_input.dev_attr.attr ||
+ 	     attr == &sensor_dev_attr_in2_label.dev_attr.attr) &&
+diff --git a/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c b/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c
+index bb9620666..a7075fc63 100644
+--- a/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c
++++ b/drivers/gpu/drm/amd/pm/swsmu/smu11/cyan_skillfish_ppt.c
+@@ -33,6 +33,10 @@
+ #include "smu_cmn.h"
+ #include "soc15_common.h"
+ 
++#ifdef CONFIG_X86_PS5
++#include <linux/ps5.h>
++#endif
++
+ /*
+  * DO NOT use these for err/warn/info/debug messages.
+  * Use dev_err, dev_warn, dev_info and dev_dbg instead.
+@@ -598,8 +602,144 @@ static const struct pptable_funcs cyan_skillfish_ppt_funcs = {
+ 	.interrupt_work = smu_v11_0_interrupt_work,
+ };
+ 
++#ifdef CONFIG_X86_PS5
++/*
++ * PS5 Pro (Viola) runs Sony's SMU firmware, which has no metrics table. The gfx
++ * clock comes from the SMU (QueryGfxclk) and the GPU temperature from Tctl.
++ * Only used with the Viola firmware.
++ */
++static int ps5_get_gfxclk(struct smu_context *smu, uint32_t *mhz)
++{
++	return ps5_mp1_query_gfxclk(mhz);
++}
++
++static int ps5_get_gpu_temp(struct smu_context *smu, int *millidegrees)
++{
++	return ps5_soc_temp(millidegrees);
++}
++
++static int ps5_read_sensor(struct smu_context *smu,
++			   enum amd_pp_sensors sensor,
++			   void *data,
++			   uint32_t *size)
++{
++	uint32_t *value = data;
++	int temp, ret;
++
++	if (!data || !size)
++		return -EINVAL;
++
++	switch (sensor) {
++	case AMDGPU_PP_SENSOR_GFX_SCLK:
++		ret = ps5_get_gfxclk(smu, value);
++		if (ret)
++			return ret;
++		*value *= 100;
++		break;
++	case AMDGPU_PP_SENSOR_EDGE_TEMP:
++		ret = ps5_get_gpu_temp(smu, &temp);
++		if (ret)
++			return ret;
++		*value = temp;
++		break;
++	case AMDGPU_PP_SENSOR_GPU_LOAD:
++		*value = amdgpu_fence_ps5_busy_percent(smu->adev);
++		break;
++	default:
++		return -EOPNOTSUPP;
++	}
++
++	*size = 4;
++
++	return 0;
++}
++
++static int ps5_emit_clk_levels(struct smu_context *smu,
++			       enum smu_clk_type clk_type, char *buf,
++			       int *offset)
++{
++	uint32_t cur_value;
++	int ret;
++
++	switch (clk_type) {
++	case SMU_SCLK:
++	case SMU_GFXCLK:
++		ret = ps5_get_gfxclk(smu, &cur_value);
++		if (ret)
++			return ret;
++		*offset += sysfs_emit_at(buf, *offset, "0: %uMhz *\n", cur_value);
++		return 0;
++	default:
++		return -EOPNOTSUPP;
++	}
++}
++
++/* Keep reporting the VBIOS default clocks, as amdgpu did without DPM. */
++static int ps5_get_dpm_ultimate_freq(struct smu_context *smu,
++				     enum smu_clk_type clk_type,
++				     uint32_t *min,
++				     uint32_t *max)
++{
++	struct amdgpu_device *adev = smu->adev;
++	uint32_t clk;
++
++	switch (clk_type) {
++	case SMU_GFXCLK:
++	case SMU_SCLK:
++		clk = adev->clock.default_sclk / 100;
++		break;
++	case SMU_UCLK:
++	case SMU_MCLK:
++		clk = adev->clock.default_mclk / 100;
++		break;
++	default:
++		return -EOPNOTSUPP;
++	}
++
++	if (!clk)
++		return -EOPNOTSUPP;
++
++	if (min)
++		*min = clk;
++	if (max)
++		*max = clk;
++
++	return 0;
++}
++
++static bool ps5_is_dpm_running(struct smu_context *smu)
++{
++	/* Sony's firmware manages DPM itself; nothing is enabled by the driver. */
++	return !smu->adev->in_suspend;
++}
++
++/*
++ * Only callbacks that never send generic SMU messages: Sony's firmware does
++ * not implement the metrics table or feature-mask messages.
++ */
++static const struct pptable_funcs ps5_ppt_funcs = {
++	.read_sensor = ps5_read_sensor,
++	.emit_clk_levels = ps5_emit_clk_levels,
++	.get_enabled_mask = cyan_skillfish_get_enabled_mask,
++	.is_dpm_running = ps5_is_dpm_running,
++	.get_dpm_ultimate_freq = ps5_get_dpm_ultimate_freq,
++};
++
++/* Empty: smu_cmn rejects every message instead of sending it to Sony's SMU. */
++static const struct cmn2asic_msg_mapping ps5_message_map[SMU_MSG_MAX_COUNT];
++#endif
++
+ void cyan_skillfish_set_ppt_funcs(struct smu_context *smu)
+ {
++#ifdef CONFIG_X86_PS5
++	if (amdgpu_ps5_viola_fw(smu->adev)) {
++		smu->ppt_funcs = &ps5_ppt_funcs;
++		smu->is_apu = true;
++		smu_v11_0_init_msg_ctl(smu, ps5_message_map);
++		return;
++	}
++#endif
++
+ 	smu->ppt_funcs = &cyan_skillfish_ppt_funcs;
+ 	smu->table_map = cyan_skillfish_table_map;
+ 	smu->is_apu = true;
+diff --git a/drivers/ps5/Makefile b/drivers/ps5/Makefile
+index ca77af701..759960c8d 100644
+--- a/drivers/ps5/Makefile
++++ b/drivers/ps5/Makefile
+@@ -1,2 +1,3 @@
+ obj-y += spcie.o tpcie.o hdmi.o mp1.o buzzer.o svm.o vmenter.o fan.o ps5-cec.o usbc_dp.o
++obj-y += gpufreq.o
+ obj-y += led/
+diff --git a/drivers/ps5/gpufreq.c b/drivers/ps5/gpufreq.c
+new file mode 100644
+index 000000000..80953514d
+--- /dev/null
++++ b/drivers/ps5/gpufreq.c
+@@ -0,0 +1,308 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * PS5 GPU clock scaling via SMU RequestGfxclk; amdgpu supplies busy time.
++ * The governor picks an OPP, a thermal limit (any MHz) caps it to hold the
++ * SoC at temp_limit. cur_freq is the clock actually set.
++ */
++
++#include <linux/devfreq.h>
++#include <linux/moduleparam.h>
++#include <linux/mutex.h>
++#include <linux/pci.h>
++#include <linux/platform_device.h>
++#include <linux/pm_opp.h>
++#include <linux/ps5.h>
++#include <linux/ratelimit.h>
++#include <linux/units.h>
++#include <linux/workqueue.h>
++#include <asm/amd/node.h>
++
++#define PS5_GPU_MIN_MHZ		500	/* the Pro SMU rejects less */
++#define PS5_GPU_MAX_MHZ		2230
++#define PS5PRO_GPU_MAX_MHZ	2350
++#define PS5_GPU_STEP_MHZ	125	/* trans_stat fits a page */
++
++#define PS5_THERMAL_MS		100
++#define PS5_THERMAL_COOL_MS	1000	/* 20 C or more under the limit */
++#define PS5_THERMAL_GAIN	5	/* MHz per C off target, per poll */
++#define PS5_LIMIT_DEADBAND_MHZ	25
++
++#define PS5_THM_TCON_CUR_TMP	0x00059800
++#define PS5_CUR_TEMP_SHIFT	21
++#define PS5_CUR_TEMP_RANGE_SEL	BIT(19)
++#define PS5_CUR_TEMP_TJ_SEL	GENMASK(17, 16)
++
++struct ps5_gpufreq {
++	struct device *dev;
++	struct devfreq_dev_profile profile;
++	ps5_gpu_busy_ns_t busy_ns;
++	u64 busy;
++	ktime_t stamp;
++	struct delayed_work thermal;
++	struct mutex lock;	/* fields below, SMU requests */
++	unsigned long want;	/* governor's OPP */
++	int limit;		/* thermal limit, MHz */
++	int max_mhz;
++	int mhz;		/* clock set, 0 if unknown */
++	bool opp_only;		/* SMU rejected a clock between OPPs */
++	bool stopped;
++};
++
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "ps5_gpufreq."
++
++static unsigned int temp_limit = 85;
++
++static int temp_limit_set(const char *val, const struct kernel_param *kp)
++{
++	return param_set_uint_minmax(val, kp, 50, 95);
++}
++
++static const struct kernel_param_ops temp_limit_ops = {
++	.set = temp_limit_set,
++	.get = param_get_uint,
++};
++module_param_cb(temp_limit, &temp_limit_ops, &temp_limit, 0644);
++MODULE_PARM_DESC(temp_limit, "Hottest SoC temperature allowed, in C (50-95, default 85)");
++
++static struct devfreq_simple_ondemand_data ps5_gpufreq_ondemand = {
++	.upthreshold = 70,
++	.downdifferential = 15,
++};
++
++/* SoC die temperature (Tctl), as k10temp reads it. */
++int ps5_soc_temp(int *millidegrees)
++{
++	u32 val;
++	int ret;
++
++	ret = amd_smn_read(0, PS5_THM_TCON_CUR_TMP, &val);
++	if (ret)
++		return ret;
++
++	*millidegrees = (val >> PS5_CUR_TEMP_SHIFT) * 125;
++	if ((val & PS5_CUR_TEMP_RANGE_SEL) ||
++	    (val & PS5_CUR_TEMP_TJ_SEL) == PS5_CUR_TEMP_TJ_SEL)
++		*millidegrees -= 49000;
++	return 0;
++}
++EXPORT_SYMBOL(ps5_soc_temp);
++
++static void ps5_gpufreq_apply(struct ps5_gpufreq *gf)
++{
++	int want = gf->want / HZ_PER_MHZ;
++	int mhz = min(want, gf->limit);
++	int ret;
++
++	lockdep_assert_held(&gf->lock);
++	if (gf->opp_only && mhz < want) {
++		unsigned long f = mhz * HZ_PER_MHZ;
++		struct dev_pm_opp *opp = dev_pm_opp_find_freq_floor(gf->dev, &f);
++
++		if (!IS_ERR(opp)) {
++			dev_pm_opp_put(opp);
++			mhz = f / HZ_PER_MHZ;
++		}
++	}
++	/* Deadband while the limit binds. */
++	if (gf->limit < want && gf->mhz && gf->mhz <= want &&
++	    abs(mhz - gf->mhz) < PS5_LIMIT_DEADBAND_MHZ)
++		return;
++	if (mhz == gf->mhz || gf->stopped)
++		return;
++
++	ret = ps5_mp1_request_gfxclk(mhz);
++	if (!ret) {
++		gf->mhz = mhz;
++	} else if (ret == -EINVAL) {
++		dev_warn(gf->dev, "SMU rejected %d MHz\n", mhz);
++		/* Drop a rejected OPP; if it was not one, limit in OPP steps. */
++		if (dev_pm_opp_disable(gf->dev, mhz * HZ_PER_MHZ))
++			gf->opp_only = true;
++	} else {
++		dev_err(gf->dev, "SMU not responding (%d), scaling stopped\n",
++			ret);
++		gf->stopped = true;
++	}
++}
++
++static int ps5_gpufreq_target(struct device *dev, unsigned long *freq,
++			      u32 flags)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++	struct dev_pm_opp *opp;
++
++	opp = devfreq_recommended_opp(dev, freq, flags);
++	if (IS_ERR(opp))
++		return PTR_ERR(opp);
++	dev_pm_opp_put(opp);
++
++	mutex_lock(&gf->lock);
++	gf->want = *freq;
++	ps5_gpufreq_apply(gf);
++	mutex_unlock(&gf->lock);
++	return 0;
++}
++
++static int ps5_gpufreq_cur_freq(struct device *dev, unsigned long *freq)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++	int mhz = READ_ONCE(gf->mhz);
++
++	*freq = mhz ? mhz * HZ_PER_MHZ : READ_ONCE(gf->want);
++	return 0;
++}
++
++static int ps5_gpufreq_status(struct device *dev,
++			      struct devfreq_dev_status *stat)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++	u64 busy = gf->busy_ns(dev->parent);
++	ktime_t now = ktime_get();
++
++	stat->current_frequency = READ_ONCE(gf->mhz) * HZ_PER_MHZ;
++	stat->busy_time = busy - gf->busy;
++	stat->total_time = ktime_to_ns(ktime_sub(now, gf->stamp));
++	gf->busy = busy;
++	gf->stamp = now;
++	return 0;
++}
++
++/* Integral control: settles at the clock that holds temp_limit. */
++static void ps5_gpufreq_thermal(struct work_struct *work)
++{
++	static DEFINE_RATELIMIT_STATE(rs, 60 * HZ, 1);
++	struct ps5_gpufreq *gf = container_of(to_delayed_work(work),
++					      struct ps5_gpufreq, thermal);
++	int target = READ_ONCE(temp_limit) * 1000;
++	unsigned int delay = PS5_THERMAL_MS;
++	int temp, limit;
++
++	if (!ps5_soc_temp(&temp)) {
++		if (temp < target - 20000)
++			delay = PS5_THERMAL_COOL_MS;
++		mutex_lock(&gf->lock);
++		limit = gf->limit;
++		/* Start from the running clock. */
++		if (temp > target && gf->mhz && limit > gf->mhz)
++			limit = gf->mhz;
++		limit += (target - temp) * PS5_THERMAL_GAIN / 1000;
++		limit = clamp(limit, PS5_GPU_MIN_MHZ, gf->max_mhz);
++		if (limit < gf->limit && gf->limit == gf->max_mhz &&
++		    __ratelimit(&rs))
++			dev_info(gf->dev, "SoC at %d C, limiting the clock\n",
++				 temp / 1000);
++		gf->limit = limit;
++		ps5_gpufreq_apply(gf);
++		mutex_unlock(&gf->lock);
++	}
++	queue_delayed_work(system_freezable_power_efficient_wq, &gf->thermal,
++			   msecs_to_jiffies(delay));
++}
++
++static void ps5_gpufreq_stop_thermal(void *data)
++{
++	struct ps5_gpufreq *gf = data;
++
++	cancel_delayed_work_sync(&gf->thermal);
++}
++
++static void ps5_gpufreq_remove_opps(void *dev)
++{
++	dev_pm_opp_remove_all_dynamic(dev);
++}
++
++static int ps5_gpufreq_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	u32 max_mhz = ps5_is_viola(to_pci_dev(dev->parent)->device) ?
++		      PS5PRO_GPU_MAX_MHZ : PS5_GPU_MAX_MHZ;
++	struct ps5_gpufreq *gf;
++	struct devfreq *df;
++	u32 mhz;
++	int ret;
++
++	ret = ps5_mp1_query_gfxclk(&mhz);
++	if (ret)
++		return dev_err_probe(dev, ret, "SMU not responding\n");
++
++	gf = devm_kzalloc(dev, sizeof(*gf), GFP_KERNEL);
++	if (!gf)
++		return -ENOMEM;
++	ret = devm_mutex_init(dev, &gf->lock);
++	if (ret)
++		return ret;
++	gf->dev = dev;
++	gf->busy_ns = *(ps5_gpu_busy_ns_t *)dev_get_platdata(dev);
++	gf->busy = gf->busy_ns(dev->parent);
++	gf->stamp = ktime_get();
++	gf->max_mhz = gf->limit = max_mhz;
++	gf->want = max_mhz * HZ_PER_MHZ;
++	platform_set_drvdata(pdev, gf);
++
++	ret = devm_add_action_or_reset(dev, ps5_gpufreq_remove_opps, dev);
++	if (ret)
++		return ret;
++	for (u32 f = PS5_GPU_MIN_MHZ;; f = min(f + PS5_GPU_STEP_MHZ, max_mhz)) {
++		struct dev_pm_opp_data opp = { .freq = f * HZ_PER_MHZ };
++
++		ret = dev_pm_opp_add_dynamic(dev, &opp);
++		if (ret)
++			return ret;
++		if (f == max_mhz)
++			break;
++	}
++
++	gf->profile.initial_freq = gf->want;
++	gf->profile.polling_ms = 50;
++	gf->profile.target = ps5_gpufreq_target;
++	gf->profile.get_dev_status = ps5_gpufreq_status;
++	gf->profile.get_cur_freq = ps5_gpufreq_cur_freq;
++	df = devm_devfreq_add_device(dev, &gf->profile,
++				     DEVFREQ_GOV_SIMPLE_ONDEMAND,
++				     &ps5_gpufreq_ondemand);
++	if (IS_ERR(df))
++		return dev_err_probe(dev, PTR_ERR(df), "devfreq failed\n");
++
++	INIT_DELAYED_WORK(&gf->thermal, ps5_gpufreq_thermal);
++	ret = devm_add_action_or_reset(dev, ps5_gpufreq_stop_thermal, gf);
++	if (ret)
++		return ret;
++	queue_delayed_work(system_freezable_power_efficient_wq, &gf->thermal, 0);
++
++	dev_info(dev, "%u-%u MHz, now at %u MHz, limit %u C\n", PS5_GPU_MIN_MHZ,
++		 max_mhz, mhz, temp_limit);
++	return 0;
++}
++
++/* The SMU may resume at another clock. */
++static int ps5_gpufreq_resume(struct device *dev)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++
++	mutex_lock(&gf->lock);
++	gf->mhz = 0;
++	mutex_unlock(&gf->lock);
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(ps5_gpufreq_pm, NULL, ps5_gpufreq_resume);
++
++static struct platform_driver ps5_gpufreq_driver = {
++	.probe = ps5_gpufreq_probe,
++	.driver = {
++		.name = "ps5-gpufreq",
++		.pm = pm_sleep_ptr(&ps5_gpufreq_pm),
++	},
++};
++builtin_platform_driver(ps5_gpufreq_driver);
++
++/* For amdgpu. Undo with platform_device_unregister(). */
++struct platform_device *ps5_gpufreq_register(struct device *gpu,
++					     ps5_gpu_busy_ns_t busy_ns)
++{
++	return platform_device_register_data(gpu, "ps5-gpufreq",
++					     PLATFORM_DEVID_NONE, &busy_ns,
++					     sizeof(busy_ns));
++}
++EXPORT_SYMBOL(ps5_gpufreq_register);
+diff --git a/drivers/ps5/mp1.c b/drivers/ps5/mp1.c
+index 57df65e28..865bc9953 100644
+--- a/drivers/ps5/mp1.c
++++ b/drivers/ps5/mp1.c
+@@ -4,9 +4,11 @@
+ 
+ #include <linux/module.h>
+ #include <linux/miscdevice.h>
++#include <linux/mutex.h>
+ #include <linux/delay.h>
+ #include <linux/mutex.h>
+ #include <linux/smp.h>
++#include <linux/uaccess.h>
+ #include <linux/ps5.h>
+ #include <asm/amd/node.h>
+ 
+@@ -18,6 +20,22 @@ EXPORT_SYMBOL_GPL(ps5_mp1_q0_lock);
+ #define MP1_BOOST_ENTER		_IO(MP1_IOC_MAGIC, 1)
+ #define MP1_BOOST_EXIT		_IO(MP1_IOC_MAGIC, 2)
+ 
++/*
++ * Read-only SMU queries, PS5 Pro with the Viola GPU firmware only.  arg is
++ * passed to the SMU, val receives its reply.
++ */
++struct mp1_query {
++	__u32 arg;
++	__u32 val;
++};
++
++#define MP1_GET_SMU_VERSION		_IOWR(MP1_IOC_MAGIC, 3, struct mp1_query)
++#define MP1_QUERY_CORE_PSTATE		_IOWR(MP1_IOC_MAGIC, 4, struct mp1_query)
++#define MP1_QUERY_ACTIVE_WGP		_IOWR(MP1_IOC_MAGIC, 6, struct mp1_query)
++#define MP1_GET_GFX_FREQ		_IOWR(MP1_IOC_MAGIC, 7, struct mp1_query)
++#define MP1_QUERY_VDDCR_SOC_CLOCK	_IOWR(MP1_IOC_MAGIC, 8, struct mp1_query)
++/* Read gfx clock and temperature from hwmon. */
++
+ #define CPU_MHZ_MIN		3200
+ #define CPU_MHZ_MAX		3500
+ 
+@@ -42,13 +60,24 @@ EXPORT_SYMBOL_GPL(ps5_mp1_q0_lock);
+ #define MP1_C2PMSG_96		0x3b10a80
+ #define MP1_C2PMSG_98		0x3b10a88
+ 
++#define PPSMC_MSG_GetSmuVersion				0x02
++#define PPSMC_MSG_QueryCorePstate			0x0C
++#define PPSMC_MSG_RequestGfxclk				0x0E
++#define PPSMC_MSG_QueryGfxclk				0x0F
++#define PPSMC_MSG_QueryVddcrSocClock			0x11
+ #define PPSMC_MSG_ConfigureS3PwrOffRegisterAddressHigh	0x16
+ #define PPSMC_MSG_ConfigureS3PwrOffRegisterAddressLow	0x17
++#define PPSMC_MSG_RequestActiveWgp			0x18
++#define PPSMC_MSG_QueryActiveWgp			0x1E
+ #define PPSMC_MSG_UniversalModeEntry			0x22
+ #define PPSMC_MSG_UniversalModeExit			0x23
+ #define PPSMC_MSG_SleepEntry				0x24
+ #define PPSMC_MSG_GfxCacWeightOperation			0x2F
+ #define PPSMC_MSG_L3CacWeightOperation			0x30
++#define PPSMC_MSG_GetGfxFrequency			0x37
++
++/* PS5 Pro (Viola A0).  The SMU reports 0x1e == 30 active WGPs (60 CUs). */
++#define PS5PRO_ACTIVE_WGP_COUNT				0x1e
+ 
+ struct mp1_msg {
+ 	u32 arg;
+@@ -207,6 +236,212 @@ static const struct bapm_param_set bapm_param_set_2 = {
+ 	}
+ };
+ 
++static const struct bapm_param_set bapm_param_set_3 = {
++	.dpm_wac = {
++		0x0000c3adb08d0000, 0x00a800008d000000, 0xa000008e000000a6, 0x00000000c900a500,
++		0xc8d000d3b8daea00, 0x0000d000a3d200dc, 0x00bfc80000c6f100, 0x00fe00000000ad00,
++		0x0000abb300000000, 0x00008600000000cf, 0x00ae0095ff000000, 0x000000000000ac00,
++		0x00b00000008500ad, 0x0098849600b18000, 0xa2a38bac00b00000, 0x97007479000092ab,
++		0x0095a30000008f00, 0x000000b5000000a0, 0x0000c200a80000bd, 0x0000bcc1c4b2a300,
++		0xa700000000000000,
++	},
++	.l3_cacw = {
++		[71] = 0x3ff80000,
++	},
++	.gfx_cacw = {
++		[0] = 0x00000a3d,
++		[1] = 0x12b20000,
++		[2] = 0x0000087c,
++		[5] = 0x0000144d,
++		[6] = 0x0000000a,
++		[7] = 0x0000021b,
++		[14] = 0x324b0730,
++		[16] = 0x06890000,
++		[17] = 0x000071c8,
++		[19] = 0x00000605,
++		[20] = 0x10eb0000,
++		[21] = 0x00001611,
++		[22] = 0x0000e0e9,
++		[23] = 0x031885dc,
++		[24] = 0x09f80000,
++		[27] = 0x107e247d,
++		[28] = 0x1ae90000,
++		[30] = 0x59fb0000,
++		[33] = 0x000014bb,
++		[54] = 0x000000b4,
++		[60] = 0x0000f3f3,
++		[63] = 0x000002e8,
++		[64] = 0x000031f3,
++		[66] = 0x070c0000,
++		[71] = 0x00000948,
++		[72] = 0x06fb0000,
++		[76] = 0x14190000,
++		[78] = 0x0000ffff,
++		[81] = 0x000061cb,
++		[82] = 0x0d40a81c,
++		[83] = 0x000032b4,
++		[84] = 0x000009ba,
++	},
++	.gfx_cacw_len = 88,
++	.bapm_param = {
++		[0] = {1, 0x3d02a964},
++		[1] = {1, 0xbe67f8b7},
++		[2] = {1, 0x3f31acd4},
++		[3] = {1, 0x3e00d57b},
++		[4] = {1, 0xbdeff796},
++		[5] = {1, 0x3f15666a},
++		[6] = {1, 0x3704564d},
++		[7] = {1, 0x3ecc6361},
++		[8] = {1, 0x3f487a30},
++		[9] = {1, 0x40080000},
++		[10] = {1, 0x3cd4cccd},
++		[11] = {1, 0xbc2c0ab6},
++		[12] = {1, 0x3d1582c2},
++		[13] = {1, 0x367468e6},
++		[14] = {1, 0x3eacdf35},
++		[15] = {1, 0x3f299066},
++		[16] = {1, 0x40080000},
++		[17] = {1, 0x3cd4cccd},
++		[18] = {1, 0xbc2c0ab6},
++		[19] = {1, 0x3d1582c2},
++		[20] = {1, 0x3590f484},
++		[21] = {1, 0x40cacccd},
++		[22] = {1, 0x41bf039f},
++		[23] = {1, 0x424f7a04},
++		[24] = {1, 0x3fbb5fce},
++		[25] = {1, 0x4143200f},
++		[26] = {1, 0xbc816b59},
++		[27] = {1, 0x3d41513a},
++		[49] = {1, 0x41be52e7},
++		[50] = {1, 0x42500b5a},
++		[51] = {1, 0x3fc8e425},
++		[52] = {1, 0x413325da},
++		[53] = {1, 0xbc816b59},
++		[54] = {1, 0x3d41513a},
++		[55] = {1, 0x3e1d8684},
++		[56] = {1, 0xbe7eb875},
++		[57] = {1, 0x3f3c6e05},
++		[58] = {1, 0x41bd74c7},
++		[59] = {1, 0x424f4b48},
++		[60] = {1, 0x3fdb3746},
++		[61] = {1, 0x40cb9d32},
++		[62] = {1, 0xbc816b59},
++		[63] = {1, 0x3d41513a},
++		[64] = {1, 0x3e6ed012},
++		[65] = {1, 0xbf0a9203},
++		[66] = {1, 0x3f859638},
++		[67] = {1, 0x41c55b1f},
++		[68] = {1, 0x42498aed},
++		[69] = {1, 0x3fd1f78b},
++		[70] = {1, 0x40d31d5a},
++		[71] = {1, 0xbc816b59},
++		[72] = {1, 0x3d41513a},
++		[73] = {1, 0x3e571591},
++		[74] = {1, 0xbee541d9},
++		[75] = {1, 0x3f753817},
++		[76] = {1, 0x41c2be4f},
++		[77] = {1, 0x424a50fa},
++		[78] = {1, 0x3fe6818a},
++		[79] = {1, 0x4064ccb7},
++		[80] = {1, 0xbc816b59},
++		[81] = {1, 0x3d41513a},
++		[82] = {1, 0x3e77f83b},
++		[83] = {1, 0xbf096eaf},
++		[84] = {1, 0x3f84ffd3},
++		[85] = {1, 0x41c87143},
++		[86] = {1, 0x42472e15},
++		[87] = {1, 0x3ffd116c},
++		[88] = {1, 0x404962b5},
++		[89] = {1, 0xbc816b59},
++		[90] = {1, 0x3d41513a},
++		[91] = {1, 0x3e7ee56c},
++		[92] = {1, 0xbf118b19},
++		[93] = {1, 0x3f8952db},
++		[94] = {1, 0x3ed10cb3},
++		[95] = {1, 0x3f4a9024},
++		[96] = {1, 0x3fef0000},
++		[97] = {1, 0x3d373333},
++		[98] = {1, 0xbc2c0ab6},
++		[99] = {1, 0x3d1582c2},
++		[100] = {1, 0x3c0cc881},
++		[101] = {1, 0xbc1b08a8},
++		[102] = {1, 0x3c5a02ba},
++		[103] = {1, 0x3ed0d11f},
++		[104] = {1, 0x3f464ac2},
++		[105] = {1, 0x3fd90000},
++		[106] = {1, 0x3d8f3333},
++		[107] = {1, 0xbc2c0ab6},
++		[108] = {1, 0x3d1582c2},
++		[109] = {1, 0x3bd08045},
++		[110] = {1, 0x3c833aea},
++		[111] = {1, 0xbd913696},
++		[112] = {1, 0x3ed9cf98},
++		[113] = {1, 0x3f45eeef},
++		[114] = {1, 0x3fa40000},
++		[115] = {1, 0x3e026667},
++		[116] = {1, 0xbc2c0ab6},
++		[117] = {1, 0x3d1582c2},
++		[118] = {1, 0xbc190a68},
++		[119] = {1, 0x3e1994ba},
++		[120] = {1, 0xbee36dbf},
++		[121] = {1, 0x3edb1c78},
++		[122] = {1, 0x3f480316},
++		[123] = {1, 0x3fa90000},
++		[124] = {1, 0x3e366667},
++		[125] = {1, 0xbc2c0ab6},
++		[126] = {1, 0x3d1582c2},
++		[127] = {1, 0xbc1eb10c},
++		[128] = {1, 0x3e0d688d},
++		[129] = {1, 0xbec110c5},
++		[130] = {1, 0x3ee4c914},
++		[131] = {1, 0x3f4202b9},
++		[132] = {1, 0x3fad0000},
++		[133] = {1, 0x3e340000},
++		[134] = {1, 0xbc2c0ab6},
++		[135] = {1, 0x3d1582c2},
++		[136] = {1, 0x3c05940f},
++		[137] = {1, 0xbccee655},
++		[138] = {1, 0x3de33763},
++		[139] = {1, 0x3eae4589},
++		[140] = {1, 0x3f28dd3b},
++		[141] = {1, 0x3fef0000},
++		[142] = {1, 0x3d373333},
++		[143] = {1, 0xbc2c0ab6},
++		[144] = {1, 0x3d1582c2},
++		[145] = {1, 0x3eb099c9},
++		[146] = {1, 0x3f27b31b},
++		[147] = {1, 0x3fd90000},
++		[148] = {1, 0x3d8f3333},
++		[149] = {1, 0xbc2c0ab6},
++		[150] = {1, 0x3d1582c2},
++		[151] = {1, 0x3eb5b907},
++		[152] = {1, 0x3f25237c},
++		[153] = {1, 0x3fa40000},
++		[154] = {1, 0x3e026667},
++		[155] = {1, 0xbc2c0ab6},
++		[156] = {1, 0x3d1582c2},
++		[157] = {1, 0x3eb53237},
++		[158] = {1, 0x3f2566e5},
++		[159] = {1, 0x3fa90000},
++		[160] = {1, 0x3e366667},
++		[161] = {1, 0xbc2c0ab6},
++		[162] = {1, 0x3d1582c2},
++		[163] = {1, 0x3ebde91f},
++		[164] = {1, 0x3f210b70},
++		[165] = {1, 0x3fad0000},
++		[166] = {1, 0x3e340000},
++		[167] = {1, 0xbc2c0ab6},
++		[168] = {1, 0x3d1582c2},
++		[169] = {1, 0x3c4f22b3},
++		[170] = {1, 0xbd005db5},
++		[171] = {1, 0x3f34d0c9},
++		[172] = {1, 0x3f47596b},
++		[173] = {1, 0x3f8c6fa6},
++		[174] = {1, 0x3f78ef53},
++		[175] = {1, 0x3efd5d82},
++	}
++};
++
+ static u32 pcirc_smn_read(u32 reg)
+ {
+ 	u32 val = 0;
+@@ -223,6 +458,30 @@ static void pcirc_smn_write(u32 reg, u32 val)
+ 	}
+ }
+ 
++/* The test mailbox (C2PMSG_96/98/72); the main one is under ps5_mp1_q0_lock. */
++static DEFINE_MUTEX(mp1_mbox_mutex);
++#define MP1_LOCK_POLLS	200000	/* 2 s at 10 us */
++
++/*
++ * Sleep entry sends with IRQs off (icc_power_suspend): poll for the lock
++ * there instead of sleeping, and send anyway after 2 s. NULL if not taken.
++ */
++static struct mutex *mp1_mbox_lock(void)
++{
++	int i;
++
++	if (!irqs_disabled()) {
++		mutex_lock(&ps5_mp1_q0_lock);
++		return &ps5_mp1_q0_lock;
++	}
++	for (i = 0; i < MP1_LOCK_POLLS; i++) {
++		if (mutex_trylock(&ps5_mp1_q0_lock))
++			return &ps5_mp1_q0_lock;
++		udelay(10);
++	}
++	return NULL;
++}
++
+ static int mp1fw_waitmsg(u32 reg, u8 msgid)
+ {
+         int timeout = 0;
+@@ -244,10 +503,10 @@ static int mp1fw_waitmsg(u32 reg, u8 msgid)
+ 
+ static int mp1fw_sendmsg(struct mp1_msg *msg, u8 msgid)
+ {
++	/* ps5_mp1_q0_lock: shared with ps5-cpufreq, which uses the same mailbox */
++	struct mutex *lock = mp1_mbox_lock();
+ 	int ret = 0;
+ 
+-	mutex_lock(&ps5_mp1_q0_lock);
+-
+ 	if (mp1fw_waitmsg(MP1_C2PMSG_90, msgid)) {
+ 		pr_err("[MP1ERROR] : %s: Error : busy msgid=0x%X, arg=0x%08X\n", __func__, msgid, msg->arg);
+ 		ret = -EBUSY;
+@@ -278,12 +537,15 @@ static int mp1fw_sendmsg(struct mp1_msg *msg, u8 msgid)
+ 	msg->resp_val = resp_val;
+ 
+ out_unlock:
+-	mutex_unlock(&ps5_mp1_q0_lock);
++	if (lock)
++		mutex_unlock(lock);
+ 	return ret;
+ }
+ 
+ static int mp1fw_test_sendmsg(struct mp1_msg *msg, uint8_t msgid)
+ {
++	guard(mutex)(&mp1_mbox_mutex);
++
+ 	if (mp1fw_waitmsg(MP1_C2PMSG_96, msgid)) {
+ 		printk("[MP1ERROR] : %s: Error : busy msgid=0x%X, arg=0x%08X\n", __func__, msgid, msg->arg);
+ 		return -EBUSY;
+@@ -419,8 +681,12 @@ static int mp1_bapm_write_param(int index, int param)
+ 	return mp1fw_sendmsg(&msg, 0x33);
+ }
+ 
++/* Set by ps5_mp1_viola_init(): amdgpu runs the Viola GPU firmware. */
++static bool mp1_viola;
++
+ static void update_bapm_weights_smp(void *info)
+ {
++	const struct bapm_param_set *set = info;
+ 	u64 msr_dpm_cfg;
+ 	int i;
+ 
+@@ -429,32 +695,142 @@ static void update_bapm_weights_smp(void *info)
+ 
+ 	for (i = 0; i < 21; i++) {
+ 		wrmsrq(MSR_DPM_WAC_ACC_INDEX, i);
+-		wrmsrq(MSR_DPM_WAC_DATA, bapm_param_set_2.dpm_wac[i]);
++		wrmsrq(MSR_DPM_WAC_DATA, set->dpm_wac[i]);
+ 	}
+ 
+ 	wrmsrq(MSR_DPM_CFG, msr_dpm_cfg);
+ }
+ 
+-static void mp1_set_bapm_param_set_all(void)
++static int ps5_bapm_set;
++module_param(ps5_bapm_set, int, 0444);
++MODULE_PARM_DESC(ps5_bapm_set, "PS5 Pro with Viola GPU firmware: BAPM parameter set (0=auto, 1..3)");
++
++static const struct bapm_param_set *mp1_viola_bapm_param_set(void)
++{
++	switch (ps5_bapm_set) {
++	case 1:
++		return &bapm_param_set_1;
++	case 2:
++		return &bapm_param_set_2;
++	case 3:
++		return &bapm_param_set_3;
++	}
++
++	/*
++	 * Sony's kernel keeps a separate BAPM tuning table per GPU variant.
++	 * Viola (PS5 Pro) uses the third table.
++	 */
++	return &bapm_param_set_3;
++}
++
++static void mp1_set_bapm_param_set_all(const struct bapm_param_set *set)
+ {
+ 	int i;
+ 
+-	on_each_cpu(update_bapm_weights_smp, NULL, 1);
++	on_each_cpu(update_bapm_weights_smp, (void *)set, 1);
++
++	for (i = 0; i < 80; i++)
++		mp1_bapm_set_l3_cacw(i, set->l3_cacw[i]);
++
++	for (i = 0; i < set->gfx_cacw_len && i < ARRAY_SIZE(set->gfx_cacw); i++)
++		mp1_bapm_set_gfx_cacw(i, set->gfx_cacw[i]);
+ 
+-	for (i = 0; i < 80; i++) {
+-		mp1_bapm_set_l3_cacw(i, bapm_param_set_2.l3_cacw[i]);
++	for (i = 0; i < 176; i++) {
++		if (set->bapm_param[i][0])
++			mp1_bapm_write_param(i, set->bapm_param[i][1]);
+ 	}
++}
++
++void mp1_viola_enable_wgps(void)
++{
++	struct mp1_msg msg = {};
++	u32 before;
++	int ret;
+ 
+-	for (i = 0; i < bapm_param_set_2.gfx_cacw_len; i++) {
+-		mp1_bapm_set_gfx_cacw(i, bapm_param_set_2.gfx_cacw[i]);
++	ret = mp1fw_sendmsg(&msg, PPSMC_MSG_QueryActiveWgp);
++	if (ret) {
++		pr_warn("Viola: QueryActiveWgp failed: %d\n", ret);
++		return;
+ 	}
+ 
+-	for (i = 0; i < 176; i++) {
+-		if (bapm_param_set_2.bapm_param[i][0])
+-			mp1_bapm_write_param(i, bapm_param_set_2.bapm_param[i][1]);
++	before = msg.resp_val;
++	if (before == PS5PRO_ACTIVE_WGP_COUNT) {
++		pr_info("Viola: %u WGPs active\n", before);
++		return;
+ 	}
++
++	memset(&msg, 0, sizeof(msg));
++	msg.arg = PS5PRO_ACTIVE_WGP_COUNT;
++	ret = mp1fw_sendmsg(&msg, PPSMC_MSG_RequestActiveWgp);
++	if (ret)
++		pr_warn("Viola: RequestActiveWgp(%u) failed: %d\n",
++			PS5PRO_ACTIVE_WGP_COUNT, ret);
++	else
++		pr_info("Viola: enabled %u WGPs (was %u)\n",
++			PS5PRO_ACTIVE_WGP_COUNT, before);
++}
++EXPORT_SYMBOL(mp1_viola_enable_wgps);
++
++int ps5_mp1_query_gfxclk(u32 *mhz)
++{
++	struct mp1_msg msg = {};
++	int ret;
++
++	ret = mp1fw_sendmsg(&msg, PPSMC_MSG_QueryGfxclk);
++	if (!ret)
++		*mhz = msg.resp_val;
++	return ret;
++}
++EXPORT_SYMBOL(ps5_mp1_query_gfxclk);
++
++/* -EINVAL if the SMU rejects it. */
++int ps5_mp1_request_gfxclk(u32 mhz)
++{
++	struct mp1_msg msg = { .arg = mhz };
++
++	return mp1fw_sendmsg(&msg, PPSMC_MSG_RequestGfxclk);
+ }
+ 
++static long mp1_query(unsigned long arg, u8 msgid)
++{
++	struct mp1_query __user *uq = (struct mp1_query __user *)arg;
++	struct mp1_query q;
++	struct mp1_msg msg = {};
++	int ret;
++
++	if (!mp1_viola)
++		return -ENOTTY;
++
++	if (copy_from_user(&q, uq, sizeof(q)))
++		return -EFAULT;
++
++	msg.arg = q.arg;
++	ret = mp1fw_sendmsg(&msg, msgid);
++	if (ret)
++		return ret;
++
++	q.val = msg.resp_val;
++	if (copy_to_user(uq, &q, sizeof(q)))
++		return -EFAULT;
++
++	return 0;
++}
++
++/*
++ * Called by amdgpu once it runs the PS5 Pro (Viola) GPU firmware.  Set 3
++ * overwrites everything set 2 wrote in mp1_init().
++ */
++void ps5_mp1_viola_init(void)
++{
++	if (mp1_viola)
++		return;
++	mp1_viola = true;
++
++	pr_info("Set BAPM params (Viola)\n");
++	mp1_set_bapm_param_set_all(mp1_viola_bapm_param_set());
++}
++EXPORT_SYMBOL(ps5_mp1_viola_init);
++
+ static long mp1_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+ {
+ 	switch (cmd) {
+@@ -472,6 +848,21 @@ static long mp1_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+ 	case MP1_BOOST_EXIT:
+ 		return mp1_universal_mode_exit();
+ 
++	case MP1_GET_SMU_VERSION:
++		return mp1_query(arg, PPSMC_MSG_GetSmuVersion);
++
++	case MP1_QUERY_CORE_PSTATE:
++		return mp1_query(arg, PPSMC_MSG_QueryCorePstate);
++
++	case MP1_QUERY_ACTIVE_WGP:
++		return mp1_query(arg, PPSMC_MSG_QueryActiveWgp);
++
++	case MP1_GET_GFX_FREQ:
++		return mp1_query(arg, PPSMC_MSG_GetGfxFrequency);
++
++	case MP1_QUERY_VDDCR_SOC_CLOCK:
++		return mp1_query(arg, PPSMC_MSG_QueryVddcrSocClock);
++
+ 	default:
+ 		return -ENOTTY;
+ 	}
+@@ -500,7 +891,7 @@ static int __init mp1_init(void)
+ 	if (mode != 1) {
+ 		mp1_set_wc_cpu(1);
+ 	}
+-	mp1_set_bapm_param_set_all();
++	mp1_set_bapm_param_set_all(&bapm_param_set_2);
+ 
+ 	ret = misc_register(&mp1_misc_device);
+ 	if (ret)
+diff --git a/include/linux/ps5.h b/include/linux/ps5.h
+index a5abf0330..3612a2b8c 100644
+--- a/include/linux/ps5.h
++++ b/include/linux/ps5.h
+@@ -10,6 +10,8 @@
+ 
+ struct drm_connector;
+ struct drm_edid;
++struct device;
++struct platform_device;
+ 
+ /* PS5 Pro GPU (Viola); Sony's kernel matches both IDs (upstream #66). */
+ static inline bool ps5_is_viola(u16 device)
+@@ -167,4 +169,16 @@ ktime_t amdgpu_ps5_get_gfx_busy_ns(struct pci_dev *pdev);
+ 
+ u64 svm_execute_guest(void *guest_func, u64 a0, u64 a1, u64 a2, u64 a3);
+ 
++/* PS5 Pro (Viola) */
++void ps5_mp1_viola_init(void);
++
++void mp1_viola_enable_wgps(void);
++int ps5_mp1_query_gfxclk(u32 *mhz);
++int ps5_mp1_request_gfxclk(u32 mhz);
++int ps5_soc_temp(int *millidegrees);
++
++/* GPU busy time so far, ns. */
++typedef u64 (*ps5_gpu_busy_ns_t)(struct device *gpu);
++struct platform_device *ps5_gpufreq_register(struct device *gpu, ps5_gpu_busy_ns_t busy_ns);
++
+ #endif /* _LINUX_PS5_H */
