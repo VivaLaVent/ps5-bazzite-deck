@@ -64,9 +64,7 @@ for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do sed -i "s/^
 git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git work/linux73
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
 git -C work/linux73 apply "$SRC/patches/ps5-s2idle.patch"     # suspend-to-idle (Dasloh, PR #4)
-git -C work/linux73 apply "$SRC/patches/ps5-display.patch"    # re-arm, session switch, EDID keep, SCDC, VRR: what shitshow lacks
-git -C work/linux73 apply "$SRC/patches/ps5-hdmi-sdr-metadata.patch"   # Game Mode at 4K on HDMI 2.1 TVs (FRL planner)
-git -C work/linux73 apply "$SRC/patches/ps5-hdmi-1440p.patch"          # 1440p60/120 back in the mode list
+git -C work/linux73 apply "$SRC/patches/ps5-display.patch"    # our display stack (v2.1.x): FLAVA3/Verde, 4K120 FRL, 1440p, VRR
 git -C work/linux73 apply "$SRC/patches/ps5-gpu.patch"        # thermal GPU governor, overlay metrics
 git -C work/linux73 apply "$SRC/patches/ps5-fan.patch"        # no fan spike at shutdown
 # committed and at an annotated tag, so the release is exactly <version>-viva (no "+" or "-dirty")

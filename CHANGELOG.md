@@ -2,6 +2,11 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.5] – 2026-11-<DD>
+> Our own display code on the new kernel base: the HDMI handling that ran v2.1.x, on Linux 7.3.1 + rmux's tree.
+- **Display: our stack instead of rmux's rework.** The HDMI chip driver as in v2.1.x (FLAVA3 and Verde setup, 4K120 over FRL by Lawson, the standard 1080p/1440p/2160p modes with the FLAVA3 1440p timings, VRR, re-arm, EDID keep and fallback, SCDC, sleep mute, RGB range), CEC, USB-C DisplayPort and amdgpu's PS5 display code, replayed onto plain 7.3.1. Everything outside the display (Bluetooth, PS5 Pro, fan, frequency drivers) stays on rmux's newer tree. Replaces v2.4.2's planner fix and 1440p port, which are no longer needed
+- Comments in the display code cut to their reasons
+
 ## [v2.4.2] – 2026-11-04
 > Game Mode at 4K over HDMI 2.1 (FRL) on FLAVA3, and 1440p back.
 - **Fixed: still black at 4K with FRL on** (v2.4.1). The FRL planner checked the HDR metadata a second time and, with metadata present, asked for 10 bpc: gamescope's SDR metadata is now treated as no HDR where the plan is requested. 4K60 that FRL can't carry (real HDR at 8 bpc) falls back to the TMDS connection, as when FRL is off

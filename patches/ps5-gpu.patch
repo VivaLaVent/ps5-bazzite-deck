@@ -1,9 +1,9 @@
-PS5 GPU on 7.3.1 + rmux shitshow: thermal governor, overlay metrics
+PS5 GPU on 7.3.1 + rmux shitshow: thermal governor
 
-- GPU clock governor with a temperature limit (Borchev, #66; ps5_gpufreq.temp_limit, 85 C by default). rmux's
-  devfreq ps5-gpufreq has no thermal limit and stays disabled (CONFIG_PS5_GPUFREQ)
-- gpu_busy_percent and the SoC temperature for the Steam overlay and MangoHud
-- Pro (Viola firmware): amdgpu's own gpu_busy_percent is used, gpu_metrics reported as unsupported
+- GPU clock governor with a temperature limit (Borchev, #66; ps5_gpufreq.temp_limit, 85 C by default), registered
+  by amdgpu. rmux's devfreq ps5-gpufreq has no thermal limit and stays disabled (CONFIG_PS5_GPUFREQ)
+- Pro (Viola firmware): gpu_metrics reported as unsupported (no SMU metrics table)
+- The overlay's GPU load and temperature come with the display stack (amdgpu_dm.c)
 ---
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
 index 1021dcc5f..52ab4c8d7 100644
@@ -21,145 +21,6 @@ index 1021dcc5f..52ab4c8d7 100644
  #endif
  
  	return r;
-diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-index 3279c6b51..e38c8ffc7 100644
---- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-+++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-@@ -89,6 +89,8 @@
- 
- #ifdef CONFIG_X86_PS5
- #include <linux/crc32.h>
-+#include <linux/hwmon.h>
-+#include <asm/amd/node.h>
- #include <linux/ps5.h>
- #include <linux/kref.h>
- #include "ps5-hdmi-recovery.h"
-@@ -474,6 +476,92 @@ static int amdgpu_dm_init_power_module(struct amdgpu_display_manager *dm)
- 	return 0;
- }
- 
-+#ifdef CONFIG_X86_PS5
-+/*
-+ * amdgpu reads GPU load from the SMU, which belongs to Sony's firmware here: overlays showed 0 %.
-+ * Use the GFX busy time instead, at most every 500 ms.
-+ */
-+static DEFINE_MUTEX(ps5_busy_lock);
-+static ktime_t ps5_busy_last_t;
-+static u64 ps5_busy_last_ns;
-+static int ps5_busy_pct;
-+
-+static ssize_t ps5_gpu_busy_percent_show(struct device *d, struct device_attribute *attr,
-+					 char *buf)
-+{
-+	ktime_t now = ktime_get();
-+	int pct;
-+
-+	mutex_lock(&ps5_busy_lock);
-+	if (!ps5_busy_last_t || ktime_ms_delta(now, ps5_busy_last_t) >= 500) {
-+		/* GFX busy time from amdgpu's fdinfo accounting */
-+		u64 busy = ktime_to_ns(amdgpu_ps5_get_gfx_busy_ns(to_pci_dev(d)));
-+
-+		if (ps5_busy_last_t) {
-+			s64 dt = ktime_to_ns(ktime_sub(now, ps5_busy_last_t));
-+			u64 db = busy > ps5_busy_last_ns ? busy - ps5_busy_last_ns : 0;
-+
-+			ps5_busy_pct = dt > 0 ? (int)min_t(u64, div64_u64(db * 100, dt), 100) : 0;
-+		}
-+		ps5_busy_last_t = now;
-+		ps5_busy_last_ns = busy;
-+	}
-+	pct = ps5_busy_pct;
-+	mutex_unlock(&ps5_busy_lock);
-+
-+	return sysfs_emit(buf, "%d\n", pct);
-+}
-+static struct device_attribute ps5_dev_attr_gpu_busy =
-+	__ATTR(gpu_busy_percent, 0444, ps5_gpu_busy_percent_show, NULL);
-+
-+/* No SMU sensors here either: report the die's one sensor (Tctl, as k10temp) as GPU edge temperature. */
-+
-+static umode_t ps5_hwmon_is_visible(const void *data, enum hwmon_sensor_types type,
-+				    u32 attr, int channel)
-+{
-+	return type == hwmon_temp && (attr == hwmon_temp_input || attr == hwmon_temp_label) ?
-+	       0444 : 0;
-+}
-+
-+static int ps5_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
-+			  u32 attr, int channel, long *val)
-+{
-+	int t, ret;
-+
-+	if (type != hwmon_temp || attr != hwmon_temp_input)
-+		return -EOPNOTSUPP;
-+	ret = ps5_soc_temp(&t);
-+	if (!ret)
-+		*val = t;
-+	return ret;
-+}
-+
-+static int ps5_hwmon_read_string(struct device *dev, enum hwmon_sensor_types type,
-+				 u32 attr, int channel, const char **str)
-+{
-+	*str = "edge";
-+	return 0;
-+}
-+
-+static const struct hwmon_channel_info * const ps5_hwmon_info[] = {
-+	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT | HWMON_T_LABEL),
-+	NULL
-+};
-+
-+static const struct hwmon_ops ps5_hwmon_ops = {
-+	.is_visible = ps5_hwmon_is_visible,
-+	.read = ps5_hwmon_read,
-+	.read_string = ps5_hwmon_read_string,
-+};
-+
-+static const struct hwmon_chip_info ps5_hwmon_chip = {
-+	.ops = &ps5_hwmon_ops,
-+	.info = ps5_hwmon_info,
-+};
-+
-+static struct device *ps5_hwmon;
-+#endif
-+
- static int amdgpu_dm_init(struct amdgpu_device *adev)
- {
- 	struct dc_init_data init_data;
-@@ -824,6 +912,19 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
- #ifdef CONFIG_X86_PS5
- 	/* lets the HDMI bridge driver re-arm the output when the sink re-announces */
- 	ps5_hdmi_register_drm(adev_to_drm(adev));
-+	/* With the Viola firmware amdgpu's own file works; a second one failed with -EEXIST. */
-+	if (!amdgpu_ps5_viola_fw(adev) && device_create_file(adev->dev, &ps5_dev_attr_gpu_busy))
-+		drm_info(adev_to_drm(adev), "PS5: gpu_busy_percent not created (already there?)\n");
-+	{
-+		int t;
-+
-+		if (!ps5_soc_temp(&t)) {
-+			ps5_hwmon = hwmon_device_register_with_info(adev->dev, "amdgpu", NULL,
-+								     &ps5_hwmon_chip, NULL);
-+			if (IS_ERR(ps5_hwmon))
-+				ps5_hwmon = NULL;
-+		}
-+	}
- #endif
- 
- 	if (amdgpu_dm_init_power_module(&adev->dm))
-@@ -878,6 +979,12 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
- 
- #ifdef CONFIG_X86_PS5
- 	ps5_hdmi_unregister_drm(adev_to_drm(adev));
-+	if (!amdgpu_ps5_viola_fw(adev))
-+		device_remove_file(adev->dev, &ps5_dev_attr_gpu_busy);
-+	if (ps5_hwmon) {
-+		hwmon_device_unregister(ps5_hwmon);
-+		ps5_hwmon = NULL;
-+	}
- #endif
- 
- 	if (adev->dm.vblank_control_workqueue) {
 diff --git a/drivers/gpu/drm/amd/pm/amdgpu_pm.c b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
 index bb304f32a..aa55a8347 100644
 --- a/drivers/gpu/drm/amd/pm/amdgpu_pm.c
@@ -492,28 +353,3 @@ index 000000000..bc92614cf
 +					     sizeof(busy_ns));
 +}
 +EXPORT_SYMBOL(ps5_gpufreq_register);
-diff --git a/include/linux/ps5.h b/include/linux/ps5.h
-index 30d9af10f..9fdb03ece 100755
---- a/include/linux/ps5.h
-+++ b/include/linux/ps5.h
-@@ -13,6 +13,8 @@ struct drm_connector;
- struct platform_device;
- struct pci_dev;
- struct drm_edid;
-+struct device;
-+struct platform_device;
- 
- struct drm_display_info;
- struct drm_edid;
-@@ -251,6 +253,11 @@ void ps5_mp1_viola_init(void);
- void mp1_viola_enable_wgps(void);
- int ps5_mp1_query_gfxclk(u32 *mhz);
- int ps5_mp1_request_gfxclk(u32 mhz);
-+int ps5_soc_temp(int *millidegrees);
-+
-+/* GPU busy time so far, ns. */
-+typedef u64 (*ps5_gpu_busy_ns_t)(struct device *gpu);
-+struct platform_device *ps5_gpufreq_register(struct device *gpu, ps5_gpu_busy_ns_t busy_ns);
- int ps5_mp1_send(u8 msgid, u32 arg, u32 *resp);
- int mp1_boost_enter(u32 cpu_mhz_min, u32 cpu_mhz_max, u32 gpu_mhz_min, u32 gpu_mhz_max);
- ktime_t amdgpu_ps5_get_gfx_busy_ns(struct pci_dev *pdev);
