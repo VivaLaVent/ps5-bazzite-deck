@@ -66,7 +66,7 @@ signed.
 ## Building the image
 
 The image needs the `linux-ps5` RPM. A release builds it from this repo (`build.sh`, in
-`.github/workflows/release.yml`) and hands it to the image build; the nightly build downloads the RPM named in
+`.github/workflows/release.yml`) and hands it to the image build; the weekly `:stable` build downloads the RPM named in
 `pins.env` and checks its sha256. Each release updates `pins.env` to its own kernel.
 
 Locally, `bash build.sh` produces the same RPM in `~/ps5-build-7.3/linux-bin/`.

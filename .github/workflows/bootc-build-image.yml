@@ -1,11 +1,9 @@
 name: Build bootc image
-# Nightly: ghcr.io/<owner>/ps5-bazzite-bootc:{stable,<date>} from main with the kernel in pins.env,
-# so Bazzite updates come through. Releases call it with the kernel they just built.
+# Weekly and by hand (gh workflow run bootc-build-image.yml): :stable and :<date> from main with the kernel
+# pinned in pins.env, so Bazzite's base updates come through; no kernel is built. Releases call it with theirs.
 on:
-  pull_request:
-    paths: ["bootc/**", "files/**", "tools/**", ".github/workflows/bootc-build-image.yml"]
   schedule:
-    - cron: "41 4 * * *"
+    - cron: "41 4 * * 1"
   workflow_dispatch:
   workflow_call:
     inputs:
