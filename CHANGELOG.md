@@ -2,6 +2,12 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.4.2] – 2026-11-<DD>
+> Game Mode at 4K over HDMI 2.1 (FRL) on FLAVA3, and 1440p back.
+- **Fixed: still black at 4K with FRL on** (v2.4.1). The FRL planner checked the HDR metadata a second time and, with metadata present, asked for 10 bpc: gamescope's SDR metadata is now treated as no HDR where the plan is requested. 4K60 that FRL can't carry (real HDR at 8 bpc) falls back to the TMDS connection, as when FRL is off
+- **1440p60 and 1440p120 are back** for displays that list 1440p or larger modes (v2.4 had dropped our standard 1440p timings)
+- Known: VRR is offered but doesn't engage on the new kernel base; HDR at 4K120 isn't available yet
+
 ## [v2.4.1] – 2026-11-04
 > The picture at 4K on FLAVA3 consoles with an HDMI 2.1 TV, on v2.4's kernel base (7.3.1 + rmux's shitshow).
 - **Fixed: black screen in Game Mode at 4K** (v2.4), two causes:
