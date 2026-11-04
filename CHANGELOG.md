@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.4.1] – 2026-11-<DD>
+## [v2.4.1] – 2026-11-04
 > The picture at 4K on FLAVA3 consoles with an HDMI 2.1 TV, on v2.4's kernel base (7.3.1 + rmux's shitshow).
 - **Fixed: black screen in Game Mode at 4K** (v2.4), two causes:
   - rmux's FRL planner refused the SDR metadata gamescope sends with every frame as an HDR conflict, so 4K60 never got a picture (`patches/ps5-hdmi-sdr-metadata.patch`, also for rmux)
