@@ -2,9 +2,10 @@
 # Read-only report for bug reports; saves ~/ps5-report-<date>.txt.
 #   bash <(curl -fsSL https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/ps5-report.sh)
 OUT=~/ps5-report-$(date +%Y%m%d-%H%M).txt
-sudo -v || true
-# the journal holds the whole boot (dmesg's ring can lose the start); both would count every line twice
-KLOG=$(sudo journalctl -k -b --no-pager -o cat 2>/dev/null); [ -n "$KLOG" ] || KLOG=$(sudo dmesg 2>/dev/null)
+sudo -v < /dev/tty || true
+# one source, or every line counts twice: dmesg while it still has the boot's start, else the journal
+KLOG=$(sudo dmesg 2>/dev/null)
+grep -q 'Linux version' <<< "$KLOG" || KLOG=$(sudo journalctl -k -b --no-pager -o cat 2>/dev/null | grep -v '^-- No entries --$')
 k() { printf '%s\n' "$KLOG"; }
 last() { sed 's/^\[ *[0-9.]*\] //' | uniq -c | sed 's/^ *1 /  /' | tail -"$1"; }
 PCI=$(lspci -n 2>/dev/null); USB=$(lsusb 2>/dev/null)
@@ -39,7 +40,7 @@ MODE=$(sudo grep -m1 'mode: "' /sys/kernel/debug/dri/0/state 2>/dev/null | awk '
 VRR=$(sudo grep -m1 'vrr_enabled' /sys/kernel/debug/dri/0/state 2>/dev/null | awk -F= '{print $2}')
 ROOT=$(lsblk -no tran "/dev/$(lsblk -no pkname "$(findmnt -no SOURCE /sysroot 2>/dev/null || findmnt -no SOURCE /)" 2>/dev/null | head -1)" 2>/dev/null | head -1)
 WARM=$(journalctl -b -u ps5-wifi-repair --no-pager -o cat 2>/dev/null | grep -c 'after the warm reboot')
-BTA=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null)
+BTA=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || btmgmt info 2>/dev/null < /dev/null | awk '/addr /{print $2; exit}')
 if [ -z "$BTA" ]; then BT="no adapter"
 elif [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then BT="$BTA (Linux-only address off)"
 elif [ $(( 0x${BTA%%:*} & 2 )) -ne 0 ]; then BT="$BTA (Linux-only address applied)"
@@ -114,5 +115,5 @@ echo "  cmdline: $(cat /proc/cmdline)"
 echo "  session: $(pgrep -a gamescope | head -1 | cut -c1-80)$(pgrep -a startplasma | head -1 | cut -c1-60)"
 echo "  boot: $(systemd-analyze 2>/dev/null | head -1)"
 systemctl --failed --no-legend 2>/dev/null | head -8 | sed 's/^/  failed: /'
-} 2>&1 | tee "$OUT"
+} < /dev/null 2>&1 | tee "$OUT"   # btmgmt and friends read stdin: they would eat pasted lines
 echo; echo "saved to $OUT (paste the SUMMARY line in the tester list, the whole file in bug reports)"

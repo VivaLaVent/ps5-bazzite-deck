@@ -1,0 +1,20 @@
+PS5 HDMI: SDR metadata is no HDR request
+
+gamescope attaches HDR output metadata to every commit, in SDR with the traditional-gamma EOTF. The FRL
+planner rejected any metadata that isn't PQ, so 4K60 (planned through FRL on FLAVA3 with an HDMI 2.1 sink)
+never got a picture in Game Mode: "PS5 HDMI plan rejected: depth ceiling or HDR metadata conflict".
+---
+diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
+index 742fa4fb2..5eef61398 100755
+--- a/drivers/ps5/hdmi.c
++++ b/drivers/ps5/hdmi.c
+@@ -2454,6 +2454,9 @@ ps5_hdmi_select_plan_filtered(const struct drm_display_mode *mode,
+ 		return PS5_HDMI_PLAN_BACKEND;
+ 	if (drm_mode_is_420_only(info, mode) && !yuv420)
+ 		return PS5_HDMI_PLAN_FORMAT;
++	/* SDR metadata (gamescope sends it with every commit) is no HDR request, not a conflict */
++	if (metadata && metadata->eotf == HDMI_EOTF_TRADITIONAL_GAMMA_SDR)
++		metadata = NULL;
+ 	if (metadata && metadata->eotf != HDMI_EOTF_SMPTE_ST2084)
+ 		return PS5_HDMI_PLAN_DEPTH;
+ 	if (metadata && !(info->hdr_sink_metadata.hdmi_type1.eotf & BIT(metadata->eotf)))

@@ -3,6 +3,8 @@
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
 ## [Unreleased]
+- `ps5-report`: kernel log from dmesg (the journal can be empty), Bluetooth address from btmgmt when sysfs has none, and no more swallowing of lines pasted after it
+- **Fixed: black screen in Game Mode at 4K60 on FLAVA3 consoles with an HDMI 2.1 TV** (v2.4). gamescope sends SDR metadata with every commit, and the FRL planner refused it as an HDR conflict (`patches/ps5-hdmi-sdr-metadata.patch`, also for rmux)
 - **The kernel is named `<version>-viva`** (`7.3.1-viva`)
 - **Releases are public from the start:** notes first, then files as they're built: update bundle for existing installs, bootc disk image, loader; the notes list each file as it arrives
 - **`ps5-report` starts with a fastfetch-style block:** console (original, Slim, Pro), HDMI chip, wireless chip, install type, kernel, display, Bluetooth and Wi-Fi state; then Bluetooth, Wi-Fi, USB, display, GPU and system sections with their logs. Kernel log counts are no longer doubled

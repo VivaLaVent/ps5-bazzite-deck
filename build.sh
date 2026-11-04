@@ -65,6 +65,7 @@ git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/lin
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
 git -C work/linux73 apply "$SRC/patches/ps5-s2idle.patch"     # suspend-to-idle (Dasloh, PR #4)
 git -C work/linux73 apply "$SRC/patches/ps5-display.patch"    # re-arm, session switch, EDID keep, SCDC, VRR: what shitshow lacks
+git -C work/linux73 apply "$SRC/patches/ps5-hdmi-sdr-metadata.patch"   # 4K60 in Game Mode on HDMI 2.1 TVs (FRL planner)
 git -C work/linux73 apply "$SRC/patches/ps5-gpu.patch"        # thermal GPU governor, overlay metrics
 git -C work/linux73 apply "$SRC/patches/ps5-fan.patch"        # no fan spike at shutdown
 # committed and at an annotated tag, so the release is exactly <version>-viva (no "+" or "-dirty")
