@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.4] – 2026-11-<DD>
+## [v2.4] – 2026-11-04
 > First release built entirely by GitHub Actions from this repo: kernel, update bundle for existing installs, bazzite-bootc-loader, bootc image and disk image. Kernel: Linux 7.3.1 + rmux's shitshow (8de2aff) with our own work ported on top; 40 patch files became 5. Releases v2.1.2 to v2.3 are withdrawn.
 - **Wi-Fi and Bluetooth back to v2.1.1.** Every Bluetooth, Wi-Fi and restart script, service and rule from v2.1.2 to v2.2 is reverted to its v2.1.1 version (the scripts, services and rules; the kernel's Bluetooth is rmux's newer code, below)
 - **bootc image (experimental):** `ghcr.io/vivalavent/ps5-bazzite-bootc`, flashed from the release's disk image, updated with `sudo bootc upgrade`, rolled back with `sudo bootc rollback`
