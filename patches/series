@@ -1,6 +1,5 @@
 # Applied in this order on Linux 7.3.1 + rmux's shitshow linux.patch (build.sh)
 ps5-s2idle.patch     # suspend-to-idle (Dasloh, PR #4)
 ps5-display.patch    # display stack of v1.8.9/v2.1: FLAVA3 and Verde, 4K120 over FRL, 1440p, VRR
-ps5-bluetooth.patch  # btusb as in v1.8.9/v2.1: IW620 finds new devices, full PS5 Pro fixes
 ps5-gpu.patch        # thermal GPU governor
 ps5-fan.patch        # no fan spike at shutdown

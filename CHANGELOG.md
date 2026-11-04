@@ -2,13 +2,6 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.5.1] – 2026-11-04
-> Bluetooth driver as in v1.8.9/v2.1.x, replayed onto 7.3.1 (`patches/ps5-bluetooth.patch`).
-- **Original PS5 (IW620): Bluetooth finds new devices again.** rmux's tree re-adds `BROKEN_EXT_SCAN` and `BROKEN_EXT_CREATE_CONN`, which v2.1.1 removed: the chip scanned with the legacy command family while advertising with the extended one and refused the mix ("Busy")
-- **PS5 Pro: the complete Bluetooth fixes.** v2.5 carried an early draft from rmux's squash: no retry of the first HCI Reset after a cold boot (mfoster978, PR #30), and the interface-3 routing wasn't undone before setup and shutdown, so turning Bluetooth off and on or waking from sleep could fail
-- Slim (MediaTek `0e8d:3603`): unchanged; rmux's Bluetooth core changes (L2CAP, hci_sync, HIDP) stay
-- **bootc is the standard form.** Release notes, README and wiki lead with it (why, switching by reflash); Legacy installs keep in-place updates and are advised to switch
-
 ## [v2.5] – 2026-11-04
 > Stable. Everything since v1.8.9; the v2.0 to v2.4.2 releases in between were test versions and are removed.
 - **Two install forms:** Legacy (full image + update bundle, as before) and bootc (experimental): `ghcr.io/vivalavent/ps5-bazzite-bootc`, flashed from the release's disk image, updated with `sudo bootc upgrade`, rolled back with `sudo bootc rollback`, started by **bazzite-bootc-loader** (rmux's ps5-linux-loader @ 940bce3 + BLS patches, built for every release; starts Legacy installs as the standard loader does)
@@ -20,6 +13,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 - **`ps5-report`:** fastfetch-style summary (console, HDMI chip, wireless chip, install type, kernel, display, Bluetooth, Wi-Fi), then Bluetooth, Wi-Fi, USB, display, GPU, bootc and system sections; kernel log from dmesg; runs with stdin closed
 - **Build and release:** everything built by GitHub Actions from this repo (`release.yml`): kernel on a self-hosted runner (`tools/release.sh` starts and stops it), update bundle, bootc image and disk image, loader; releases public from the start; a release's kernel reaches the nightly `:stable` bootc image when promoted (`pin-kernel.yml`); weekly upstream audit; Discord posts carry "What's new"
 - **Parked:** rmux's display rework adapted (`patches-next/rmux-display/`, v2.4.2's kernel), for 4K120 and VRR on his path
+- **bootc is the standard form.** Release notes, README and wiki lead with it (why, switching by reflash); Legacy installs keep in-place updates and are advised to switch
 
 ## [v1.8.9] – 2026-10-<DD>
 > Full release (image and update bundle) with the v1.8.8 kernel. Replaces the first v1.8.9 (4K120 as YCbCr 4:2:2), which showed the wrong colour range.
