@@ -20,7 +20,7 @@ then starts the new version.
 
 ## Differences from ps5-bazzite-deck
 
-`build_files/build.sh` installs the same PS5 scripts, units and rules as the classic update bundle,
+`build_files/build.sh` installs the same PS5 scripts, units and rules as the Legacy update bundle,
 straight from `files/` and the FILES list in `tools/make-update-bundle.sh`, and does what
 ps5-linux-image does for its Bazzite target, with these differences:
 
@@ -38,20 +38,14 @@ ps5-linux-image does for its Bazzite target, with these differences:
 
 Two builds of the same commit should give the same system, so nothing is fetched as "latest": `pins.env` holds the
 bootc-image-builder digest, the kernel RPM's name and sha256, and the loader the image was last tested with. CI fails
-when the downloaded RPM doesn't match. Update a pin on purpose, in its own commit:
+when the downloaded RPM doesn't match. `KERNEL_REPO`, `KERNEL_TAG`, `KERNEL_RPM` and `KERNEL_SHA256` follow the stable release: promoting a release
+(`gh release edit vX.Y --prerelease=false --latest`) runs `pin-kernel.yml`, which pins its kernel RPM. Move the
+bootc-image-builder pin on purpose, in its own commit:
 
 ```sh
-cd ~/ps5-bazzite-deck/bootc
-command -v skopeo >/dev/null || sudo apt install -y skopeo
 D=$(skopeo inspect docker://quay.io/centos-bootc/bootc-image-builder:latest --format '{{.Digest}}')
-R=$(basename ~/ps5-build-7.3/linux-bin/linux-ps5-*.rpm)
-S=$(sha256sum ~/ps5-build-7.3/linux-bin/"$R" | cut -d' ' -f1)
-L=$(# loader ELF and sha256 are attached to each release on the ps5-bazzite-deck releases page
-printf 'BIB_IMAGE=quay.io/centos-bootc/bootc-image-builder@%s\nKERNEL_REPO=VivaLaVent/ps5-bazzite-bootc\nKERNEL_TAG=kernel-latest\nKERNEL_RPM=%s\nKERNEL_SHA256=%s\nLOADER=ps5-linux/ps5-linux-loader@%s\n' "$D" "$R" "$S" "$L" > pins.env
-cat pins.env
+sed -i "s|^BIB_IMAGE=.*|BIB_IMAGE=quay.io/centos-bootc/bootc-image-builder@$D|" pins.env
 ```
-
-`LOADER` is a record, not a download: set it to the loader commit you actually booted the image with.
 
 ## Signing
 
@@ -89,8 +83,5 @@ In the ps5-bazzite-deck repository:
 
 ## Releases
 
-- **vX.Y.Z**: the quick kernel package for classic installs, as before. bootc consoles get the change through
-  their next update, since every push to `main` builds the image.
-- **vX.Y**: the same, plus the bootc disk image for new installs. Create the release, then run
-  *Build bootc disk image* with that tag: `gh workflow run bootc-build-disk-image.yml -f release=vX.Y`. It
-  attaches `ps5-bazzite-deck-bootc-vX.Y.img.7z.*` and its `.sha256` to the release.
+See [docs/releasing.md](../../docs/releasing.md): one tag builds the kernel, the Legacy update bundle, the bootc
+image and disk image, and the loader.

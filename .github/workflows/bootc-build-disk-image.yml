@@ -1,11 +1,11 @@
 name: Build bootc disk image
-# For X.Y releases: turns ghcr.io/<owner>/ps5-bazzite-bootc:stable into a flashable .img and
+# Called by release.yml (or by hand): turns ghcr.io/<owner>/ps5-bazzite-bootc:<tag> into a flashable .img and
 # attaches it to that release (which must exist already).
 on:
   workflow_dispatch:
     inputs:
       release:
-        description: "release tag to attach the image to, e.g. v2.2"
+        description: "release tag to attach the image to, e.g. v2.5"
         required: true
   workflow_call:
     inputs:

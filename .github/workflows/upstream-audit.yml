@@ -1,5 +1,5 @@
 name: Upstream audit
-# Weekly: do our kernel and loader patches still apply to rmux's newest kernel branch and the newest
+# Weekly: do the kernel and loader patches still apply to rmux's newest kernel branch and the newest
 # upstream loader? The report is the run's summary. Every X.Y release starts from it (docs/releasing.md).
 on:
   schedule:

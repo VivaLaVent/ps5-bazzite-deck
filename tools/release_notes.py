@@ -72,7 +72,8 @@ def render(tag, tmp):
     info = json.loads(gh("release", "view", tag, "--repo", REPO, "--json", "body,assets"))
     assets = [a["name"] for a in info["assets"]]
     per = open(os.path.join(SRC, "docs/release-notes", f"{tag}.md"), encoding="utf-8").read()
-    upd = open(os.path.join(SRC, "docs/update-sections", f"{tag}.md"), encoding="utf-8").read().strip()
+    upd_path = os.path.join(SRC, "docs/update-sections", f"{tag}.md")
+    upd = open(upd_path, encoding="utf-8").read().strip() if os.path.exists(upd_path) else ""
     versions = ""
     if "VERSIONS.md" in assets:
         gh("release", "download", tag, "--repo", REPO, "-p", "VERSIONS.md", "-D", tmp, "--clobber")
@@ -85,6 +86,15 @@ def render(tag, tmp):
     before = secs("Already running", "Already running PS5 Bazzite Deck")
     after = secs("New install", "New installs", "Trying the bootc image", "What to test", "Testing", "Sharing logs")
     own_install = bool(section(per, "New install") or section(per, "New installs"))
+    known = ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else ""
+    problems = (f"**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\n"
+                f"Like the project? Support it on [Ko-fi]({KOFI}).\n")
+    if section(per, "Legacy"):
+        # v2.5 on: bootc and legacy each with their own new install and updating
+        parts = ["## What's new\n" + section(per, "What's new") + "\n",
+                 secs("Bootc (experimental)", "Legacy", "Problems"), known,
+                 secs("What to test", "Sharing logs"), versions, files_section(tag, assets), "---\n" + problems]
+        return "\n".join(p for p in parts if p)
     parts = ["## What's new\n" + section(per, "What's new") + "\n",
              ("## VRR test\n" + vrr + "\n") if vrr else "", before, upd + "\n", after,
              ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else "",

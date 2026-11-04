@@ -6,7 +6,7 @@
 set -euo pipefail
 V=${1:?usage: release.sh vX.Y[.Z]}
 cd "$(dirname "$0")/.."
-[ -f "docs/release-notes/$V.md" ] && [ -f "docs/update-sections/$V.md" ] || { echo "STOP: docs/release-notes/$V.md or docs/update-sections/$V.md missing"; exit 1; }
+[ -f "docs/release-notes/$V.md" ] || { echo "STOP: docs/release-notes/$V.md missing"; exit 1; }
 grep -q "^## \[$V\]" CHANGELOG.md || { echo "STOP: no CHANGELOG entry for $V"; exit 1; }
 git diff --quiet && git diff --cached --quiet || { echo "STOP: uncommitted changes"; exit 1; }
 git fetch -q origin main --tags

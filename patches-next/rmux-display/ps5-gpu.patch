@@ -1,0 +1,519 @@
+PS5 GPU on 7.3.1 + rmux shitshow: thermal governor, overlay metrics
+
+- GPU clock governor with a temperature limit (Borchev, #66; ps5_gpufreq.temp_limit, 85 C by default). rmux's
+  devfreq ps5-gpufreq has no thermal limit and stays disabled (CONFIG_PS5_GPUFREQ)
+- gpu_busy_percent and the SoC temperature for the Steam overlay and MangoHud
+- Pro (Viola firmware): amdgpu's own gpu_busy_percent is used, gpu_metrics reported as unsupported
+---
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+index 1021dcc5f..52ab4c8d7 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -3746,9 +3746,8 @@ static int amdgpu_device_sys_interface_init(struct amdgpu_device *adev)
+ 	/* A Pro without Viola firmware loses its SMU mailbox. */
+ 	if (adev->asic_type == CHIP_CYAN_SKILLFISH &&
+ 	    (!amdgpu_is_viola(adev) || amdgpu_ps5_viola_fw(adev)))
+-		adev->ps5_gpufreq = platform_device_register_data(adev->dev, "ps5-gpufreq",
+-								  PLATFORM_DEVID_NONE,
+-								  NULL, 0);
++		adev->ps5_gpufreq = ps5_gpufreq_register(adev->dev,
++							 amdgpu_fence_ps5_busy_ns);
+ #endif
+ 
+ 	return r;
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+index 3279c6b51..e38c8ffc7 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -89,6 +89,8 @@
+ 
+ #ifdef CONFIG_X86_PS5
+ #include <linux/crc32.h>
++#include <linux/hwmon.h>
++#include <asm/amd/node.h>
+ #include <linux/ps5.h>
+ #include <linux/kref.h>
+ #include "ps5-hdmi-recovery.h"
+@@ -474,6 +476,92 @@ static int amdgpu_dm_init_power_module(struct amdgpu_display_manager *dm)
+ 	return 0;
+ }
+ 
++#ifdef CONFIG_X86_PS5
++/*
++ * amdgpu reads GPU load from the SMU, which belongs to Sony's firmware here: overlays showed 0 %.
++ * Use the GFX busy time instead, at most every 500 ms.
++ */
++static DEFINE_MUTEX(ps5_busy_lock);
++static ktime_t ps5_busy_last_t;
++static u64 ps5_busy_last_ns;
++static int ps5_busy_pct;
++
++static ssize_t ps5_gpu_busy_percent_show(struct device *d, struct device_attribute *attr,
++					 char *buf)
++{
++	ktime_t now = ktime_get();
++	int pct;
++
++	mutex_lock(&ps5_busy_lock);
++	if (!ps5_busy_last_t || ktime_ms_delta(now, ps5_busy_last_t) >= 500) {
++		/* GFX busy time from amdgpu's fdinfo accounting */
++		u64 busy = ktime_to_ns(amdgpu_ps5_get_gfx_busy_ns(to_pci_dev(d)));
++
++		if (ps5_busy_last_t) {
++			s64 dt = ktime_to_ns(ktime_sub(now, ps5_busy_last_t));
++			u64 db = busy > ps5_busy_last_ns ? busy - ps5_busy_last_ns : 0;
++
++			ps5_busy_pct = dt > 0 ? (int)min_t(u64, div64_u64(db * 100, dt), 100) : 0;
++		}
++		ps5_busy_last_t = now;
++		ps5_busy_last_ns = busy;
++	}
++	pct = ps5_busy_pct;
++	mutex_unlock(&ps5_busy_lock);
++
++	return sysfs_emit(buf, "%d\n", pct);
++}
++static struct device_attribute ps5_dev_attr_gpu_busy =
++	__ATTR(gpu_busy_percent, 0444, ps5_gpu_busy_percent_show, NULL);
++
++/* No SMU sensors here either: report the die's one sensor (Tctl, as k10temp) as GPU edge temperature. */
++
++static umode_t ps5_hwmon_is_visible(const void *data, enum hwmon_sensor_types type,
++				    u32 attr, int channel)
++{
++	return type == hwmon_temp && (attr == hwmon_temp_input || attr == hwmon_temp_label) ?
++	       0444 : 0;
++}
++
++static int ps5_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
++			  u32 attr, int channel, long *val)
++{
++	int t, ret;
++
++	if (type != hwmon_temp || attr != hwmon_temp_input)
++		return -EOPNOTSUPP;
++	ret = ps5_soc_temp(&t);
++	if (!ret)
++		*val = t;
++	return ret;
++}
++
++static int ps5_hwmon_read_string(struct device *dev, enum hwmon_sensor_types type,
++				 u32 attr, int channel, const char **str)
++{
++	*str = "edge";
++	return 0;
++}
++
++static const struct hwmon_channel_info * const ps5_hwmon_info[] = {
++	HWMON_CHANNEL_INFO(temp, HWMON_T_INPUT | HWMON_T_LABEL),
++	NULL
++};
++
++static const struct hwmon_ops ps5_hwmon_ops = {
++	.is_visible = ps5_hwmon_is_visible,
++	.read = ps5_hwmon_read,
++	.read_string = ps5_hwmon_read_string,
++};
++
++static const struct hwmon_chip_info ps5_hwmon_chip = {
++	.ops = &ps5_hwmon_ops,
++	.info = ps5_hwmon_info,
++};
++
++static struct device *ps5_hwmon;
++#endif
++
+ static int amdgpu_dm_init(struct amdgpu_device *adev)
+ {
+ 	struct dc_init_data init_data;
+@@ -824,6 +912,19 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
+ #ifdef CONFIG_X86_PS5
+ 	/* lets the HDMI bridge driver re-arm the output when the sink re-announces */
+ 	ps5_hdmi_register_drm(adev_to_drm(adev));
++	/* With the Viola firmware amdgpu's own file works; a second one failed with -EEXIST. */
++	if (!amdgpu_ps5_viola_fw(adev) && device_create_file(adev->dev, &ps5_dev_attr_gpu_busy))
++		drm_info(adev_to_drm(adev), "PS5: gpu_busy_percent not created (already there?)\n");
++	{
++		int t;
++
++		if (!ps5_soc_temp(&t)) {
++			ps5_hwmon = hwmon_device_register_with_info(adev->dev, "amdgpu", NULL,
++								     &ps5_hwmon_chip, NULL);
++			if (IS_ERR(ps5_hwmon))
++				ps5_hwmon = NULL;
++		}
++	}
+ #endif
+ 
+ 	if (amdgpu_dm_init_power_module(&adev->dm))
+@@ -878,6 +979,12 @@ static void amdgpu_dm_fini(struct amdgpu_device *adev)
+ 
+ #ifdef CONFIG_X86_PS5
+ 	ps5_hdmi_unregister_drm(adev_to_drm(adev));
++	if (!amdgpu_ps5_viola_fw(adev))
++		device_remove_file(adev->dev, &ps5_dev_attr_gpu_busy);
++	if (ps5_hwmon) {
++		hwmon_device_unregister(ps5_hwmon);
++		ps5_hwmon = NULL;
++	}
+ #endif
+ 
+ 	if (adev->dm.vblank_control_workqueue) {
+diff --git a/drivers/gpu/drm/amd/pm/amdgpu_pm.c b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
+index bb304f32a..aa55a8347 100644
+--- a/drivers/gpu/drm/amd/pm/amdgpu_pm.c
++++ b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
+@@ -2702,7 +2702,8 @@ static int default_attr_update(struct amdgpu_device *adev, struct amdgpu_device_
+ 			dev_attr->store = NULL;
+ 		}
+ 	} else if (DEVICE_ATTR_IS(gpu_metrics)) {
+-		if (gc_ver < IP_VERSION(9, 1, 0))
++		/* Viola: no SMU metrics table, every read fails; MangoHud then shows zeros */
++		if (amdgpu_ps5_viola_fw(adev) || gc_ver < IP_VERSION(9, 1, 0))
+ 			*states = ATTR_STATE_UNSUPPORTED;
+ 	} else if (DEVICE_ATTR_IS(pp_power_profile_mode)) {
+ 		if (amdgpu_dpm_get_power_profile_mode(adev, NULL) == -EOPNOTSUPP)
+diff --git a/drivers/ps5/Makefile b/drivers/ps5/Makefile
+index ca77af701..759960c8d 100644
+--- a/drivers/ps5/Makefile
++++ b/drivers/ps5/Makefile
+@@ -1,2 +1,3 @@
+ obj-y += spcie.o tpcie.o hdmi.o mp1.o buzzer.o svm.o vmenter.o fan.o ps5-cec.o usbc_dp.o
++obj-y += gpufreq.o
+ obj-y += led/
+diff --git a/drivers/ps5/gpufreq.c b/drivers/ps5/gpufreq.c
+new file mode 100644
+index 000000000..bc92614cf
+--- /dev/null
++++ b/drivers/ps5/gpufreq.c
+@@ -0,0 +1,304 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/* PS5 GPU clock via SMU RequestGfxclk on amdgpu's busy time, capped to hold the SoC at temp_limit. */
++
++#include <linux/devfreq.h>
++#include <linux/moduleparam.h>
++#include <linux/mutex.h>
++#include <linux/pci.h>
++#include <linux/platform_device.h>
++#include <linux/pm_opp.h>
++#include <linux/ps5.h>
++#include <linux/ratelimit.h>
++#include <linux/units.h>
++#include <linux/workqueue.h>
++#include <asm/amd/node.h>
++
++#define PS5_GPU_MIN_MHZ		500	/* the Pro SMU rejects less */
++#define PS5_GPU_MAX_MHZ		2230
++#define PS5PRO_GPU_MAX_MHZ	2350
++#define PS5_GPU_STEP_MHZ	125	/* trans_stat fits a page */
++
++#define PS5_THERMAL_MS		100
++#define PS5_THERMAL_COOL_MS	1000	/* 20 C or more under the limit */
++#define PS5_THERMAL_GAIN	5	/* MHz per C off target, per poll */
++#define PS5_LIMIT_DEADBAND_MHZ	25
++
++#define PS5_THM_TCON_CUR_TMP	0x00059800
++#define PS5_CUR_TEMP_SHIFT	21
++#define PS5_CUR_TEMP_RANGE_SEL	BIT(19)
++#define PS5_CUR_TEMP_TJ_SEL	GENMASK(17, 16)
++
++struct ps5_gpufreq {
++	struct device *dev;
++	struct devfreq_dev_profile profile;
++	ps5_gpu_busy_ns_t busy_ns;
++	u64 busy;
++	ktime_t stamp;
++	struct delayed_work thermal;
++	struct mutex lock;	/* fields below, SMU requests */
++	unsigned long want;	/* governor's OPP */
++	int limit;		/* thermal limit, MHz */
++	int max_mhz;
++	int mhz;		/* clock set, 0 if unknown */
++	bool opp_only;		/* SMU rejected a clock between OPPs */
++	bool stopped;
++};
++
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "ps5_gpufreq."
++
++static unsigned int temp_limit = 85;
++
++static int temp_limit_set(const char *val, const struct kernel_param *kp)
++{
++	return param_set_uint_minmax(val, kp, 50, 95);
++}
++
++static const struct kernel_param_ops temp_limit_ops = {
++	.set = temp_limit_set,
++	.get = param_get_uint,
++};
++module_param_cb(temp_limit, &temp_limit_ops, &temp_limit, 0644);
++MODULE_PARM_DESC(temp_limit, "Hottest SoC temperature allowed, in C (50-95, default 85)");
++
++static struct devfreq_simple_ondemand_data ps5_gpufreq_ondemand = {
++	.upthreshold = 70,
++	.downdifferential = 15,
++};
++
++/* SoC die temperature (Tctl), as k10temp reads it. */
++int ps5_soc_temp(int *millidegrees)
++{
++	u32 val;
++	int ret;
++
++	ret = amd_smn_read(0, PS5_THM_TCON_CUR_TMP, &val);
++	if (ret)
++		return ret;
++
++	*millidegrees = (val >> PS5_CUR_TEMP_SHIFT) * 125;
++	if ((val & PS5_CUR_TEMP_RANGE_SEL) ||
++	    (val & PS5_CUR_TEMP_TJ_SEL) == PS5_CUR_TEMP_TJ_SEL)
++		*millidegrees -= 49000;
++	return 0;
++}
++EXPORT_SYMBOL(ps5_soc_temp);
++
++static void ps5_gpufreq_apply(struct ps5_gpufreq *gf)
++{
++	int want = gf->want / HZ_PER_MHZ;
++	int mhz = min(want, gf->limit);
++	int ret;
++
++	lockdep_assert_held(&gf->lock);
++	if (gf->opp_only && mhz < want) {
++		unsigned long f = mhz * HZ_PER_MHZ;
++		struct dev_pm_opp *opp = dev_pm_opp_find_freq_floor(gf->dev, &f);
++
++		if (!IS_ERR(opp)) {
++			dev_pm_opp_put(opp);
++			mhz = f / HZ_PER_MHZ;
++		}
++	}
++	/* Deadband while the limit binds. */
++	if (gf->limit < want && gf->mhz && gf->mhz <= want &&
++	    abs(mhz - gf->mhz) < PS5_LIMIT_DEADBAND_MHZ)
++		return;
++	if (mhz == gf->mhz || gf->stopped)
++		return;
++
++	ret = ps5_mp1_request_gfxclk(mhz);
++	if (!ret) {
++		gf->mhz = mhz;
++	} else if (ret == -EINVAL) {
++		dev_warn(gf->dev, "SMU rejected %d MHz\n", mhz);
++		/* Drop a rejected OPP; if it was not one, limit in OPP steps. */
++		if (dev_pm_opp_disable(gf->dev, mhz * HZ_PER_MHZ))
++			gf->opp_only = true;
++	} else {
++		dev_err(gf->dev, "SMU not responding (%d), scaling stopped\n",
++			ret);
++		gf->stopped = true;
++	}
++}
++
++static int ps5_gpufreq_target(struct device *dev, unsigned long *freq,
++			      u32 flags)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++	struct dev_pm_opp *opp;
++
++	opp = devfreq_recommended_opp(dev, freq, flags);
++	if (IS_ERR(opp))
++		return PTR_ERR(opp);
++	dev_pm_opp_put(opp);
++
++	mutex_lock(&gf->lock);
++	gf->want = *freq;
++	ps5_gpufreq_apply(gf);
++	mutex_unlock(&gf->lock);
++	return 0;
++}
++
++static int ps5_gpufreq_cur_freq(struct device *dev, unsigned long *freq)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++	int mhz = READ_ONCE(gf->mhz);
++
++	*freq = mhz ? mhz * HZ_PER_MHZ : READ_ONCE(gf->want);
++	return 0;
++}
++
++static int ps5_gpufreq_status(struct device *dev,
++			      struct devfreq_dev_status *stat)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++	u64 busy = gf->busy_ns(dev->parent);
++	ktime_t now = ktime_get();
++
++	stat->current_frequency = READ_ONCE(gf->mhz) * HZ_PER_MHZ;
++	stat->busy_time = busy - gf->busy;
++	stat->total_time = ktime_to_ns(ktime_sub(now, gf->stamp));
++	gf->busy = busy;
++	gf->stamp = now;
++	return 0;
++}
++
++/* Integral control: settles at the clock that holds temp_limit. */
++static void ps5_gpufreq_thermal(struct work_struct *work)
++{
++	static DEFINE_RATELIMIT_STATE(rs, 60 * HZ, 1);
++	struct ps5_gpufreq *gf = container_of(to_delayed_work(work),
++					      struct ps5_gpufreq, thermal);
++	int target = READ_ONCE(temp_limit) * 1000;
++	unsigned int delay = PS5_THERMAL_MS;
++	int temp, limit;
++
++	if (!ps5_soc_temp(&temp)) {
++		if (temp < target - 20000)
++			delay = PS5_THERMAL_COOL_MS;
++		mutex_lock(&gf->lock);
++		limit = gf->limit;
++		/* Start from the running clock. */
++		if (temp > target && gf->mhz && limit > gf->mhz)
++			limit = gf->mhz;
++		limit += (target - temp) * PS5_THERMAL_GAIN / 1000;
++		limit = clamp(limit, PS5_GPU_MIN_MHZ, gf->max_mhz);
++		if (limit < gf->limit && gf->limit == gf->max_mhz &&
++		    __ratelimit(&rs))
++			dev_info(gf->dev, "SoC at %d C, limiting the clock\n",
++				 temp / 1000);
++		gf->limit = limit;
++		ps5_gpufreq_apply(gf);
++		mutex_unlock(&gf->lock);
++	}
++	queue_delayed_work(system_freezable_power_efficient_wq, &gf->thermal,
++			   msecs_to_jiffies(delay));
++}
++
++static void ps5_gpufreq_stop_thermal(void *data)
++{
++	struct ps5_gpufreq *gf = data;
++
++	cancel_delayed_work_sync(&gf->thermal);
++}
++
++static void ps5_gpufreq_remove_opps(void *dev)
++{
++	dev_pm_opp_remove_all_dynamic(dev);
++}
++
++static int ps5_gpufreq_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	u32 max_mhz = ps5_is_viola(to_pci_dev(dev->parent)->device) ?
++		      PS5PRO_GPU_MAX_MHZ : PS5_GPU_MAX_MHZ;
++	struct ps5_gpufreq *gf;
++	struct devfreq *df;
++	u32 mhz;
++	int ret;
++
++	ret = ps5_mp1_query_gfxclk(&mhz);
++	if (ret)
++		return dev_err_probe(dev, ret, "SMU not responding\n");
++
++	gf = devm_kzalloc(dev, sizeof(*gf), GFP_KERNEL);
++	if (!gf)
++		return -ENOMEM;
++	ret = devm_mutex_init(dev, &gf->lock);
++	if (ret)
++		return ret;
++	gf->dev = dev;
++	gf->busy_ns = *(ps5_gpu_busy_ns_t *)dev_get_platdata(dev);
++	gf->busy = gf->busy_ns(dev->parent);
++	gf->stamp = ktime_get();
++	gf->max_mhz = gf->limit = max_mhz;
++	gf->want = max_mhz * HZ_PER_MHZ;
++	platform_set_drvdata(pdev, gf);
++
++	ret = devm_add_action_or_reset(dev, ps5_gpufreq_remove_opps, dev);
++	if (ret)
++		return ret;
++	for (u32 f = PS5_GPU_MIN_MHZ;; f = min(f + PS5_GPU_STEP_MHZ, max_mhz)) {
++		struct dev_pm_opp_data opp = { .freq = f * HZ_PER_MHZ };
++
++		ret = dev_pm_opp_add_dynamic(dev, &opp);
++		if (ret)
++			return ret;
++		if (f == max_mhz)
++			break;
++	}
++
++	gf->profile.initial_freq = gf->want;
++	gf->profile.polling_ms = 50;
++	gf->profile.target = ps5_gpufreq_target;
++	gf->profile.get_dev_status = ps5_gpufreq_status;
++	gf->profile.get_cur_freq = ps5_gpufreq_cur_freq;
++	df = devm_devfreq_add_device(dev, &gf->profile,
++				     DEVFREQ_GOV_SIMPLE_ONDEMAND,
++				     &ps5_gpufreq_ondemand);
++	if (IS_ERR(df))
++		return dev_err_probe(dev, PTR_ERR(df), "devfreq failed\n");
++
++	INIT_DELAYED_WORK(&gf->thermal, ps5_gpufreq_thermal);
++	ret = devm_add_action_or_reset(dev, ps5_gpufreq_stop_thermal, gf);
++	if (ret)
++		return ret;
++	queue_delayed_work(system_freezable_power_efficient_wq, &gf->thermal, 0);
++
++	dev_info(dev, "%u-%u MHz, now at %u MHz, limit %u C\n", PS5_GPU_MIN_MHZ,
++		 max_mhz, mhz, temp_limit);
++	return 0;
++}
++
++/* The SMU may resume at another clock. */
++static int ps5_gpufreq_resume(struct device *dev)
++{
++	struct ps5_gpufreq *gf = dev_get_drvdata(dev);
++
++	mutex_lock(&gf->lock);
++	gf->mhz = 0;
++	mutex_unlock(&gf->lock);
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(ps5_gpufreq_pm, NULL, ps5_gpufreq_resume);
++
++static struct platform_driver ps5_gpufreq_driver = {
++	.probe = ps5_gpufreq_probe,
++	.driver = {
++		.name = "ps5-gpufreq",
++		.pm = pm_sleep_ptr(&ps5_gpufreq_pm),
++	},
++};
++builtin_platform_driver(ps5_gpufreq_driver);
++
++/* For amdgpu. Undo with platform_device_unregister(). */
++struct platform_device *ps5_gpufreq_register(struct device *gpu,
++					     ps5_gpu_busy_ns_t busy_ns)
++{
++	return platform_device_register_data(gpu, "ps5-gpufreq",
++					     PLATFORM_DEVID_NONE, &busy_ns,
++					     sizeof(busy_ns));
++}
++EXPORT_SYMBOL(ps5_gpufreq_register);
+diff --git a/include/linux/ps5.h b/include/linux/ps5.h
+index 30d9af10f..9fdb03ece 100755
+--- a/include/linux/ps5.h
++++ b/include/linux/ps5.h
+@@ -13,6 +13,8 @@ struct drm_connector;
+ struct platform_device;
+ struct pci_dev;
+ struct drm_edid;
++struct device;
++struct platform_device;
+ 
+ struct drm_display_info;
+ struct drm_edid;
+@@ -251,6 +253,11 @@ void ps5_mp1_viola_init(void);
+ void mp1_viola_enable_wgps(void);
+ int ps5_mp1_query_gfxclk(u32 *mhz);
+ int ps5_mp1_request_gfxclk(u32 mhz);
++int ps5_soc_temp(int *millidegrees);
++
++/* GPU busy time so far, ns. */
++typedef u64 (*ps5_gpu_busy_ns_t)(struct device *gpu);
++struct platform_device *ps5_gpufreq_register(struct device *gpu, ps5_gpu_busy_ns_t busy_ns);
+ int ps5_mp1_send(u8 msgid, u32 arg, u32 *resp);
+ int mp1_boost_enter(u32 cpu_mhz_min, u32 cpu_mhz_max, u32 gpu_mhz_min, u32 gpu_mhz_max);
+ ktime_t amdgpu_ps5_get_gfx_busy_ns(struct pci_dev *pdev);

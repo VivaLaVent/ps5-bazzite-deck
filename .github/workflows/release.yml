@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "release tag, e.g. v2.3"
+        description: "release tag, e.g. v2.5"
         required: true
       hosted:
         description: "build the kernel on GitHub's runner instead of the self-hosted one"

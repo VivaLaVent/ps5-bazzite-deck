@@ -5,8 +5,8 @@
 update button** like any Bazzite Deck, and a bad update is **undone with one command**. Runs from a USB drive and leaves
 the PS5 itself untouched: restart or power off and the PS5 starts its own system again.
 
-**Experimental.** It hasn't been tested on many consoles yet. For a console you use every day, install
-[PS5 Bazzite Deck](https://github.com/VivaLaVent/ps5-bazzite-deck) instead.
+**Experimental.** It hasn't been tested on many consoles yet. For a console you use every day, the Legacy install of
+[PS5 Bazzite Deck](https://github.com/VivaLaVent/ps5-bazzite-deck) is the safer choice.
 
 ## Not affiliated with Bazzite
 
@@ -15,16 +15,18 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 
 ## Install
 
-You need a PS5 that runs the [PS5 Linux loader](https://github.com/ps5-linux/ps5-linux-loader) (firmware 3.00 to 13.60;
-each release says which loader it was tested with) and a USB drive of at least 32 GB (an SSD is much faster). Use a different drive from your PS5 Bazzite Deck one, so you can always swap back.
+You need a PS5 that runs the PS5 Linux loader (firmware 3.00 to 13.60), **bazzite-bootc-loader** from the same release
+(rmux's loader with support for bootc's boot entries; it starts Legacy installs too), and a USB drive or SSD of 64 GB or
+more (the system alone is about 25 GB; an SSD is much faster). Use a different drive from your Legacy one, so you can
+always swap back.
 
-1. Download all `ps5-bazzite-deck-bootc-*.img.7z` parts of the newest X.Y release (v2.2, v2.3, …) from the
+1. Download all `ps5-bazzite-deck-bootc-*.img.7z` parts of the newest release from the
    [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases)
    and extract them with [7-Zip](https://www.7-zip.org) (open the `.001` file).
-2. Write the `.img` to the USB drive with [Rufus](https://rufus.ie). This erases the drive.
+2. Write the `.img` to the drive with [Rufus](https://rufus.ie) in **DD mode** or [Balena Etcher](https://etcher.balena.io). This erases the drive.
 3. Plug it into a **rear** USB-A port of the PS5.
 4. In the PS5 settings: keep USB power on in rest mode, and switch HDMI Device Link off.
-5. Run the jailbreak and the loader as usual, and wait until the light stops blinking orange before pressing power.
+5. Run the jailbreak and bazzite-bootc-loader, and wait until the light stops blinking orange before pressing power.
 6. The first start takes a few minutes. You land in Steam Gaming Mode. Login for the desktop and `sudo`: **ps5** / **ps5**.
 
 ## Updating

@@ -47,7 +47,7 @@ done
 rm -f cyan_skillfish*.xz
 cd /
 
-# --- PS5 files: the same list the classic update bundle installs (tools/make-update-bundle.sh),
+# --- PS5 files: the same list the Legacy update bundle installs (tools/make-update-bundle.sh),
 # with /usr/local moved to /usr. ps5-iw620-modprobe.conf is generated there; here it's
 # system_files/usr/lib/modprobe.d/ps5.conf.
 sed -n "/^cat > \"\$OUT\/FILES\" << 'L'/,/^L\$/p" "$CTX/deck/tools/make-update-bundle.sh" | sed '1d;$d' |

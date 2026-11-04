@@ -1,10 +1,11 @@
 #!/bin/bash
-# The PS5 kernel package: Linux 7.3 + rmux's meower patches + patches/, built with ps5-linux-image's
+# The PS5 kernel package: Linux 7.3.1 + rmux's shitshow linux.patch + patches/series, built with ps5-linux-image's
 # builder. CI runs this for every release (.github/workflows/release.yml); locally: bash build.sh
 # Output: $REPO/linux-bin/linux-ps5-*.rpm
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # this repo
+PATCHES=$(cd "${PATCHES:-$SRC/patches}" && pwd)       # the kernel patch series to apply
 RELEASE="${RELEASE:-$(git -C "$SRC" describe --tags --always 2>/dev/null || echo dev)}"
 
 REPO="${REPO:-$HOME/ps5-build-7.3}"   # fresh build directory
@@ -63,10 +64,8 @@ sed -i 's/^CONFIG_PS5_GPUFREQ=.*/# CONFIG_PS5_GPUFREQ is not set/' work/ps5-linu
 for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do sed -i "s/^# CONFIG_$o is not set/CONFIG_$o=y/" work/ps5-linux-patches/.config; done   # wheel force feedback, as rmux's meower (36b9828)
 git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git work/linux73
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
-git -C work/linux73 apply "$SRC/patches/ps5-s2idle.patch"     # suspend-to-idle (Dasloh, PR #4)
-git -C work/linux73 apply "$SRC/patches/ps5-display.patch"    # our display stack (v2.1.x): FLAVA3/Verde, 4K120 FRL, 1440p, VRR
-git -C work/linux73 apply "$SRC/patches/ps5-gpu.patch"        # thermal GPU governor, overlay metrics
-git -C work/linux73 apply "$SRC/patches/ps5-fan.patch"        # no fan spike at shutdown
+grep -o '^[^# ]*\.patch' "$PATCHES/series" > work/series      # patches/series, or a parked variant via PATCHES=
+while read -r p; do git -C work/linux73 apply "$PATCHES/$p"; done < work/series
 # committed and at an annotated tag, so the release is exactly <version>-viva (no "+" or "-dirty")
 git -C work/linux73 add -A
 git -C work/linux73 -c user.name=ps5-bazzite-deck -c user.email=ps5-bazzite-deck@users.noreply.github.com commit -qm "PS5 patches"

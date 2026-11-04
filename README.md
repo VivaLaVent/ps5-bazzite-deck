@@ -22,6 +22,14 @@ on your console, and how to fix problems.
 **Latest**; releases marked **Pre-release** are test builds, even when their number is higher. What changed in which
 version is in the [changelog](CHANGELOG.md).
 
+## Legacy and bootc
+
+PS5 Bazzite Deck comes in two forms. **Legacy** is the install most people have: flashed from a full image and updated
+with the update command from the release notes. **bootc** (experimental) is the whole system as one image, updated from
+Steam's update button or `sudo bootc upgrade` and rolled back with `sudo bootc rollback`; it starts with
+bazzite-bootc-loader from the release. `ps5-report` shows which one you run on its Install line. Each release's notes have
+a section for each, with new install and updating. More about bootc: [bootc/README.md](bootc/README.md).
+
 ## Join the PS5 Linux community on Discord
 
 **[discord.gg/ps5linux](https://discord.gg/ps5linux)**: help in `#bazzite-problems`, test builds, and everything
