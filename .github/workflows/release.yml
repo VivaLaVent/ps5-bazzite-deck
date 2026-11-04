@@ -128,9 +128,8 @@ jobs:
       contents: write
       packages: read
     steps:
+      # scripts from the commit that runs this, so a resume run ships fixes made after tagging
       - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.meta.outputs.tag }}
       # the same kernel, initramfs and modules as the bootc image: both start from bazzite-deck + this kernel
       - name: Kernel parts from the bootc image
         env:

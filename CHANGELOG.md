@@ -9,8 +9,10 @@ All notable changes to the images. Exact upstream versions are in each release's
 - Discord: the post carries the notes' "What's new" cut at a line (a byte cut could break a character and the post), plus a link to the full notes; the bootc post gives the `bootc switch` command for pre-releases
 - Weekly upstream audit (`upstream-audit.yml`, `tools/audit-upstream.sh`): do our patches apply to rmux's newest kernel branch and the newest loader. Every X.Y release starts from it (`docs/releasing.md`)
 - Fixed: the update bundle step (`podman rm` has no `-q`)
+- Fixed: the bootc disk image keeps its separate /boot partition (declaring only the root size had dropped it)
 - Fixed: the bootc disk image's root partition is 32 GiB (24 GiB was too small for the unpacked image); bootc needs a 64 GB drive
 - `gh workflow run release.yml -f tag=vX.Y -f resume=true` redoes only the bundle, disk image and loader
+- Fixed: the update refused a kernel with a new name ("running kernel 7.3.0, this bundle is for 7.3.1"); it now installs it next to the running one, which stays as the backup. The bundle takes its scripts from the commit that builds it, so a resume run ships such fixes
 - Release notes: one order for every release (What's new, Already running, Updating, New install, What to test, Sharing logs, Files); "New install" offers the classic image or bootc; `ps5-report` includes `bootc status`, so it's the only log testers send
 
 ## [v2.4] – 2026-11-04

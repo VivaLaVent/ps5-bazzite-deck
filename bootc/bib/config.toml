@@ -6,6 +6,13 @@ groups = ["wheel"]
 
 # bootc raw images take the root size from customizations.disk (customizations.filesystem is "not
 # supported"). The 6.4 GB of layers unpack to about 25 GiB; ps5-grow-root fills the drive at first start.
+# /boot first and on its own, as in every earlier image: ps5-bootc-sync reads loader/entries at its top
+[[customizations.disk.partitions]]
+type = "plain"
+mountpoint = "/boot"
+fs_type = "ext4"
+minsize = "1 GiB"
+
 [[customizations.disk.partitions]]
 type = "plain"
 mountpoint = "/"

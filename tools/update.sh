@@ -1,11 +1,10 @@
 #!/bin/bash
-# In-place update to this bundle's version (from v1.0.3, kernel 7.3.0). On the PS5: bash update.sh
+# In-place update to this bundle's version (from v1.0.3). On the PS5: bash update.sh
 set -euo pipefail
 [ -e /run/ostree-booted ] && { echo "This is a bootc install: update with  sudo bootc upgrade"; exit 1; }
 cd "$(dirname "$0")"
-V=$(cat VERSION); K=$(cat KERNEL)
-echo "PS5 Bazzite Deck: in-place update to $V"
-[ "$(uname -r)" = "$K" ] || { echo "STOP: running kernel $(uname -r), this bundle is for $K"; exit 1; }
+V=$(cat VERSION); K=$(cat KERNEL); OLD=$(uname -r)
+echo "PS5 Bazzite Deck: in-place update to $V (kernel $OLD -> $K)"
 grep -q "root=LABEL=bazzite-deck" /proc/cmdline || { echo "STOP: this is not a PS5 Bazzite Deck install"; exit 1; }
 # /efi on a USB install, often /boot/efi or unmounted on M.2: mount it at /efi if needed
 EFI=""; MOUNTED=0
@@ -27,7 +26,8 @@ echo "==> backup of the current kernel and modules to $BK"
 sudo mkdir -p "$BK/efi"
 for f in efi/*; do n=$(basename "$f"); if sudo test -f "$EFI/$n"; then sudo cp -a "$EFI/$n" "$BK/efi/"; fi; done
 sudo cp -a "$EFI/cmdline.txt" "$BK/efi/"
-sudo cp -a "/usr/lib/modules/$K" "$BK/modules"
+# a kernel of the same name is replaced in place, so its modules need a copy; a new one leaves them where they are
+[ "$K" = "$OLD" ] && sudo cp -a "/usr/lib/modules/$K" "$BK/modules"
 
 echo "==> installing kernel and modules"
 sudo rm -rf "/usr/lib/modules/$K.new"
@@ -91,4 +91,8 @@ if [ -d "$B" ]; then
 fi
 echo "DONE: updated to $V. Reboot (sudo reboot) and run the loader as usual."
 [ "$MOUNTED" = 1 ] && echo "(for the undo, mount the boot partition first: sudo mount LABEL=boot /efi)"
-echo "Undo: sudo cp -a $BK/efi/* $EFI/ && sudo rm -rf /usr/lib/modules/$K && sudo cp -a $BK/modules /usr/lib/modules/$K && sync"
+if [ "$K" = "$OLD" ]; then
+  echo "Undo: sudo cp -a $BK/efi/* $EFI/ && sudo rm -rf /usr/lib/modules/$K && sudo cp -a $BK/modules /usr/lib/modules/$K && sync"
+else
+  echo "Undo: sudo cp -a $BK/efi/* $EFI/ && sudo rm -rf /usr/lib/modules/$K && sync   (kernel $OLD's modules were kept)"
+fi
