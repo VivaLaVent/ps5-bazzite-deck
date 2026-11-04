@@ -14,6 +14,22 @@ git fetch -q origin main --tags
 git rev-parse -q --verify "refs/tags/$V" >/dev/null && { echo "STOP: tag $V exists"; exit 1; }
 sed -i "s/^## \[$V\] – .*/## [$V] – $(date +%F)/" CHANGELOG.md
 git commit -qam "$V" && git push -q
-pgrep -f "actions-runner/bin/Runner.Listener" >/dev/null || echo "The kernel job waits for the self-hosted runner: start ~/actions-runner/run.sh"
+# the kernel builds on this PC's self-hosted runner: start it if needed, stop it again after the kernel job
+RUNNER=~/actions-runner; STARTED=0
+if ! pgrep -f "$RUNNER/bin/Runner.Listener" >/dev/null; then
+  [ -x "$RUNNER/run.sh" ] || { echo "STOP: no runner in $RUNNER (docs/releasing.md)"; exit 1; }
+  nohup "$RUNNER/run.sh" > "$RUNNER/release.log" 2>&1 &
+  for _ in $(seq 1 30); do grep -q "Listening for Jobs" "$RUNNER/release.log" && break; sleep 2; done
+  grep -q "Listening for Jobs" "$RUNNER/release.log" || { echo "STOP: the runner didn't connect, see $RUNNER/release.log"; exit 1; }
+  STARTED=1; echo "runner started (log: $RUNNER/release.log)"
+fi
 git tag -a "$V" -m "$V" && git push -q origin "$V"
 echo "Building $V in CI: https://github.com/VivaLaVent/ps5-bazzite-deck/actions/workflows/release.yml"
+[ "$STARTED" = 1 ] || exit 0
+R=VivaLaVent/ps5-bazzite-deck; ID=
+for _ in $(seq 1 30); do ID=$(gh run list --repo "$R" --workflow release.yml --branch "$V" --limit 1 --json databaseId -q '.[0].databaseId'); [ -n "$ID" ] && break; sleep 5; done
+echo "kernel building on this PC (run $ID); the runner stops when that job is done"
+until [ "$(gh run view "$ID" --repo "$R" --json jobs -q '.jobs[] | select(.name=="kernel") | .status' 2>/dev/null)" = completed ]; do sleep 30; done
+echo "kernel job: $(gh run view "$ID" --repo "$R" --json jobs -q '.jobs[] | select(.name=="kernel") | .conclusion')"
+pkill -f "$RUNNER/bin/Runner.Listener"; pkill -f "$RUNNER/run.sh" 2>/dev/null || true
+echo "runner stopped; the rest of the release continues on GitHub"

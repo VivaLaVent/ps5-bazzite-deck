@@ -1,6 +1,6 @@
 # Releasing
 
-`bash tools/release.sh vX.Y[.Z]` tags the release; `.github/workflows/release.yml` does the rest. The pre-release is public with its notes at once, and files are added as they're built: the kernel RPM, the update bundle for existing installs, the bootc disk image, the bazzite-bootc-loader. The kernel builds on the self-hosted runner (start `~/actions-runner/run.sh` first); `gh workflow run release.yml -f tag=vX.Y -f hosted=true` uses GitHub's runner instead.
+`bash tools/release.sh vX.Y[.Z]` tags the release; `.github/workflows/release.yml` does the rest. The pre-release is public with its notes at once, and files are added as they're built: the kernel RPM, the update bundle for existing installs, the bootc disk image, the bazzite-bootc-loader. The kernel builds on this PC's self-hosted runner; `release.sh` starts it if needed and stops it again after the kernel job. `gh workflow run release.yml -f tag=vX.Y -f hosted=true` uses GitHub's runner instead.
 
 Before tagging: the CHANGELOG entry, `docs/release-notes/vX.Y.md` (cumulative since the last release people actually ran) and `docs/update-sections/vX.Y.md`.
 
