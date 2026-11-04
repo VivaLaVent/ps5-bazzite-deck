@@ -6,6 +6,11 @@ on:
     # "published" fires for new releases and pre-releases; "released" also when a pre-release
     # is turned into a full release. A new full release fires both: it's posted once, on "released".
     types: [published, released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "post this release again, e.g. after fixing its notes"
+        required: true
 
 jobs:
   notify:
@@ -25,7 +30,13 @@ jobs:
           BODY: ${{ github.event.release.body }}
           REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
+          if [ -n "$INPUT_TAG" ]; then
+            R=$(gh api "repos/$REPO/releases/tags/$INPUT_TAG")
+            TAG=$INPUT_TAG; NAME=$(jq -r '.name // .tag_name' <<< "$R"); URL=$(jq -r .html_url <<< "$R"); BODY=$(jq -r .body <<< "$R")
+            IS_PRERELEASE=$(jq -r .prerelease <<< "$R"); [ "$IS_PRERELEASE" = true ] && ACTION=published || ACTION=released
+          fi
           if [ "$ACTION" = "published" ] && [ "$IS_PRERELEASE" = "true" ]; then
             HOOK="$PRERELEASE_HOOK"; LABEL="New prerelease"; COLOR=15105570
           elif [ "$ACTION" = "released" ]; then
@@ -43,13 +54,13 @@ jobs:
             BODY=$(gh api "repos/$REPO/releases/tags/$TAG" --jq .body 2>/dev/null || printf '%s' "$BODY")
           done
 
-          # "What's new" (up to the --- separator), whole lines, at most 3500 characters (Discord's
+          # "What's new" (up to the next section), whole lines, at most 3500 characters (Discord's
           # embed limit is 4096 characters; cutting by bytes could split one), then a link to the rest
           DESC=$(printf '%s\n' "$BODY" | python3 -c '
           import sys
           out = []; n = 0
           for l in sys.stdin.read().split("\n"):
-              if l.strip() == "---" or l.startswith("## Updating") or n + len(l) + 1 > 3500:
+              if l.strip() == "---" or (l.startswith("## ") and out) or n + len(l) + 1 > 3500:
                   break
               out.append(l); n += len(l) + 1
           print("\n".join(out).rstrip())')

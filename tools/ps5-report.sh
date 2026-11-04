@@ -103,6 +103,12 @@ if [ "$MODEL" = "PS5 Pro" ]; then
 fi
 command -v ps5-perf >/dev/null && ps5-perf status | sed 's/^/  /'
 
+if [ -e /run/ostree-booted ]; then
+  echo; echo "=== bootc"
+  sudo bootc status 2>/dev/null | sed 's/^/  /' | head -20
+  journalctl -b -u ps5-bootc-sync -u ps5-grow-root --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
+fi
+
 echo; echo "=== System"
 echo "  cmdline: $(cat /proc/cmdline)"
 echo "  session: $(pgrep -a gamescope | head -1 | cut -c1-80)$(pgrep -a startplasma | head -1 | cut -c1-60)"

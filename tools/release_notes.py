@@ -80,14 +80,16 @@ def render(tag, tmp):
         versions = "## Versions\n" + "\n".join(l for l in v if l.startswith("|")) + "\n"
     issues = [l[2:] for l in section(per, "Known issues").splitlines() if l.startswith("- ")]
     vrr = section(per, "VRR test")
-    extra = "".join(f"## {name}\n{body}\n" for name in
-                    ("What to test", "Testing", "Sharing logs",
-                     "Already running", "New installs", "Trying the bootc image")
-                    if (body := section(per, name)))
+    def secs(*names):
+        return "".join(f"## {name}\n{body}\n" for name in names if (body := section(per, name)))
+    before = secs("Already running", "Already running PS5 Bazzite Deck")
+    after = secs("New install", "New installs", "Trying the bootc image", "What to test", "Testing", "Sharing logs")
+    own_install = bool(section(per, "New install") or section(per, "New installs"))
     parts = ["## What's new\n" + section(per, "What's new") + "\n",
-             ("## VRR test\n" + vrr + "\n") if vrr else "", extra, upd + "\n",
+             ("## VRR test\n" + vrr + "\n") if vrr else "", before, upd + "\n", after,
              ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else "",
-             versions, files_section(tag, assets), f"---\n**New install:** download the [latest stable release](https://github.com/{REPO}/releases/latest) full image, flash it to USB, then update using the built-in update command above.\n**Bootc image:** `sudo bootc upgrade` on a running bootc install pulls the latest image in the background.\n\n**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\nLike the project? Support it on [Ko-fi]({KOFI}).\n"]
+             versions, files_section(tag, assets),
+             "" if own_install else f"---\n**New install:** download the [latest stable release](https://github.com/{REPO}/releases/latest) full image, flash it to USB, then update using the built-in update command above.\n**Bootc image:** `sudo bootc upgrade` on a running bootc install pulls the latest image in the background.\n\n**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\nLike the project? Support it on [Ko-fi]({KOFI}).\n"]
     return "\n".join(p for p in parts if p)
 
 
