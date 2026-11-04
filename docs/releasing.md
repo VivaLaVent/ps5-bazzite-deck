@@ -10,6 +10,10 @@ A failed part doesn't need a full rebuild: `gh workflow run release.yml -f tag=v
 
 After testers confirm: `gh release edit vX.Y --prerelease=false --latest`. That makes it the release `update-latest.sh` installs and, through `pin-kernel.yml`, the kernel of the nightly `:stable` bootc image.
 
+## Testing a kernel change quickly
+
+`bash tools/quick-kernel.sh <label>` rebuilds bzImage and the amdgpu and btusb modules in the tree `build.sh` made, and copies them with an installer to a Legacy console (bootc's `/usr` is read-only). `tools/upstream-pr.sh` turns a patch into a pull request against rmux's branch.
+
 ## Parked kernel variant
 
 `patches-next/rmux-display/` is rmux's display rework adapted (v2.4.2's kernel): `PATCHES=patches-next/rmux-display bash build.sh`. Its README says what's left before it can replace the display stack in `patches/`.

@@ -32,7 +32,7 @@ if [ $ok = 1 ]; then
 fi
 (cd "$T" && find usr | sort | cpio -o -H newc --quiet) > "$T/viola.cpio"
 cp -a "$E/initrd.img" "$E/initrd.img.noviola"
-# Each archive in a concatenated initramfs has to start on a 4-byte boundary (PR #32, mfoster978).
+# Each archive in a concatenated initramfs has to start on a 4-byte boundary.
 base_size=$(stat -c %s "$E/initrd.img.noviola")
 padding=$(( (4 - (base_size % 4)) % 4 ))
 {

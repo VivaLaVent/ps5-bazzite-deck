@@ -1,5 +1,5 @@
 #!/bin/bash
-# IW620: a Linux-only Bluetooth address (PR #9, Dasloh), applied so kernel and bluetoothd use it too:
+# IW620: a Linux-only Bluetooth address, applied so kernel and bluetoothd use it too:
 # otherwise pairings end up under different addresses on different boots.
 set -u
 command -v btmgmt >/dev/null && command -v python3 >/dev/null || { echo "btmgmt or python3 missing"; exit 0; }
@@ -75,7 +75,7 @@ if [ "$id" != "1286:2059" ]; then
     echo "Bluetooth chip $id is not one the Linux-only address works with, nothing to do"
     exit 0
 fi
-# IW620: on by default from v1.8.9 ("ps5-bt-address off" switches it off). The address change is a vendor
+# IW620: on by default ("ps5-bt-address off" switches it off). The address change is a vendor
 # command to the Wi-Fi/Bluetooth combo chip; it doesn't survive a warm restart (chip hung), so while it's on,
 # warm restarts become normal ones (ps5-kexec).
 if [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
@@ -117,7 +117,7 @@ def chip_address(s):
 s = open_hci()
 cur = chip_address(s)
 
-# v1.8.9: use the address saved on first run, not one derived fresh from the chip's power-on
+# the address saved on first run, not one derived fresh from the chip's power-on
 # default -- that default isn't fixed in hardware on every IW620 and can read differently after
 # a cold boot, which changed our derived address too and broke the controller's stored pairing.
 saved = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else None

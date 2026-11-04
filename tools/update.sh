@@ -45,16 +45,16 @@ sudo udevadm control --reload 2>/dev/null || true
 [ -e /usr/sbin/kexec ] || sudo install -Dm755 files/kexec-shim /usr/sbin/kexec   # systemd runs "kexec -e" for warm reboots
 # the first rc3 bundle had a warm-reboot unit that only worked after a boot: replace it
 if [ -e /etc/systemd/system/ps5-kexec-load.service ]; then sudo systemctl disable ps5-kexec-load.service 2>/dev/null; sudo rm -f /etc/systemd/system/ps5-kexec-load.service; sudo systemctl daemon-reload; fi
-# installs from before v1.6: the first-start message
+# older installs: the first-start message
 sudo systemctl disable ps5-first-start.service 2>/dev/null || true
 sudo rm -f /etc/systemd/system/ps5-first-start.service /etc/systemd/system/multi-user.target.wants/ps5-first-start.service /usr/local/sbin/ps5-first-start
-# the opt-in flag from before v1.8.9
+# the old opt-in flag
 sudo rm -f /etc/ps5-bazzite-deck/bt-address
 # Bazzite's ostree-only services fail at every boot here
-# Wi-Fi config name and reboot override from v2.1.2-v2.2
+# Wi-Fi config name and reboot override of the withdrawn test versions
 sudo rm -f /etc/NetworkManager/conf.d/99-ps5-wifi.conf /usr/local/share/ps5-bazzite-deck/reboot.target
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
-# a leftover hdmi.rearm=0 (before v1.8.9) keeps TVs dark after mode changes
+# a leftover hdmi.rearm=0 keeps TVs dark after mode changes
 sudo sed -i 's/ *hdmi\.rearm=0//' "$EFI/cmdline.txt"
 for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-connectable ps5-bt-revive ps5-wifi-repair ps5-perf ps5-stage-viola-fw ps5-console-defaults; do
   [ -f "/etc/systemd/system/$u.service" ] && sudo systemctl enable "$u.service" 2>/dev/null || true
@@ -63,9 +63,9 @@ done
 sudo sed -i 's/ video=DP-1:1920x1080@60//' "$EFI/cmdline.txt"
 # options that became kernel defaults; only the exact strings we added
 sudo sed -i -e 's/ lsm=landlock,lockdown,yama,integrity,apparmor,bpf//' -e 's/ usbcore\.autosuspend=-1//' "$EFI/cmdline.txt"
-# old VRR test flags (VRR is Steam's setting since v1.7.1)
+# old VRR test flags (VRR is Steam's setting now)
 sudo sed -i -e 's/ *hdmi\.vrr_test=1//' -e 's/ *hdmi\.vrr_chip=[0-9]//' "$EFI/cmdline.txt"
-# v1.1.0 turned the 40-CU unlock on for everyone (the extra CUs can be faulty): off once, user settings untouched after
+# an old release turned the 40-CU unlock on for everyone (the extra CUs can be faulty): off once, user settings kept after
 case "$(cat /etc/ps5-bazzite-deck-version 2>/dev/null)" in
   v1.1.0|v1.1.0-*)
     if sudo grep -q "amdgpu.ps5_cu_unlock=3" "$EFI/cmdline.txt"; then

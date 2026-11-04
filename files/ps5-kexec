@@ -22,8 +22,8 @@ def load():
     if os.path.exists("/run/ps5-reboot-to-ps5"):
         print("reboot to the PS5 system requested: not loading a kernel")
         return 0
-    # v1.8.9: on IW620 consoles the Linux-only Bluetooth address and a warm restart don't go together
-    # (the chip came back hung, Bluetooth and Wi-Fi gone; Max). With the address on, restart normally.
+    # IW620: the Linux-only Bluetooth address and a warm restart don't go together (the chip comes back
+    # hung, Bluetooth and Wi-Fi gone). With the address on, restart normally.
     if not os.path.exists("/etc/ps5-bazzite-deck/bt-address-off") and any(
             open(f).read().strip() == "1286" for f in __import__("glob").glob("/sys/bus/usb/devices/*/idVendor")):
         print("IW620 with the Linux-only Bluetooth address on: normal restart instead of a warm one")

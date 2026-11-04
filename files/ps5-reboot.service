@@ -4,7 +4,7 @@ DefaultDependencies=no
 Requires=shutdown.target umount.target final.target
 After=shutdown.target umount.target final.target
 # The reboot itself is done by systemd (PID 1), not by systemctl: at this point D-Bus is gone
-# ("Transport endpoint is not connected" in v1.4.0). kexec when ps5-kexec-prepare loaded a
+# ("Transport endpoint is not connected"). kexec when ps5-kexec-prepare loaded a
 # kernel, a normal reboot otherwise.
 SuccessAction=kexec-force
 FailureAction=reboot-force

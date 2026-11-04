@@ -39,7 +39,8 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0   # tags, for the deck version in the image
-
+      - name: Test the boot partition sync
+        run: bash tests/ps5-bootc-sync.sh
       - name: Kernel RPM from this release's build
         if: inputs.kernel_artifact != ''
         uses: actions/download-artifact@v4

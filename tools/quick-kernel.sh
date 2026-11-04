@@ -1,7 +1,7 @@
 #!/bin/bash
 # Kernel-only test build in minutes: bzImage and the amdgpu/btusb modules plus an installer.
 #   bash tools/quick-kernel.sh <label> [ps5-host]
-# The PS5 must run the tree's kernel version (7.3.0); the installer keeps a backup and prints the undo.
+# Legacy installs running this tree's kernel release only (bootc's /usr is read-only); it keeps a backup and prints the undo.
 set -euo pipefail
 L=${1:?usage: quick-kernel.sh <label> [ps5-host]}; PS5=${2:-ps5@192.168.66.55}
 B=~/ps5-build-7.3; K=$B/work/linux73; O=$B/output/ps5-quick-$L; mkdir -p "$O"; rm -rf "${O:?}"/*

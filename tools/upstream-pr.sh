@@ -1,11 +1,12 @@
 #!/bin/bash
 # Our kernel patches as a PR against rmux's ps5-linux-patches (its kernel changes live in linux.patch):
 #   bash tools/upstream-pr.sh "<title>" patches/a.patch [...] [--submit]       dry run without --submit
-#   --base (meower) --repo (rmuxnet/ps5-linux-patches-1) --tested "<what>" --config "<scripts/config args>"
-# Needs gh and ~/ps5-build-7.3/work/linux73 at v7.3; list unmerged prerequisite patches too, in order.
+#   --base (build.sh's branch) --repo (rmuxnet/ps5-linux-patches-1) --tested "<what>" --config "<scripts/config args>"
+# Needs gh and the kernel tree build.sh made; list unmerged prerequisite patches too, in order.
 set -euo pipefail
 TITLE=${1:?usage: upstream-pr.sh "<title>" patches/x.patch ... [--submit]}; shift
-REPO=rmuxnet/ps5-linux-patches-1; BASE=meower; SUBMIT=0; TESTED=""; CONFIG=""; PATCHES=()
+SRC=$(cd "$(dirname "$0")/.." && pwd); KTAG=$(sed -n 's/^KERNEL_TAG=//p' "$SRC/build.sh")
+REPO=rmuxnet/ps5-linux-patches-1; BASE=$(sed -n 's/^PATCHES_BRANCH=\([^ ]*\).*/\1/p' "$SRC/build.sh"); SUBMIT=0; TESTED=""; CONFIG=""; PATCHES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --submit) SUBMIT=1 ;;
@@ -17,7 +18,7 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 [ ${#PATCHES[@]} -gt 0 ] || { echo "no patches given"; exit 1; }
-KSRC=~/ps5-build-7.3/work/linux73
+KSRC=${REPO_DIR:-$HOME/ps5-build-7.3}/work/linux73
 [ -d "$KSRC/.git" ] || { echo "STOP: kernel checkout $KSRC not found"; exit 1; }
 gh auth status >/dev/null 2>&1 || { echo "STOP: gh is not logged in"; exit 1; }
 ME=$(gh api user -q .login)
@@ -30,8 +31,8 @@ git clone -q "https://github.com/$REPO" "$W/up"
 git -C "$W/up" checkout -q "$BASE"
 UPSTREAM_COMMIT=$(git -C "$W/up" rev-parse --short HEAD)
 
-echo "==> kernel tree: v7.3 + upstream linux.patch ($BASE @ $UPSTREAM_COMMIT) + ${#PATCHES[@]} patch(es)"
-git -C "$KSRC" worktree add -q -f "$W/k" v7.3
+echo "==> kernel tree: $KTAG + upstream linux.patch ($BASE @ $UPSTREAM_COMMIT) + ${#PATCHES[@]} patch(es)"
+git -C "$KSRC" worktree add -q -f "$W/k" "$KTAG"
 git -C "$W/k" apply --exclude=Makefile "$W/up/linux.patch"
 for p in "${PATCHES[@]}"; do
   git -C "$W/k" apply "$p" || { echo "STOP: $(basename "$p") does not apply on upstream $BASE @ $UPSTREAM_COMMIT (prerequisite missing, or upstream moved on)"; exit 1; }
@@ -44,7 +45,7 @@ git -C "$W/k" -c core.abbrev=12 diff --cached > "$W/up/linux.patch"
 BODY="$W/body.md"
 for p in "${PATCHES[@]}"; do sed -n '1,/^---$/p' "$p" | sed '$d'; echo; done > "$BODY"
 [ -n "$TESTED" ] && printf '**Firmware and models tested:** %s\n' "$TESTED" >> "$BODY"
-printf '\nFrom https://github.com/VivaLaVent/ps5-bazzite-deck (patches/%s). linux.patch regenerated with `git diff` (12-char abbrev) from v7.3 + upstream linux.patch + this change, so the diff below is only the change itself.\n' "$(for p in "${PATCHES[@]}"; do basename "$p"; done | paste -sd,)" >> "$BODY"
+printf '\nFrom https://github.com/VivaLaVent/ps5-bazzite-deck (patches/%s). linux.patch regenerated with `git diff` (12-char abbrev) from %s + upstream linux.patch + this change, so the diff below is only the change itself.\n' "$(for p in "${PATCHES[@]}"; do basename "$p"; done | paste -sd,)" "$KTAG" >> "$BODY"
 
 echo "==> resulting change to upstream (linux.patch$( [ -n "$CONFIG" ] && echo ", .config")):"
 git -C "$W/up" diff --stat | tail -3

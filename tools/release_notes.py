@@ -90,7 +90,7 @@ def render(tag, tmp):
     problems = (f"**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\n"
                 f"Like the project? Support it on [Ko-fi]({KOFI}).\n")
     if section(per, "Legacy"):
-        # v2.5 on: bootc first (new install, updating), Legacy last as a footnote
+        # notes with a Legacy section: bootc first, Legacy last as a footnote
         parts = ["## What's new\n" + section(per, "What's new") + "\n",
                  secs("bootc", "Bootc (experimental)", "Problems"), known,
                  secs("What to test", "Sharing logs", "Legacy"), versions, files_section(tag, assets), "---\n" + problems]
