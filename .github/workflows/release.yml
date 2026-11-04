@@ -1,7 +1,8 @@
 name: Release
-# Every release gets the bootc loader, the bootc image (:<tag>, plus :stable unless it's a
-# pre-release) and the bootc disk image. Re-runs replay the old workflow file, so after a
-# fix run it fresh instead:  gh workflow run release.yml -f tag=vX.Y
+# Every release gets the bootc image (:<tag>, plus :stable unless it's a pre-release) and the
+# bootc disk image; the kernel, update bundle and loader come from tools/release.sh.
+# Re-runs replay the old workflow file: after a fix, start a fresh run instead:
+#   gh workflow run release.yml -f tag=vX.Y
 on:
   release:
     types: [published]
@@ -27,25 +28,6 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "stable=$([ "$pre" = true ] && echo false || echo true)" >> "$GITHUB_OUTPUT"
 
-  loader:
-    needs: meta
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.meta.outputs.tag }}
-      - run: sudo apt-get install -yq clang-18 lld-18 build-essential binutils xxd
-      - name: Build and attach
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          bash loader/build.sh "$TAG"
-          gh release upload "$TAG" loader/output/bazzite-bootc-loader-$TAG.elf \
-            loader/output/bazzite-bootc-loader-$TAG.elf.sha256 --clobber
-
   image:
     needs: meta
     permissions:
@@ -67,7 +49,7 @@ jobs:
       release: ${{ needs.meta.outputs.tag }}
 
   notes:
-    needs: [meta, loader, image, disk]
+    needs: [meta, image, disk]
     if: always()
     runs-on: ubuntu-24.04
     permissions:
@@ -79,7 +61,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/release_notes.py "${{ needs.meta.outputs.tag }}"
       - name: Post to the bootc testing channel
-        if: needs.loader.result == 'success' && needs.disk.result == 'success'
+        if: needs.disk.result == 'success'
         env:
           HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
           TAG: ${{ needs.meta.outputs.tag }}

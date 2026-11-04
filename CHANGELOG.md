@@ -2,10 +2,10 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.2.1] – 2026-11-<DD>
+## [v2.3] – 2026-11-<DD>
 > First release with the bootc image and the bazzite-bootc-loader, built from the same tag as the update for existing installs.
 - **bootc image (experimental):** `ghcr.io/vivalavent/ps5-bazzite-bootc`, flashed from the release's disk image, updated with `sudo bootc upgrade`, rolled back with `sudo bootc rollback`
-- **bazzite-bootc-loader:** rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source for every release; boots bootc deployments with boot counting and fallback
+- **bazzite-bootc-loader:** rmux's ps5-linux-loader @ 940bce3 + BLS patches 0001-0006, built from source for every release. Understands bootc's boot entries (boot counting and fallback come once the image writes them); starts v2.3 the same way as before
 - **PS5 Pro: D3D9 fix now actually applied.** The swap to AMD's command-processor microcode looked for `cyan_skillfish2_*.bin`, but Bazzite ships linux-firmware compressed (`.bin.xz`), so it silently kept Sony's. It now reads the compressed files
 - **PS5 Pro: 1 GB VRAM and an 80 °C GPU limit by default** (`ps5-console-defaults`, once; later changes are kept). Stops framebuffer pin failures (`-ENOMEM`) under load and leaves the firmware headroom before it cuts power
 - **IW620 Bluetooth no longer disappears when the Linux-only address doesn't stick** (Geov4ni, Storm, Verrek, AdiX, bugloogis_chumbo): the script retried the address right after the adapter reset, which hangs the chip. It now leaves Bluetooth working on the PS5 address and `ps5-report` shows `on, NOT applied`. A kernel-side fix is being tested

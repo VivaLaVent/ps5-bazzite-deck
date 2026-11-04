@@ -19,6 +19,9 @@ echo "boot partition: $EFI"
 echo "==> checking the bundle"
 sha256sum -c --quiet SHA256SUMS || { echo "STOP: bundle files are damaged, download it again"; exit 1; }
 
+# an M.2 install boots from a stick: only write to the boot partition that starts this root
+want=$(sudo sed -n 's/.*root=LABEL=\([^ ]*\).*/\1/p' "$EFI/cmdline.txt"); have=$(lsblk -no LABEL "$(findmnt -no SOURCE /)" 2>/dev/null || true)
+[ -z "$want" ] || [ -z "$have" ] || [ "$want" = "$have" ] || { echo "STOP: $EFI/cmdline.txt starts root=LABEL=$want, this system runs from LABEL=$have. Mount the boot partition of this install at /efi and run the update again."; exit 1; }
 BK=/var/lib/ps5-update-backup/$(date +%Y%m%d-%H%M%S)
 echo "==> backup of the current kernel and modules to $BK"
 sudo mkdir -p "$BK/efi"

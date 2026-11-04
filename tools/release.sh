@@ -1,10 +1,12 @@
 #!/bin/bash
-# Build, test and publish a release:
-#   bash tools/release.sh vX.Y                                stable: image + update bundle
-#   PRERELEASE=1 BUNDLE_ONLY=1 bash tools/release.sh vX.Y.Z  pre-release: bundle only
-# The release event then runs .github/workflows/release.yml: loader, bootc image and disk image.
-#   FROM_BUNDLE=<previous bundle .tar.xz>: same kernel, only files and scripts changed (minutes, no image build)
-#   NO_DEPLOY=1: no test install or publish question · FRESH=1: from-scratch build.sh first
+# Build, test and publish a release. Built here: the kernel, the update bundle for existing installs
+# and the bazzite-bootc-loader; the bootc image and disk image are built by .github/workflows/release.yml
+# when the release is published.
+#   bash tools/release.sh vX.Y[.Z]
+#   PRERELEASE=1                           publish as a pre-release
+#   FROM_BUNDLE=<previous bundle .tar.xz>  same kernel, only scripts changed (minutes, no image build)
+#   NO_DEPLOY=1                            no test install or publish question
+#   FRESH=1                                from-scratch build.sh first
 # Uses ~/ps5-build-7.3/work/linux73 as it is; publishes only after you confirm the PS5 works.
 set -euo pipefail
 V=${1:?usage: release.sh vX.Y[.Z]}
@@ -19,7 +21,6 @@ echo "free space: ${FREE}G"; [ "$FREE" -ge 60 ] || { echo "STOP: need at least 6
 
 if [ -n "${FROM_BUNDLE:-}" ]; then
   echo "==> update bundle: kernel from $(basename "$FROM_BUNDLE"), files and scripts from the repo (no image build)"
-  BUNDLE_ONLY=1
   cd "$B" && FROM_BUNDLE="$FROM_BUNDLE" bash "$SRC/tools/make-update-bundle.sh" "$V"
 elif [ -n "${FRESH:-}" ]; then
   echo "==> FRESH: from-scratch build with build.sh (the previous build dir is kept as $B.prev)"
@@ -54,16 +55,18 @@ else
   [ "$OK" = y ] || { echo "Not published. The bundle is in $B/output."; exit 0; }
 fi
 
-IMGFILES=()
-if [ -z "${BUNDLE_ONLY:-}" ]; then
-  echo "==> 7-Zip volumes"
-  cd "$B/output"
-  rm -f "ps5-bazzite-deck-$V.img.7z".*
-  7z a -mx=5 -mmt=on -v1900m "ps5-bazzite-deck-$V.img.7z" ps5-bazzite-deck.img >/dev/null
-  sha256sum "ps5-bazzite-deck-$V.img.7z".* > "ps5-bazzite-deck-$V.sha256"
-  IMGFILES=("ps5-bazzite-deck-$V.img.7z".* "ps5-bazzite-deck-$V.sha256")
-else
-  echo "==> update bundle only (no image volumes)"
+echo "==> loader"
+bash "$SRC/loader/build.sh" "$V"
+LOADER=("$SRC/loader/output/bazzite-bootc-loader-$V.elf" "$SRC/loader/output/bazzite-bootc-loader-$V.elf.sha256")
+
+# the kernel RPM goes on the release and bootc/pins.env points at it, so the bootc image
+# (built by CI from the tag) uses this release's kernel
+RPM=()
+if [ -z "${FROM_BUNDLE:-}" ]; then
+  RPMFILE=$(ls -t "$B"/linux-bin/linux-ps5-*.rpm | head -1)
+  RPM=("$RPMFILE")
+  sed -i -e "s/^KERNEL_TAG=.*/KERNEL_TAG=$V/" -e "s/^KERNEL_RPM=.*/KERNEL_RPM=$(basename "$RPMFILE")/" \
+         -e "s/^KERNEL_SHA256=.*/KERNEL_SHA256=$(sha256sum "$RPMFILE" | cut -d' ' -f1)/" "$SRC/bootc/pins.env"
 fi
 
 echo "==> changelog date, commit, tag"
@@ -74,7 +77,9 @@ git rev-parse -q --verify "refs/tags/$V" >/dev/null || { git tag -a "$V" -m "$V"
 
 echo "==> GitHub release"
 cd "$B/output"
-gh release create "$V" "${IMGFILES[@]}" "$BUNDLE" "$BUNDLE.sha256" ${PRERELEASE:+--prerelease} \
+# a draft until every file is attached: publishing starts the bootc build in CI, which downloads the RPM
+gh release create "$V" "$BUNDLE" "$BUNDLE.sha256" "${LOADER[@]}" "${RPM[@]}" --draft ${PRERELEASE:+--prerelease} \
   --repo "$R" --title "$V" --notes "Release notes follow."
+gh release edit "$V" --repo "$R" --draft=false
 cd "$SRC" && python3 tools/release_notes.py "$V"
 echo "https://github.com/$R/releases/tag/$V"
