@@ -82,7 +82,11 @@ for n in 2 3 4 5 6; do systemctl enable "getty@tty$n.service"; done
 systemctl mask plasma-setup.service
 # x86 hardware detection; sets kargs that don't apply to the PS5
 systemctl mask bazzite-hardware-setup.service
-# no GRUB here
+# no GRUB here, so no greenboot rollbacks. Unhook greenboot before masking it: ostree-finalize-staged requires
+# its rollback trigger, and a required unit that is masked makes every bootc update fail to stage.
+systemctl disable greenboot-healthcheck.service greenboot-set-rollback-trigger.service greenboot-success.target 2>/dev/null || true
+rm -f /etc/systemd/system/*.requires/greenboot-* /etc/systemd/system/*.wants/greenboot-* \
+      /usr/lib/systemd/system/*.requires/greenboot-* /usr/lib/systemd/system/*.wants/greenboot-*
 systemctl mask bootloader-update.service greenboot-healthcheck.service \
     greenboot-set-rollback-trigger.service greenboot-success.target
 
