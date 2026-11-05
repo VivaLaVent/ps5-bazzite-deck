@@ -78,7 +78,8 @@ jobs:
         run: |
           echo "${{ github.token }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           podman push --digestfile digest "$REF:stable" "$REF:${TAG:-${VERSION%%.*}}"
-          [ "$STABLE" != true ] || podman push "$REF:stable"
+          # :beta is the same image for now; later it gets the newest pre-release kernel and the next Bazzite
+          [ "$STABLE" != true ] || { podman push "$REF:stable"; podman push "$REF:stable" "$REF:beta"; }
           echo "digest=$(cat digest)" >> "$GITHUB_OUTPUT"
 
       - uses: sigstore/cosign-installer@v3
@@ -109,9 +110,11 @@ jobs:
           URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -n "$HOOK" ] || exit 0
-          DECK=$(git describe --tags --always)
-          jq -n --arg v "$VERSION" --arg u "$URL" --arg deck "$DECK" --arg digest "$DIGEST" --arg repo "$GITHUB_REPOSITORY" '
-            {embeds: [{title: "New bootc test image: \($v)", url: $u, color: 3447003,
-              description: "Built from \($deck) (Bazzite base updates and changes on main since the last release).\n\nOn the console: `sudo bootc upgrade`, then restart.\nBack to the previous image: `sudo bootc rollback`, then restart.\n\nDigest `\($digest)`",
+          DECK=$(git describe --tags --always); . ./pins.env
+          [ "$GITHUB_EVENT_NAME" = schedule ] && KIND="Weekly update" || KIND="Update"
+          jq -n --arg v "$VERSION" --arg u "$URL" --arg deck "$DECK" --arg digest "$DIGEST" --arg repo "$GITHUB_REPOSITORY" \
+                --arg kind "$KIND" --arg kernel "$KERNEL_TAG" '
+            {embeds: [{title: "\($kind) for bootc: \($v)", url: $u, color: 3447003,
+              description: "Bazzite\u0027s latest base updates, the kernel of \($kernel), and the PS5 files as of \($deck).\n\nOn the console: Steam\u0027s update button or `sudo bootc upgrade`, then restart and start with bazzite-bootc-loader.\nBack to the previous image: `sudo bootc rollback`, then restart.\n\nDigest `\($digest)`",
               footer: {text: "\($repo) • :stable"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"

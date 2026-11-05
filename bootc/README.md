@@ -30,6 +30,10 @@ you swap back.
 5. Run the jailbreak and bazzite-bootc-loader, and wait until the light stops blinking orange before pressing power.
 6. The first start takes a few minutes. You land in Steam Gaming Mode. Login for the desktop and `sudo`: **ps5** / **ps5**.
 
+## Update channels
+
+**Settings → System → OS Update Channel** in Steam offers **Stable** (`:stable`, rebuilt every week with Bazzite's updates and the kernel of the stable release) and **Beta** (`:beta`, the same for now; later the newest test kernel and the next Bazzite). Both are this image; the switch takes effect at the next start.
+
 ## Updating
 
 In Steam: **Settings → System**, check for updates and apply. Or in a terminal: `sudo bootc upgrade`.

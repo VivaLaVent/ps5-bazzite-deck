@@ -2,6 +2,14 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.5.1] – 2026-11-<DD>
+> bootc channels in Steam, Stable for every bootc console, PS5 Pro Bluetooth and temperatures.
+- **Steam's OS Update Channel lists Stable and Beta of this image** (`/usr/libexec/os-branch-select`). Bazzite's script rebased to `ghcr.io/ublue-os/bazzite-deck`, which has no PS5 kernel. `:beta` is pushed with every `:stable` build and identical for now; later it carries the newest pre-release kernel and Bazzite's next version. `image-info.json` names this image, so Bazzite's tools and the login banner do too
+- **Every bootc console follows `:stable`:** disk images install pointing at `:stable` (content of their release), and `ps5-bootc-channel` moves consoles on an older release tag (`:v2.5`) to `:stable` once; a console on the image's own release tag stays
+- **PS5 Pro Bluetooth as in v2.1.x** (`patches/ps5-pro.patch`): HCI on interface 3 with the routing undone before setup and shutdown, the first HCI Reset retried after a cold boot (mfoster978, PR #30), ACL on bulk OUT 0x0d; replaces the early draft in rmux's tree. IW620 and Slim unchanged
+- **PS5 Pro: ps5-cpufreq stays off,** as in v2.1.x: the Pro's MP1 never answers P-state requests (0x0b), and the busy mailbox then also blocked ps5-gpufreq's GPU clock requests (hot at idle, loud fan, red `mp1` errors at boot)
+- The `:stable` Discord post names its kind (weekly or by hand), the pinned kernel and the PS5 files' commit
+
 ## [v2.5] – 2026-11-04
 > Stable. Everything since v1.8.9; the v2.0 to v2.4.2 releases in between were test versions and are removed.
 - **Two install forms:** Legacy (full image + update bundle, as before) and bootc (experimental): `ghcr.io/vivalavent/ps5-bazzite-bootc`, flashed from the release's disk image, updated with `sudo bootc upgrade`, rolled back with `sudo bootc rollback`, started by **bazzite-bootc-loader** (rmux's ps5-linux-loader @ 940bce3 + BLS patches, built for every release; starts Legacy installs as the standard loader does)

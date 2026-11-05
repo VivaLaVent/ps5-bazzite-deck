@@ -70,7 +70,7 @@ systemctl enable \
     ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
     ps5-bt-revive.service ps5-perf.service ps5-stage-viola-fw.service ps5-console-defaults.service \
     ps5-wifi-repair.service ps5-wifi-powersave.timer \
-    ps5-gamescope-recovery.service \
+    ps5-gamescope-recovery.service ps5-bootc-channel.service \
     sshd.service
 mkdir -p /etc/systemd/system/bluetooth.target.wants
 ln -sf /etc/systemd/system/ps5-bt-addr.service /etc/systemd/system/bluetooth.target.wants/
@@ -124,6 +124,14 @@ else
     printf '[composefs]\nenabled = no\n' >> "$C"
 fi
 cat "$C"
+
+# --- image-info.json names this image, so Bazzite's tools and the login banner don't point at bazzite-deck
+I=/usr/share/ublue-os/image-info.json
+if [ -f "$I" ]; then
+    jq '."image-name"="ps5-bazzite-bootc" | ."image-vendor"="vivalavent" | ."image-tag"="stable"
+        | ."image-ref"="ostree-image-signed:docker://ghcr.io/vivalavent/ps5-bazzite-bootc"' "$I" > /tmp/image-info.json
+    mv /tmp/image-info.json "$I"
+fi
 
 # --- initramfs, last: amdgpu loads from it, so it needs the firmware and options above.
 # Same as Bazzite's build-initramfs.sh.

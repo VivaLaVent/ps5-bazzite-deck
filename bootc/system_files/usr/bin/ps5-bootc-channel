@@ -1,0 +1,13 @@
+#!/usr/bin/bash
+# An install from an older release's disk image (or "bootc switch ...:vX.Y") follows that fixed tag and never gets the
+# weekly :stable builds. Move it to :stable once; the switch takes effect at the next start. A console following this
+# image's own release tag is being tested on purpose and stays.
+set -eu
+IMG=ghcr.io/vivalavent/ps5-bazzite-bootc
+ref=$(bootc status --format=json | jq -r '.spec.image.image // .status.booted.image.image.image // empty')
+own=$(sed -n 's/^deck=\(v[0-9][0-9.]*\).*/\1/p' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null)
+case "$ref" in
+    "$IMG:${own:-none}") echo "following this release's own tag $own: staying" ;;
+    "$IMG":v[0-9]*) echo "following ${ref##*:}: moving to :stable"; bootc switch "$IMG:stable" ;;
+    *) echo "following ${ref:-an unknown image}: nothing to do" ;;
+esac

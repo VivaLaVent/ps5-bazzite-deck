@@ -1,0 +1,12 @@
+[Unit]
+Description=Follow the stable channel instead of a fixed release tag
+ConditionPathExists=/run/ostree-booted
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ps5-bootc-channel
+
+[Install]
+WantedBy=multi-user.target
