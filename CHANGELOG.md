@@ -2,6 +2,9 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [Unreleased]
+- **`ps5-m2-install`:** moves the running system to the M.2 partition `m2_init` prepared, bootc (system partition; `/boot` and the boot partition stay on USB; root UUID in the boot entries, so later versions keep it) and Legacy (root by label `<label>-m2`, fstab with the boot partition by label); `--back` returns to USB. Refuses to run from the M.2 or onto a mounted partition. Until a release ships it, it runs from `main` with a one-line download
+
 ## [v2.5.1] – 2026-11-05
 > bootc channels in Steam, Stable for every bootc console, PS5 Pro Bluetooth and temperatures.
 - **Steam's OS Update Channel lists Stable and Beta of this image** (`/usr/libexec/os-branch-select`). Bazzite's script rebased to `ghcr.io/ublue-os/bazzite-deck`, which has no PS5 kernel. `:beta` is pushed with every `:stable` build and identical for now; later it carries the newest pre-release kernel and Bazzite's next version. `image-info.json` names this image, so Bazzite's tools and the login banner do too
