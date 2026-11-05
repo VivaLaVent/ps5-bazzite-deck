@@ -130,6 +130,11 @@ jobs:
     steps:
       # scripts from the commit that runs this, so a resume run ships fixes made after tagging
       - uses: actions/checkout@v5
+      # pulling the image unpacks every layer, the base image's own kernel included: more than the runner's free space
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          df -h /
       # the same kernel, initramfs and modules as the bootc image: both start from bazzite-deck + this kernel
       - name: Kernel parts from the bootc image
         env:
