@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.5.1] – 2026-11-<DD>
+## [v2.5.1] – 2026-11-05
 > bootc channels in Steam, Stable for every bootc console, PS5 Pro Bluetooth and temperatures.
 - **Steam's OS Update Channel lists Stable and Beta of this image** (`/usr/libexec/os-branch-select`). Bazzite's script rebased to `ghcr.io/ublue-os/bazzite-deck`, which has no PS5 kernel. `:beta` is pushed with every `:stable` build and identical for now; later it carries the newest pre-release kernel and Bazzite's next version. `image-info.json` names this image, so Bazzite's tools and the login banner do too
 - **Every bootc console follows `:stable`:** disk images install pointing at `:stable` (content of their release), and `ps5-bootc-channel` moves consoles on an older release tag (`:v2.5`) to `:stable` once; a console on the image's own release tag stays
