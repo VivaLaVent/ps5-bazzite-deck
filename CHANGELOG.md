@@ -2,6 +2,14 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.6.2] – unreleased
+> Stable. Everything since v2.5: the v2.5.1 and v2.6.1 pre-releases, plus the fixes below.
+- **`ps5-report`:** VRAM in use next to the size in `vram.txt` (top block and SUMMARY), amdgpu's VRAM and GTT lines and the 6 GB default's log on every model; the first start after the 6 GB default still runs with the old size, which this shows
+- **`ps5-console-defaults`** is described as the defaults for every model (6 GB VRAM; the 80 °C GPU limit only on a Pro)
+- **RADV build stage (bootc):** every -devel package installed with its architecture, and missing `.pc` dependencies resolved per architecture (the first v2.6.1 builds lacked libdrm and others for 64-bit); `sed -n 1p` instead of `head -1`, which could stop the build with SIGPIPE
+- **Releases:** the bootc Discord post points at the Beta channel instead of the fixed release tag, which never updates; `release.sh` waits for the run of the commit it tagged, not an older run of a re-pushed tag
+- "Warm reboot" instead of "warm restart" in messages and notes
+
 ## [v2.6.1] – 2026-11-06
 > Pre-release: PS5 Pro GPU hangs fixed, Pro firmware dump on more firmware versions, fan back on the console's own control, 6 GB VRAM, Desktop Mode at start.
 - **PS5 Pro: Sony's own GPU command-processor microcode again** (as up to v2.1.1). The cyan_skillfish2 substitute from v2.1.6 on hung vkd3d (D3D12) games such as Dragon's Dogma 2 in a GPU reset that never recovered (black screen, SSH still up). `ps5.viola_cp=cs2` on the command line brings the substitute back for DXVK D3D9 games that hang on Sony's. Existing installs switch at the next start
