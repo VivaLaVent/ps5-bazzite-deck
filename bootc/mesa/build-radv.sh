@@ -1,0 +1,62 @@
+#!/usr/bin/bash
+# RADV with patches/, 64- and 32-bit, built in the base image against its own libraries.
+#   build-radv.sh <out dir>
+set -euxo pipefail
+M=$(cd "$(dirname "$0")" && pwd)
+OUT=${1:?usage: build-radv.sh <out dir>}
+. "$M/pins.env"
+
+base=$(rpm -q --qf '%{VERSION}\n' mesa-vulkan-drivers | head -1)
+[ "$base" = "$MESA_VERSION" ] || echo "::warning::Bazzite ships Mesa $base, RADV is built from $MESA_VERSION (bootc/mesa/pins.env)"
+
+# Bazzite builds with Terra and disables it afterwards; libdrm-devel must match the installed libdrm
+dnf5 config-manager setopt terra.enabled=1 terra-mesa.enabled=1
+dnf5 -y install --setopt=install_weak_deps=False \
+    gcc gcc-c++ meson ninja-build patch git-core pkgconf-pkg-config bison flex glslang \
+    python3-mako python3-pyyaml python3-packaging \
+    libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel \
+    wayland-devel wayland-protocols-devel libxcb-devel libX11-devel libxshmfence-devel libXrandr-devel \
+    libXext-devel libXxf86vm-devel libXfixes-devel libdisplay-info-devel \
+    glibc-devel.i686 libstdc++-devel.i686 libdrm-devel.i686 expat-devel.i686 \
+    zlib-ng-compat-devel.i686 libzstd-devel.i686 elfutils-libelf-devel.i686 wayland-devel.i686 libxcb-devel.i686 \
+    libX11-devel.i686 libxshmfence-devel.i686 libXrandr-devel.i686 libXext-devel.i686 libXxf86vm-devel.i686 \
+    libXfixes-devel.i686
+
+W=$(mktemp -d)
+git clone -q --depth 1 --branch "mesa-$MESA_VERSION" "https://github.com/$MESA_REPO" "$W/mesa"
+[ "$(git -C "$W/mesa" rev-parse HEAD)" = "$MESA_COMMIT" ] || { echo "mesa-$MESA_VERSION is not $MESA_COMMIT"; exit 1; }
+for p in "$M"/patches/*.patch; do patch -d "$W/mesa" -p1 -s --no-backup-if-mismatch < "$p"; done
+
+cat > "$W/i686.ini" <<'EOF'
+[binaries]
+c = ['gcc', '-m32']
+cpp = ['g++', '-m32']
+ar = 'gcc-ar'
+strip = 'strip'
+pkg-config = 'pkg-config'
+
+[properties]
+pkg_config_libdir = ['/usr/lib/pkgconfig', '/usr/share/pkgconfig']
+
+[host_machine]
+system = 'linux'
+cpu_family = 'x86'
+cpu = 'i686'
+endian = 'little'
+EOF
+
+# shellcheck disable=SC2054
+opts=(-Dbuildtype=release -Doptimization=2 -Dplatforms=x11,wayland -Dvulkan-drivers=amd
+      -Dgallium-drivers= -Dvulkan-layers= -Dvideo-codecs=all -Dllvm=disabled -Dopengl=false -Dgles1=disabled
+      -Dgles2=disabled -Degl=disabled -Dgbm=disabled -Dglx=disabled -Dbuild-tests=false -Dvalgrind=disabled
+      -Dlibunwind=disabled -Dlmsensors=disabled)
+meson setup "$W/b64" "$W/mesa" "${opts[@]}"
+ninja -C "$W/b64" src/amd/vulkan/libvulkan_radeon.so
+meson setup "$W/b32" "$W/mesa" --cross-file "$W/i686.ini" "${opts[@]}"
+ninja -C "$W/b32" src/amd/vulkan/libvulkan_radeon.so
+
+mkdir -p "$OUT/lib64" "$OUT/lib"
+install -m755 -s "$W/b64/src/amd/vulkan/libvulkan_radeon.so" "$OUT/lib64/"
+install -m755 -s "$W/b32/src/amd/vulkan/libvulkan_radeon.so" "$OUT/lib/"
+echo "$MESA_VERSION+$(cat "$M"/patches/*.patch | sha256sum | cut -c1-12)" > "$OUT/VERSION"
+rm -rf "$W"

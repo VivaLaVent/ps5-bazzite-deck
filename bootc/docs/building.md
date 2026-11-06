@@ -33,6 +33,10 @@ ps5-linux-image does for its Bazzite target, with these differences:
 - `ps5-stage-gpu-firmware` (from the kernel package) is off: it writes to `/usr`, which is
   read-only. `ps5-stage-viola-fw` does the same job on the boot partition;
 - no repo.etawen.dev: the kernel comes with the image.
+- RADV (`libvulkan_radeon.so`, 64- and 32-bit) is built in a first stage of the Containerfile from the Mesa version and
+  patches in `mesa/` (Terra's patches as in Bazzite's package, plus Borchev's PS5 Pro patch) against the base image's own
+  libraries, then installed over Bazzite's; the build fails if it doesn't load (`ldd -r`). When Bazzite moves to another
+  Mesa version, the build warns until `mesa/pins.env` and the patches follow.
 
 ## Pinned inputs
 

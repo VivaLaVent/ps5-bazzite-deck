@@ -1,0 +1,1999 @@
+diff -ruN a/src/amd/common/ac_gpu_info.c b/src/amd/common/ac_gpu_info.c
+--- a/src/amd/common/ac_gpu_info.c
++++ b/src/amd/common/ac_gpu_info.c
+@@ -337,6 +337,7 @@
+    out->has_accelerated_dot_product =
+       info->family == CHIP_VEGA20 ||
+       (info->family >= CHIP_MI100 && info->family != CHIP_NAVI10 && info->family != CHIP_GFX1013);
++   out->has_viola_ml = ac_is_viola(info);
+    /* GFX1013 is GFX10 plus ray tracing instructions */
+    out->has_image_bvh_intersect_ray = info->gfx_level >= GFX10_3 || info->family == CHIP_GFX1013;
+ 
+@@ -483,9 +484,13 @@
+        */
+       info->ip[ip_type].num_queues = 1;
+    } else if (ip_info->available_rings) {
+-      /* GFX1013 is known to have broken compute queue */
++      /* GFX1013 is known to have broken compute queue. On Viola (13DA/13DC) it works:
++       * AMD_VIOLA_COMPUTE_QUEUE=0 disables it there.
++       */
+       if (ip_type == AMD_IP_COMPUTE && device_info->family == FAMILY_NV &&
+-          ASICREV_IS(device_info->external_rev, GFX1013))
++          ASICREV_IS(device_info->external_rev, GFX1013) &&
++          !(ac_is_viola_pci_id(device_info->device_id) &&
++            debug_get_bool_option("AMD_VIOLA_COMPUTE_QUEUE", true)))
+          return false;
+ 
+       info->ip[ip_type].num_queues = util_bitcount(ip_info->available_rings);
+@@ -1017,10 +1022,11 @@
+ 
+    /* HW bug workaround with async compute dispatches when threadgroup > 4096.
+     * The workaround is to change the "threadgroup" dimension mode to "thread"
+-    * dimension mode.
++    * dimension mode. GFX1013 corrupts partial threadgroups on async compute.
+     */
+    info->has_async_compute_threadgroup_bug = info->family == CHIP_ICELAND ||
+-                                             info->family == CHIP_TONGA;
++                                             info->family == CHIP_TONGA ||
++                                             info->family == CHIP_GFX1013;
+ 
+    /* GFX7 CP requires 32 bytes alignment for the indirect buffer arguments on
+     * the compute queue.
+@@ -2114,6 +2120,7 @@
+    fprintf(f, "    has_mad32 = %i\n", info->compiler_info.has_mad32);
+    fprintf(f, "    has_packed_math_16bit = %i\n", info->compiler_info.has_packed_math_16bit);
+    fprintf(f, "    has_accelerated_dot_product = %i\n", info->compiler_info.has_accelerated_dot_product);
++   fprintf(f, "    has_viola_ml = %i\n", info->compiler_info.has_viola_ml);
+    fprintf(f, "    has_image_bvh_intersect_ray = %i\n", info->compiler_info.has_image_bvh_intersect_ray);
+    fprintf(f, "    has_ngg_passthru_no_msg = %i\n", info->compiler_info.has_ngg_passthru_no_msg);
+    fprintf(f, "    local_invocation_ids_packed = %i\n", info->compiler_info.local_invocation_ids_packed);
+diff -ruN a/src/amd/common/ac_gpu_info.h b/src/amd/common/ac_gpu_info.h
+--- a/src/amd/common/ac_gpu_info.h
++++ b/src/amd/common/ac_gpu_info.h
+@@ -140,6 +140,10 @@
+     * instruction encoding which accumulates with the destination.
+     */
+    uint32_t has_accelerated_dot_product : 1;
++   /* Viola (13DA/13DC) int8 matrix instructions, used for int8 dot products with constant or
++    * uniform weights in compute shaders.
++    */
++   uint32_t has_viola_ml : 1;
+    /* Device supports hardware-accelerated raytracing using
+     * image_bvh*_intersect_ray instructions
+     */
+@@ -576,6 +580,19 @@
+  */
+ #define AC_MESH_SCRATCH_ENTRY_BYTES (160 * 1024)
+ 
++/* Viola (13DA/13DC) runs as GFX1013 with extra ML instructions. */
++static inline bool
++ac_is_viola_pci_id(uint32_t pci_id)
++{
++   return pci_id == 0x13da || pci_id == 0x13dc;
++}
++
++static inline bool
++ac_is_viola(const struct radeon_info *info)
++{
++   return info->family == CHIP_GFX1013 && ac_is_viola_pci_id(info->pci_id);
++}
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff -ruN a/src/amd/compiler/aco_assembler.cpp b/src/amd/compiler/aco_assembler.cpp
+--- a/src/amd/compiler/aco_assembler.cpp
++++ b/src/amd/compiler/aco_assembler.cpp
+@@ -1226,6 +1226,49 @@
+    out.push_back(encoding);
+ }
+ 
++/* Viola ops 0x23 and 0x24, encoding class 111001:
++ *   dword0: op[25:19] | literal[18] | pair[17] | sgpr[15:8] | vdst[7:0]
++ *   dword1: s0[7:0] | s1[15:8] | accumulator[23:16] | second vdst[31:24]
++ *   dword2: literal (weights for s1 into the second destination); without the literal bit there
++ *           is no dword2 and these weights are zero
++ * The pair bit stays 0: a set pair bit must be followed by a second op of this class.
++ */
++void
++emit_dot8x2_i8_viola(asm_context& ctx, std::vector<uint32_t>& out, const Instruction* instr)
++{
++   bool literal = instr->opcode == aco_opcode::p_dot8x2_i8_viola;
++   uint32_t vdst = reg(ctx, instr->definitions[0], 8);
++   uint32_t acc = reg(ctx, instr->operands[2], 8);
++   assert(acc == vdst);
++
++   /* The weights can start at an offset into a larger tuple: operand 5 of p_dot8x2, or bits 7:0 of
++    * operand 4 of p_dot4x2, whose bit 8 selects the high halves (op 0x24).
++    */
++   uint32_t sgpr = reg(ctx, instr->operands[3], 8), op = 0x23;
++   if (literal) {
++      sgpr += instr->operands[5].constantValue();
++   } else if (instr->operands.size() > 4) {
++      sgpr += instr->operands[4].constantValue() & 0xff;
++      op += (instr->operands[4].constantValue() >> 8) & 1;
++   }
++   out.push_back(0xe4000000u | (op << 19) | (literal << 18) | (sgpr << 8) | vdst);
++   out.push_back(reg(ctx, instr->operands[0], 8) | (reg(ctx, instr->operands[1], 8) << 8) |
++                 (acc << 16) | (((vdst + 1) & 0xff) << 24));
++   if (literal)
++      out.push_back(instr->operands[4].constantValue());
++}
++
++/* Viola quantize op 0x28 in the same class, with the literal and no SGPR operand. Its
++ * accumulator and second destination fields are unused.
++ */
++void
++emit_quant8x4_viola(asm_context& ctx, std::vector<uint32_t>& out, const Instruction* instr)
++{
++   out.push_back(0xe4000000u | (0x28u << 19) | (1u << 18) | (0x7du << 8) | reg(ctx, instr->definitions[0], 8));
++   out.push_back(reg(ctx, instr->operands[0], 8) | (reg(ctx, instr->operands[1], 8) << 8));
++   out.push_back(instr->operands[2].constantValue() << 8);
++}
++
+ void
+ emit_instruction(asm_context& ctx, std::vector<uint32_t>& out, Instruction* instr)
+ {
+@@ -1289,6 +1332,16 @@
+       }
+    }
+ 
++   /* Not in the opcode tables: these have their own encoding. */
++   if (instr->opcode == aco_opcode::p_dot8x2_i8_viola || instr->opcode == aco_opcode::p_dot4x2_i8_viola) {
++      emit_dot8x2_i8_viola(ctx, out, instr);
++      return;
++   }
++   if (instr->opcode == aco_opcode::p_quant8x4_viola) {
++      emit_quant8x4_viola(ctx, out, instr);
++      return;
++   }
++
+    uint32_t opcode = ctx.opcode[(int)instr->opcode];
+    if (opcode == (uint32_t)-1) {
+       char* outmem;
+diff -ruN a/src/amd/compiler/aco_insert_NOPs.cpp b/src/amd/compiler/aco_insert_NOPs.cpp
+--- a/src/amd/compiler/aco_insert_NOPs.cpp
++++ b/src/amd/compiler/aco_insert_NOPs.cpp
+@@ -130,6 +130,7 @@
+    bool has_NSA_MIMG = false;
+    bool has_writelane = false;
+    bool has_salu_exec_write = false;
++   bool vgprs_read_by_mem = false;
+    std::bitset<128> sgprs_read_by_VMEM;
+    std::bitset<128> sgprs_read_by_VMEM_store;
+    std::bitset<128> sgprs_read_by_DS;
+@@ -147,6 +148,7 @@
+       has_NSA_MIMG |= other.has_NSA_MIMG;
+       has_writelane |= other.has_writelane;
+       has_salu_exec_write |= other.has_salu_exec_write;
++      vgprs_read_by_mem |= other.vgprs_read_by_mem;
+       sgprs_read_by_VMEM |= other.sgprs_read_by_VMEM;
+       sgprs_read_by_DS |= other.sgprs_read_by_DS;
+       sgprs_read_by_VMEM_store |= other.sgprs_read_by_VMEM_store;
+@@ -160,7 +162,8 @@
+              has_nonVALU_exec_read == other.has_nonVALU_exec_read && has_VMEM == other.has_VMEM &&
+              has_branch_after_VMEM == other.has_branch_after_VMEM && has_DS == other.has_DS &&
+              has_branch_after_DS == other.has_branch_after_DS &&
+-             has_NSA_MIMG == other.has_NSA_MIMG && has_writelane == other.has_writelane &&
++             has_NSA_MIMG == other.has_NSA_MIMG && vgprs_read_by_mem == other.vgprs_read_by_mem &&
++             has_writelane == other.has_writelane &&
+              has_salu_exec_write == other.has_salu_exec_write &&
+              sgprs_read_by_VMEM == other.sgprs_read_by_VMEM &&
+              sgprs_read_by_DS == other.sgprs_read_by_DS &&
+@@ -895,6 +898,33 @@
+       sa_sdst = instr->salu().imm & 0x1;
+    }
+ 
++   /* Viola ops 0x23 and 0x24 read their weight SGPRs without waiting for SALU or VALU writes to
++    * them. Wait for outstanding SGPR writes (sa_sdst = 0, va_sdst = 0) when they were written
++    * recently.
++    */
++   if (instr->opcode == aco_opcode::p_dot8x2_i8_viola || instr->opcode == aco_opcode::p_dot4x2_i8_viola) {
++      int salu = 0, valu = 0;
++      handle_raw_hazard<false, false, true>(state, &salu, 64, instr->operands[3]);
++      handle_valu_then_read_hazard(state, &valu, 64, instr->operands[3]);
++      if (salu || valu)
++         bld.sopp(aco_opcode::s_waitcnt_depctr, (salu ? 0xfffe : 0xffff) & (valu ? 0xf1ff : 0xffff));
++   }
++
++   /* Its VGPR writes also don't wait for memory instructions that still have to read their VGPR
++    * operands (a store's data, for example), unlike other VALU.
++    */
++   if (vm_vsrc == 0) {
++      ctx.vgprs_read_by_mem = false;
++   } else if (instr->isVMEM() || instr->isFlatLike() || instr->isDS()) {
++      ctx.vgprs_read_by_mem |= std::any_of(instr->operands.begin(), instr->operands.end(),
++                                           [](const Operand& op) { return op.isOfType(RegType::vgpr); });
++   } else if (ctx.vgprs_read_by_mem && (instr->opcode == aco_opcode::p_dot8x2_i8_viola ||
++                                        instr->opcode == aco_opcode::p_dot4x2_i8_viola ||
++                                        instr->opcode == aco_opcode::p_quant8x4_viola)) {
++      bld.sopp(aco_opcode::s_waitcnt_depctr, 0xffe3);
++      ctx.vgprs_read_by_mem = false;
++   }
++
+    /* FPAtomicToDenormModeHazard */
+    if (instr->opcode == aco_opcode::s_denorm_mode && ctx.waits_since_fp_atomic < 3) {
+       bld.sopp(aco_opcode::s_nop, 3 - ctx.waits_since_fp_atomic - 1);
+diff -ruN a/src/amd/compiler/aco_ir.cpp b/src/amd/compiler/aco_ir.cpp
+--- a/src/amd/compiler/aco_ir.cpp
++++ b/src/amd/compiler/aco_ir.cpp
+@@ -1679,7 +1679,8 @@
+        instr->opcode == aco_opcode::v_writelane_b32_e64 ||
+        instr->opcode == aco_opcode::v_dot4c_i32_i8 ||
+        instr->opcode == aco_opcode::v_dot2c_f32_f16 || instr->opcode == aco_opcode::s_fmac_f32 ||
+-       instr->opcode == aco_opcode::s_fmac_f16) {
++       instr->opcode == aco_opcode::s_fmac_f16 || instr->opcode == aco_opcode::p_dot8x2_i8_viola ||
++       instr->opcode == aco_opcode::p_dot4x2_i8_viola) {
+       ops.push_back(2);
+    } else if (instr->opcode == aco_opcode::s_addk_i32 || instr->opcode == aco_opcode::s_mulk_i32 ||
+               instr->opcode == aco_opcode::s_cmovk_i32 ||
+diff -ruN a/src/amd/compiler/aco_lower_to_hw_instr.cpp b/src/amd/compiler/aco_lower_to_hw_instr.cpp
+--- a/src/amd/compiler/aco_lower_to_hw_instr.cpp
++++ b/src/amd/compiler/aco_lower_to_hw_instr.cpp
+@@ -2330,6 +2330,12 @@
+             Pseudo_instruction* pi = &instr->pseudo();
+ 
+             switch (instr->opcode) {
++            case aco_opcode::p_dot8x2_i8_viola:
++            case aco_opcode::p_dot4x2_i8_viola:
++            case aco_opcode::p_quant8x4_viola: {
++               ctx.instructions.emplace_back(std::move(instr));
++               break;
++            }
+             case aco_opcode::p_extract_vector: {
+                PhysReg reg = instr->operands[0].physReg();
+                Definition& def = instr->definitions[0];
+diff -ruN a/src/amd/compiler/aco_opcodes.py b/src/amd/compiler/aco_opcodes.py
+--- a/src/amd/compiler/aco_opcodes.py
++++ b/src/amd/compiler/aco_opcodes.py
+@@ -472,6 +472,19 @@
+ # performs dual source MRTs swizzling and emits exports on GFX11
+ insn("p_dual_src_export_gfx11")
+ 
++# Viola int8 matrix op 0x23: def = v2 accumulator, operands = (S0 v1, S1 v1, accumulator v2,
++# weights s4/s8/s16 as loaded, literal weight, offset of the op's three weights in them). Kept
++# until assembly, which emits the raw encoding.
++insn("p_dot8x2_i8_viola")
++
++# The same op without the literal: def = v2 accumulator, operands = (S0 v1, S1 v1, accumulator v2,
++# weights s2), or with a fifth operand, weights in a larger tuple and the constant offset of the
++# op's weights in it (bits 7:0), plus bit 8 for the high halves (op 0x24).
++insn("p_dot4x2_i8_viola")
++
++# Viola quantize op 0x28: def = v1 of four int8, operands = (fp16x2 v1, fp16x2 v1, literal byte).
++insn("p_quant8x4_viola")
++
+ # Let shader end with specific registers set to wanted value, used by multi part
+ # shader to pass arguments to next part.
+ insn("p_end_with_regs")
+diff -ruN a/src/amd/compiler/aco_optimizer.cpp b/src/amd/compiler/aco_optimizer.cpp
+--- a/src/amd/compiler/aco_optimizer.cpp
++++ b/src/amd/compiler/aco_optimizer.cpp
+@@ -1810,7 +1810,10 @@
+    case aco_opcode::p_bpermute_permlane:
+    case aco_opcode::p_permlane64_shared_vgpr:
+    case aco_opcode::p_interp_gfx11:
+-   case aco_opcode::p_dual_src_export_gfx11: return false;
++   case aco_opcode::p_dual_src_export_gfx11:
++   case aco_opcode::p_dot8x2_i8_viola:
++   case aco_opcode::p_dot4x2_i8_viola:
++   case aco_opcode::p_quant8x4_viola: return false;
+    default: return true;
+    }
+ }
+diff -ruN a/src/amd/compiler/aco_register_allocation.cpp b/src/amd/compiler/aco_register_allocation.cpp
+--- a/src/amd/compiler/aco_register_allocation.cpp
++++ b/src/amd/compiler/aco_register_allocation.cpp
+@@ -268,6 +268,24 @@
+    return get_reg_bounds(ctx, rc.type(), rc.is_linear_vgpr());
+ }
+ 
++/* The Viola int8 op reads three SGPRs from its weights operand (3), at an offset into it, and
++ * they must not go past s105. Returns the highest register the operand can start at, or -1 if the
++ * operand isn't such a weights operand.
++ */
++static int
++viola_dot_weights_limit(const Instruction* instr, int idx)
++{
++   if (idx != 3 ||
++       (instr->opcode != aco_opcode::p_dot8x2_i8_viola && instr->opcode != aco_opcode::p_dot4x2_i8_viola))
++      return -1;
++   unsigned offset = 0;
++   if (instr->opcode == aco_opcode::p_dot8x2_i8_viola)
++      offset = instr->operands[5].constantValue();
++   else if (instr->operands.size() > 4)
++      offset = instr->operands[4].constantValue() & 0xff;
++   return 103 - (int)offset;
++}
++
+ struct DefInfo {
+    PhysRegInterval bounds;
+    uint8_t size;
+@@ -277,6 +295,7 @@
+    uint8_t data_stride;
+    RegClass rc;
+    int operand_idx;
++   bool no_vcc = false;
+ 
+    DefInfo(ra_ctx& ctx, aco_ptr<Instruction>& instr, RegClass rc_, int operand)
+        : rc(rc_), operand_idx(operand)
+@@ -287,6 +306,13 @@
+ 
+       bounds = get_reg_bounds(ctx, rc);
+ 
++      int limit = operand >= 0 ? viola_dot_weights_limit(instr.get(), operand) : -1;
++      if (limit >= 0) {
++         unsigned end = limit + size;
++         bounds.size = end > bounds.lo().reg() ? MIN2(bounds.size, end - bounds.lo().reg()) : 0;
++         no_vcc = true;
++      }
++
+       if (rc.is_subdword() && operand >= 0) {
+          /* stride in bytes */
+          stride = get_subdword_operand_stride(ctx.program, instr.get(), operand, rc);
+@@ -1490,8 +1516,8 @@
+    PhysRegInterval reg_win = {PhysReg(reg.reg()), info.rc.size()};
+    PhysRegInterval vcc_win = {vcc, 2};
+    /* VCC is outside the bounds */
+-   bool is_vcc =
+-      info.rc.type() == RegType::sgpr && vcc_win.contains(reg_win) && ctx.program->needs_vcc;
++   bool is_vcc = info.rc.type() == RegType::sgpr && vcc_win.contains(reg_win) && ctx.program->needs_vcc &&
++                 !info.no_vcc;
+    bool is_m0 = info.rc == s1 && reg == m0 && can_write_m0(instr.get());
+    if (!info.bounds.contains(reg_win) && !is_vcc && !is_m0)
+       return false;
+@@ -2251,6 +2277,11 @@
+               gfx_level >= GFX10); /* sdata can be vcc */
+    case Format::MUBUF:
+    case Format::MTBUF: return idx != 2 || gfx_level < GFX12 || reg != scc;
++   case Format::PSEUDO: {
++      /* The Viola int8 op reads three SGPRs starting at its weights operand. */
++      int limit = viola_dot_weights_limit(instr.get(), idx);
++      return limit < 0 || (int)reg.reg() <= limit;
++   }
+    case Format::SOPK:
+       if (idx == 0 && reg == scc)
+          return false;
+diff -ruN a/src/amd/compiler/aco_scheduler_ilp.cpp b/src/amd/compiler/aco_scheduler_ilp.cpp
+--- a/src/amd/compiler/aco_scheduler_ilp.cpp
++++ b/src/amd/compiler/aco_scheduler_ilp.cpp
+@@ -66,6 +66,7 @@
+    RegisterInfo regs[512];
+    BITSET_DECLARE(reg_has_latency, 512) = { 0 };
+    mask_t non_reorder_mask = 0; /* bitmask of instruction nodes which should not be reordered. */
++   mask_t viola_dot_mask = 0;   /* bitmask of Viola int8 matrix op nodes. */
+    mask_t active_mask = 0;      /* bitmask of valid instruction nodes. */
+    uint8_t next_non_reorderable = UINT8_MAX; /* index of next node which should not be reordered. */
+    uint8_t last_non_reorderable = UINT8_MAX; /* index of last node which should not be reordered. */
+@@ -81,13 +82,19 @@
+    mask_t vopd_even_mask = 0;
+ };
+ 
++bool
++is_viola_dot(const Instruction* const instr)
++{
++   return instr->opcode == aco_opcode::p_dot8x2_i8_viola || instr->opcode == aco_opcode::p_dot4x2_i8_viola;
++}
++
+ /**
+  * Returns true for side-effect free SALU and VALU instructions.
+  */
+ bool
+ can_reorder(const Instruction* const instr)
+ {
+-   if (instr->isVALU() || instr->isVINTRP())
++   if (instr->isVALU() || instr->isVINTRP() || is_viola_dot(instr))
+       return true;
+    if (!instr->isSALU() || instr->isSOPP())
+       return false;
+@@ -478,6 +485,12 @@
+       cycle_info.latency = 13;
+    } else if (instr->isDS()) {
+       cycle_info.latency = 20;
++   } else if (is_viola_dot(instr)) {
++      /* Viola int8 matrix op: one that uses the previous one's accumulator stalls the SIMD for
++       * about 5 cycles, and other waves don't fill the gap. The pre-RA scheduler groups each
++       * chain's ops together when it moves loads, so interleave them again here.
++       */
++      cycle_info.latency = 5;
+    }
+ 
+    return cycle_info;
+@@ -605,6 +618,14 @@
+       ctx.potential_partial_clause = false;
+    }
+ 
++   /* Keep memory instructions below earlier int8 matrix ops. It matters for SMEM, whose results can
++    * only be waited for all at once: a load moved above an op that uses an older load makes the op
++    * wait for the new load too.
++    */
++   if (is_memory_instr(instr))
++      write_dep_mask |= ctx.viola_dot_mask & ctx.active_mask;
++   ctx.viola_dot_mask = (ctx.viola_dot_mask & ~mask) | (is_viola_dot(instr) ? mask : 0);
++
+    entry.dependency_mask |= write_dep_mask;
+    entry.dependency_mask &= ~mask;
+ 
+diff -ruN a/src/amd/compiler/instruction_selection/aco_instruction_selection.h b/src/amd/compiler/instruction_selection/aco_instruction_selection.h
+--- a/src/amd/compiler/instruction_selection/aco_instruction_selection.h
++++ b/src/amd/compiler/instruction_selection/aco_instruction_selection.h
+@@ -140,6 +140,13 @@
+    Program* program;
+    nir_shader* shader;
+    uint32_t constant_data_offset;
++
++   /* Viola: SGPR weights of dot8x2_i8_viola_amd, loaded in batches from the constant data. */
++   /* The loaded weights and the offset of an op's weights in them. */
++   std::unordered_map<nir_intrinsic_instr*, std::pair<Temp, unsigned>> viola_dot_weights;
++   nir_block* viola_dot_rsrc_block = NULL;
++   Temp viola_dot_rsrc;
++   uint32_t viola_dot_rsrc_offset = 0;
+    Block* block;
+    uint32_t first_temp_id;
+    std::unordered_map<unsigned, std::array<Temp, NIR_MAX_VEC_COMPONENTS>> allocated_vec;
+diff -ruN a/src/amd/compiler/instruction_selection/aco_isel_setup.cpp b/src/amd/compiler/instruction_selection/aco_isel_setup.cpp
+--- a/src/amd/compiler/instruction_selection/aco_isel_setup.cpp
++++ b/src/amd/compiler/instruction_selection/aco_isel_setup.cpp
+@@ -589,6 +589,11 @@
+                case nir_intrinsic_load_vector_arg_amd:
+                case nir_intrinsic_ordered_xfb_counter_add_gfx11_amd:
+                case nir_intrinsic_cmat_muladd_amd:
++               case nir_intrinsic_dot8x2_i8_viola_amd:
++               case nir_intrinsic_dot4x2_i8_viola_amd:
++               case nir_intrinsic_dot4x2t_i8_viola_amd:
++               case nir_intrinsic_dot4x2t_hi_i8_viola_amd:
++               case nir_intrinsic_quant8x4_viola_amd:
+                case nir_intrinsic_unit_test_divergent_input: type = RegType::vgpr; break;
+                case nir_intrinsic_load_shared:
+                case nir_intrinsic_load_shared2_amd:
+diff -ruN a/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp b/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp
+--- a/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp
++++ b/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp
+@@ -3666,6 +3666,176 @@
+    return true;
+ }
+ 
++/* The weights in the SGPR operand of dot8x2_i8_viola_amd. Writing them with s_mov costs three SALU
++ * instructions per op, which limits the op to about a third of its rate. Put them in the constant
++ * data instead and load up to four sets of weights for the next ops in the block with one SMEM
++ * instruction. The scalar cache only delivers new weights for about half the op's rate, so ops
++ * with the same weights (the same layer for several pixels) among the next 16 share a set.
++ * These SGPRs are written by SMEM, which s_waitcnt covers. The ops read them where they were
++ * loaded, at an offset, so that they are never copied.
++ */
++std::pair<Temp, unsigned>
++get_dot8x2_i8_viola_weights(isel_context* ctx, nir_intrinsic_instr* instr)
++{
++   auto it = ctx->viola_dot_weights.find(instr);
++   if (it != ctx->viola_dot_weights.end())
++      return it->second;
++
++   /* The next ops, up to four different sets of weights. */
++   nir_intrinsic_instr* batch[16];
++   unsigned slot[16];
++   uint32_t weights[4][4] = {};
++   unsigned count = 0, num_slots = 0;
++   for (nir_instr* cur = &instr->instr; cur && count < 16; cur = nir_instr_next(cur)) {
++      if (cur->type != nir_instr_type_intrinsic ||
++          nir_instr_as_intrinsic(cur)->intrinsic != nir_intrinsic_dot8x2_i8_viola_amd ||
++          ctx->viola_dot_weights.count(nir_instr_as_intrinsic(cur)))
++         continue;
++      nir_intrinsic_instr* dot = nir_instr_as_intrinsic(cur);
++      uint32_t w[4] = {0};
++      for (unsigned c = 0; c < 3; c++)
++         w[c] = nir_scalar_as_uint(nir_scalar_resolved(dot->src[3].ssa, c));
++      unsigned s = 0;
++      while (s < num_slots && memcmp(weights[s], w, sizeof(w)))
++         s++;
++      if (s == num_slots) {
++         if (num_slots == 4)
++            break;
++         memcpy(weights[num_slots++], w, sizeof(w));
++      }
++      batch[count] = dot;
++      slot[count++] = s;
++   }
++   /* Loads of 4, 8 or 16 dwords: the ops with a third set of weights get a later batch. */
++   if (num_slots == 3) {
++      num_slots = 2;
++      unsigned kept = 0;
++      for (unsigned i = 0; i < count; i++) {
++         if (slot[i] < 2) {
++            batch[kept] = batch[i];
++            slot[kept++] = slot[i];
++         }
++      }
++      count = kept;
++   }
++
++   std::vector<uint8_t>& data = ctx->program->constant_data;
++   data.resize(align(data.size(), 16), 0);
++   uint32_t offset = data.size();
++   for (unsigned i = 0; i < num_slots; i++)
++      data.insert(data.end(), (uint8_t*)weights[i], (uint8_t*)(weights[i] + 4));
++
++   /* One descriptor per block, covering the constant data from the batch onward. */
++   Builder bld(ctx->program, ctx->block);
++   if (ctx->viola_dot_rsrc_block != instr->instr.block ||
++       offset - ctx->viola_dot_rsrc_offset > ctx->program->dev.smem_offset_max) {
++      uint32_t desc[4];
++      ac_build_raw_buffer_descriptor(ctx->options->gfx_level, ctx->program->dev.has_desc_resource_level,
++                                     0, 0, desc);
++      ctx->viola_dot_rsrc = bld.pseudo(aco_opcode::p_create_vector, bld.def(s4),
++                                     bld.pseudo(aco_opcode::p_constaddr, bld.def(s2), bld.def(s1, scc),
++                                                Operand::c32(offset)),
++                                     Operand::c32(0xffffffffu), Operand::c32(desc[3]));
++      ctx->viola_dot_rsrc_block = instr->instr.block;
++      ctx->viola_dot_rsrc_offset = offset;
++   }
++
++   aco_opcode op = num_slots == 4   ? aco_opcode::s_buffer_load_dwordx16
++                   : num_slots == 2 ? aco_opcode::s_buffer_load_dwordx8
++                                    : aco_opcode::s_buffer_load_dwordx4;
++   Temp vec = bld.tmp(RegClass(RegType::sgpr, num_slots * 4));
++   aco_ptr<Instruction> load{create_instruction(op, Format::SMEM, 2, 1)};
++   load->operands[0] = Operand(ctx->viola_dot_rsrc);
++   load->operands[1] = Operand::c32(offset - ctx->viola_dot_rsrc_offset);
++   load->definitions[0] = Definition(vec);
++   load->smem().sync = memory_sync_info(storage_none, semantic_can_reorder);
++   bld.insert(std::move(load));
++
++   for (unsigned i = 0; i < count; i++)
++      ctx->viola_dot_weights[batch[i]] = {vec, slot[i] * 4};
++   return ctx->viola_dot_weights[instr];
++}
++
++void
++visit_dot8x2_i8_viola(isel_context* ctx, nir_intrinsic_instr* instr)
++{
++   /* The first three weights are read from SGPRs (the fourth SGPR of the operand is unused), the
++    * last one from the literal.
++    */
++   for (unsigned i = 0; i < 4; i++) {
++      if (!nir_scalar_is_const(nir_scalar_resolved(instr->src[3].ssa, i))) {
++         isel_err(&instr->instr, "dot8x2_i8_viola_amd weights must be constant");
++         return;
++      }
++   }
++
++   std::pair<Temp, unsigned> weights = get_dot8x2_i8_viola_weights(ctx, instr);
++   aco_ptr<Instruction> dot{create_instruction(aco_opcode::p_dot8x2_i8_viola, Format::PSEUDO, 6, 1)};
++   dot->operands[0] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[1].ssa)));
++   dot->operands[1] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[2].ssa)));
++   dot->operands[2] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[0].ssa)));
++   dot->operands[3] = Operand(weights.first);
++   dot->operands[4] =
++      Operand::literal32(nir_scalar_as_uint(nir_scalar_resolved(instr->src[3].ssa, 3)));
++   dot->operands[5] = Operand::c32(weights.second);
++   dot->definitions[0] = Definition(get_ssa_temp(ctx, &instr->def));
++   ctx->block->instructions.emplace_back(std::move(dot));
++}
++
++void
++visit_dot4x2_i8_viola(isel_context* ctx, nir_intrinsic_instr* instr)
++{
++   /* Both weights come from SGPRs. The op also reads the SGPR after them: its product goes to the
++    * second register of the accumulator, whose value is not used.
++    */
++   Temp weights = get_ssa_temp(ctx, instr->src[3].ssa);
++   if (weights.type() != RegType::sgpr) {
++      isel_err(&instr->instr, "dot4x2_i8_viola_amd weights must be uniform");
++      return;
++   }
++
++   aco_ptr<Instruction> dot{create_instruction(aco_opcode::p_dot4x2_i8_viola, Format::PSEUDO, 4, 1)};
++   dot->operands[0] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[1].ssa)));
++   dot->operands[1] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[2].ssa)));
++   dot->operands[2] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[0].ssa)));
++   dot->operands[3] = Operand(weights);
++   dot->definitions[0] = Definition(get_ssa_temp(ctx, &instr->def));
++   ctx->block->instructions.emplace_back(std::move(dot));
++}
++
++void
++visit_dot4x2t_i8_viola(isel_context* ctx, nir_intrinsic_instr* instr)
++{
++   /* The weights stay in the registers they were loaded to; the op reads them from an offset. */
++   Temp weights = get_ssa_temp(ctx, instr->src[3].ssa);
++   if (weights.type() != RegType::sgpr) {
++      isel_err(&instr->instr, "dot4x2t_i8_viola_amd weights must be uniform");
++      return;
++   }
++
++   aco_ptr<Instruction> dot{create_instruction(aco_opcode::p_dot4x2_i8_viola, Format::PSEUDO, 5, 1)};
++   dot->operands[0] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[1].ssa)));
++   dot->operands[1] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[2].ssa)));
++   dot->operands[2] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[0].ssa)));
++   dot->operands[3] = Operand(weights);
++   /* The offset, and bit 8 for the high halves (op 0x24). */
++   bool hi = instr->intrinsic == nir_intrinsic_dot4x2t_hi_i8_viola_amd;
++   dot->operands[4] = Operand::c32(nir_intrinsic_base(instr) | (hi << 8));
++   dot->definitions[0] = Definition(get_ssa_temp(ctx, &instr->def));
++   ctx->block->instructions.emplace_back(std::move(dot));
++}
++
++void
++visit_quant8x4_viola(isel_context* ctx, nir_intrinsic_instr* instr)
++{
++   aco_ptr<Instruction> quant{create_instruction(aco_opcode::p_quant8x4_viola, Format::PSEUDO, 3, 1)};
++   quant->operands[0] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[0].ssa)));
++   quant->operands[1] = Operand(as_vgpr(ctx, get_ssa_temp(ctx, instr->src[1].ssa)));
++   quant->operands[2] = Operand::c32(nir_intrinsic_base(instr));
++   quant->definitions[0] = Definition(get_ssa_temp(ctx, &instr->def));
++   ctx->block->instructions.emplace_back(std::move(quant));
++}
++
+ void
+ visit_cmat_muladd(isel_context* ctx, nir_intrinsic_instr* instr)
+ {
+@@ -5036,6 +5206,11 @@
+       break;
+    }
+    case nir_intrinsic_cmat_muladd_amd: visit_cmat_muladd(ctx, instr); break;
++   case nir_intrinsic_dot8x2_i8_viola_amd: visit_dot8x2_i8_viola(ctx, instr); break;
++   case nir_intrinsic_dot4x2_i8_viola_amd: visit_dot4x2_i8_viola(ctx, instr); break;
++   case nir_intrinsic_dot4x2t_i8_viola_amd:
++   case nir_intrinsic_dot4x2t_hi_i8_viola_amd: visit_dot4x2t_i8_viola(ctx, instr); break;
++   case nir_intrinsic_quant8x4_viola_amd: visit_quant8x4_viola(ctx, instr); break;
+    case nir_intrinsic_nop_amd: bld.sopp(aco_opcode::s_nop, nir_intrinsic_base(instr)); break;
+    case nir_intrinsic_sleep_amd: bld.sopp(aco_opcode::s_sleep, nir_intrinsic_base(instr)); break;
+    case nir_intrinsic_unit_test_output:
+diff -ruN a/src/amd/vulkan/meson.build b/src/amd/vulkan/meson.build
+--- a/src/amd/vulkan/meson.build
++++ b/src/amd/vulkan/meson.build
+@@ -114,6 +114,7 @@
+   'nir/radv_nir_lower_vs_inputs.c',
+   'nir/radv_nir_opt_fs_builtins.c',
+   'nir/radv_nir_opt_tid_function.c',
++  'nir/radv_nir_opt_viola_int8_dot.c',
+   'nir/radv_nir_remap_color_attachment.c',
+   'nir/radv_nir_rt_common.c',
+   'nir/radv_nir_rt_stage_common.c',
+diff -ruN a/src/amd/vulkan/nir/radv_nir.h b/src/amd/vulkan/nir/radv_nir.h
+--- a/src/amd/vulkan/nir/radv_nir.h
++++ b/src/amd/vulkan/nir/radv_nir.h
+@@ -70,6 +70,8 @@
+ 
+ bool radv_nir_opt_cooperative_matrix(nir_shader *shader, enum amd_gfx_level gfx_level);
+ 
++bool radv_nir_opt_viola_int8_dot(nir_shader *shader, bool use_ml, bool *has_ml_ops);
++
+ bool radv_nir_lower_draw_id_to_zero(nir_shader *shader);
+ 
+ bool radv_nir_remap_color_attachment(nir_shader *shader, const struct radv_graphics_state_key *gfx_state);
+diff -ruN a/src/amd/vulkan/nir/radv_nir_opt_viola_int8_dot.c b/src/amd/vulkan/nir/radv_nir_opt_viola_int8_dot.c
+--- a/src/amd/vulkan/nir/radv_nir_opt_viola_int8_dot.c
++++ b/src/amd/vulkan/nir/radv_nir_opt_viola_int8_dot.c
+@@ -0,0 +1,1091 @@
++/*
++ * SPDX-License-Identifier: MIT
++ */
++
++#include "util/hash_table.h"
++#include "util/u_debug.h"
++#include "nir_builder.h"
++#include "radv_nir.h"
++
++/* Viola has no working v_dot4_i32_i8, but it has an int8 matrix instruction (op 0x23) that
++ * takes its weights from SGPRs and a literal and accumulates into fp16 (scaled by 2^-14).
++ *
++ * This pass finds chains of sdot_4x8_iadd whose weights are constant or uniform:
++ *
++ *    acc1 = sdot(x0, W0, acc0); acc2 = sdot(x1, W1, acc1); ...
++ *
++ * Integer adds inside a chain (nir_opt_algebraic moves the running sum of other blocks there)
++ * are taken out and added back at the end.
++ *
++ * Chains in a block that read the same inputs form a group. With constant weights, the chains of
++ * a group are paired and each pair is rewritten to dot8x2_i8_viola_amd, which does two inputs for
++ * both chains at once. Groups with the same constant weights and different inputs, such as one
++ * layer computed for several pixels, are rewritten together, alternating between them, so that
++ * consecutive ops have the same weights and ACO loads them once for all of them. Uniform weights
++ * can't go in the literal. When they come from a vector load with the weights of two chains two
++ * components apart, the pair uses dot4x2t_i8_viola_amd, which does one input for both chains and
++ * reads the weights where they were loaded. Other chains do two inputs for one chain per op, with
++ * dot4x2t_i8_viola_amd when the two weights are next to each other in a load and
++ * dot4x2_i8_viola_amd otherwise.
++ *
++ * The fp16 sums are converted back to int32 at the end of a chain, unless the result feeds another
++ * chain, which then continues the fp16 sum up to MAX_TERMS terms. This is not exact: the sums are
++ * rounded to fp16 precision (11 bits). The pairs add one input per op, so they alternate between the
++ * low and the high half (op 0x24) to keep the same number of terms per rounded sum.
++ *
++ * Results that are requantized to int8, x / 2^s rounded to even (or x itself), clamped to
++ * [-128, 127] or [0, 127] (optionally after max(x, 0)) and packed four to a dword, go through the
++ * quantize op (op 0x28) from the fp16 sums instead of int32. x can also be a sum plus another value,
++ * such as a bias or a second sum. The rounding is half up instead of half to even. Results that are
++ * converted to float are computed in float from the fp16 sums.
++ *
++ * Everything else, including all sdot when use_ml is false, is lowered here to byte extracts and
++ * multiplies, since has_sdot_4x8 is set for this chip.
++ */
++
++#define MAX_TERMS 64
++
++/* Groups rewritten together, and the most chains in them, which are all live at once. */
++#define MAX_TWINS       4
++#define MAX_TWIN_CHAINS 128
++
++struct dot_stats {
++   unsigned chains, ops, lowered, quant;
++};
++
++struct dot_term {
++   nir_scalar x; /* packed int8 inputs */
++   nir_scalar w; /* packed int8 weights, constant or uniform */
++};
++
++/* An integer add between two terms of a chain: src[src] is added to the result. */
++struct dot_addend {
++   nir_alu_instr *iadd;
++   unsigned src;
++};
++
++struct dot_chain {
++   nir_alu_instr *first; /* src[2] is the accumulator input */
++   nir_alu_instr *last;  /* defines the chain result: the last term or an add after it */
++   unsigned num_terms, num_addends;
++   bool const_w;
++   bool add_at_end; /* last is an add of the result into a running sum, the last addend */
++   struct dot_term terms[MAX_TERMS];
++   struct dot_addend addends[MAX_TERMS];
++};
++
++/* A chain result written by this pass: rest + fp16 * 2^14. */
++struct dot_sum {
++   nir_def *fp16; /* in the low half, or the sum of both halves */
++   nir_def *rest;
++   unsigned terms; /* in the fp16 sum */
++   bool hi;        /* the high half is used */
++};
++
++struct dot_ctx {
++   nir_builder b;
++   struct hash_table *sums;    /* nir_def * -> struct dot_sum */
++   struct hash_table *reloads; /* load nir_def * -> the same load at the current group */
++   struct dot_stats stats;
++};
++
++static bool
++get_term(nir_alu_instr *alu, struct dot_term *t)
++{
++   if (alu->op != nir_op_sdot_4x8_iadd || alu->def.num_components != 1)
++      return false;
++
++   for (unsigned i = 0; i < 2; i++) {
++      t->w = nir_get_scalar(alu->src[i].src.ssa, alu->src[i].swizzle[0]);
++      t->x = nir_get_scalar(alu->src[!i].src.ssa, alu->src[!i].swizzle[0]);
++      if (nir_scalar_is_const(t->w) && !nir_scalar_is_const(t->x))
++         return true;
++   }
++   for (unsigned i = 0; i < 2; i++) {
++      t->w = nir_get_scalar(alu->src[i].src.ssa, alu->src[i].swizzle[0]);
++      t->x = nir_get_scalar(alu->src[!i].src.ssa, alu->src[!i].swizzle[0]);
++      if (!nir_src_is_divergent(&alu->src[i].src) && nir_src_is_divergent(&alu->src[!i].src))
++         return true;
++   }
++   return false;
++}
++
++static nir_instr *
++single_use_in_block(nir_def *def, nir_block *block)
++{
++   if (!list_is_singular(&def->uses))
++      return NULL;
++
++   nir_src *use = list_first_entry(&def->uses, nir_src, use_link);
++   if (nir_src_is_if(use) || nir_src_use_instr(use)->block != block)
++      return NULL;
++   return nir_src_use_instr(use);
++}
++
++/* The term that consumes alu as its accumulator, directly or through one integer add, if that is
++ * alu's only use. The add, if any, is returned in addend.
++ */
++static nir_alu_instr *
++next_term(nir_alu_instr *alu, struct dot_addend *addend)
++{
++   nir_def *def = &alu->def;
++   addend->iadd = NULL;
++
++   nir_instr *instr = single_use_in_block(def, alu->instr.block);
++   if (!instr || instr->type != nir_instr_type_alu)
++      return NULL;
++
++   nir_alu_instr *next = nir_instr_as_alu(instr);
++   if (next->op == nir_op_iadd && next->def.num_components == 1) {
++      unsigned src = next->src[0].src.ssa == def ? 1 : 0;
++      if (next->src[src].src.ssa == def)
++         return NULL;
++      addend->iadd = next;
++      addend->src = src;
++      def = &next->def;
++
++      instr = single_use_in_block(def, alu->instr.block);
++      if (!instr || instr->type != nir_instr_type_alu)
++         return NULL;
++      next = nir_instr_as_alu(instr);
++   }
++
++   struct dot_term t;
++   if (!get_term(next, &t) || next->src[2].src.ssa != def)
++      return NULL;
++   return next;
++}
++
++static int
++cmp_scalar(nir_scalar a, nir_scalar b)
++{
++   if (a.def->index != b.def->index)
++      return a.def->index < b.def->index ? -1 : 1;
++   return (int)a.comp - (int)b.comp;
++}
++
++static int
++cmp_term(const void *a, const void *b)
++{
++   return cmp_scalar(((const struct dot_term *)a)->x, ((const struct dot_term *)b)->x);
++}
++
++static bool
++same_inputs(const struct dot_chain *a, const struct dot_chain *b)
++{
++   if (a->num_terms != b->num_terms)
++      return false;
++   for (unsigned i = 0; i < a->num_terms; i++) {
++      if (cmp_scalar(a->terms[i].x, b->terms[i].x))
++         return false;
++   }
++   return true;
++}
++
++/* The chain of a group that ends last, after which the group is rewritten. */
++static struct dot_chain *
++last_chain(struct dot_chain **chains, unsigned count)
++{
++   struct dot_chain *last = chains[0];
++   for (unsigned k = 1; k < count; k++) {
++      if (chains[k]->last->instr.index > last->last->instr.index)
++         last = chains[k];
++   }
++   return last;
++}
++
++/* Ends a chain at its last term instead of the add after it, which is left as it is. */
++static void
++drop_add_at_end(struct dot_chain *chain)
++{
++   const struct dot_addend *add = &chain->addends[--chain->num_addends];
++   chain->last = nir_def_as_alu(add->iadd->src[!add->src].src.ssa);
++   chain->add_at_end = false;
++}
++
++/* All uses of the chain result must come after the instruction with index "after". */
++static bool
++uses_after(const struct dot_chain *chain, unsigned after)
++{
++   nir_foreach_use_including_if (use, &chain->last->def) {
++      if (nir_src_is_if(use))
++         continue;
++      nir_instr *instr = nir_src_use_instr(use);
++      if (instr->block == chain->last->instr.block && instr->index <= after)
++         return false;
++   }
++   return true;
++}
++
++static nir_def *
++fp16_sum_to_int(nir_builder *b, nir_def *acc, bool hi)
++{
++   nir_def *sum = nir_f2f32(b, nir_unpack_32_2x16_split_x(b, acc));
++   if (hi)
++      sum = nir_fadd(b, sum, nir_f2f32(b, nir_unpack_32_2x16_split_y(b, acc)));
++   return nir_f2i32(b, nir_fmul_imm(b, sum, 16384.0));
++}
++
++/* An int32 input of a chain: the accumulator (k = 0) or an addend. */
++static nir_scalar
++chain_part(const struct dot_chain *chain, unsigned k)
++{
++   const nir_alu_instr *alu = k ? chain->addends[k - 1].iadd : chain->first;
++   unsigned src = k ? chain->addends[k - 1].src : 2;
++   return nir_get_scalar(alu->src[src].src.ssa, alu->src[src].swizzle[0]);
++}
++
++/* The fp16 sum of a chain starts at 0 and its int32 inputs are added at the end. If one of them is
++ * the result of an earlier chain, continue that chain's fp16 sum instead, unless the sum would get
++ * too long to be accurate, or uses the high half and the chain doesn't. Returns the index of that
++ * input, or -1.
++ */
++static int
++start_chain(struct dot_ctx *ctx, const struct dot_chain *chain, bool hi, nir_def **acc, nir_def **rest,
++            unsigned *terms)
++{
++   for (unsigned k = 0; k <= chain->num_addends; k++) {
++      struct hash_entry *he = _mesa_hash_table_search(ctx->sums, chain_part(chain, k).def);
++      const struct dot_sum *sum = he ? he->data : NULL;
++      if (sum && sum->terms + chain->num_terms <= MAX_TERMS && (hi || !sum->hi)) {
++         *acc = sum->fp16;
++         *rest = sum->rest;
++         *terms = sum->terms + chain->num_terms;
++         return k;
++      }
++   }
++   *acc = nir_imm_int(&ctx->b, 0);
++   *rest = NULL;
++   *terms = chain->num_terms;
++   return -1;
++}
++
++/* An SSBO, UBO or global memory load. */
++static bool
++is_buffer_load(nir_def *def)
++{
++   if (nir_def_instr(def)->type != nir_instr_type_intrinsic)
++      return false;
++   switch (nir_def_as_intrinsic(def)->intrinsic) {
++   case nir_intrinsic_load_ssbo:
++   case nir_intrinsic_load_ubo:
++   case nir_intrinsic_load_global_amd:
++      return true;
++   default:
++      return false;
++   }
++}
++
++/* A uniform value that comes from memory is loaded again where it is used. Otherwise all weights
++ * of a group would be live at once, which doesn't fit in SGPRs. The copy can't be reordered, so that
++ * CSE doesn't merge the copies of different groups again.
++ */
++static nir_scalar
++reload(struct dot_ctx *ctx, nir_scalar v)
++{
++   v = nir_scalar_chase_movs(v);
++   if (!is_buffer_load(v.def) || nir_def_block(v.def) != nir_cursor_current_block(ctx->b.cursor))
++      return v;
++
++   nir_intrinsic_instr *load = nir_def_as_intrinsic(v.def);
++   if (!nir_intrinsic_can_reorder(load))
++      return v;
++
++   struct hash_entry *he = _mesa_hash_table_search(ctx->reloads, v.def);
++   if (!he) {
++      nir_instr *clone = nir_instr_clone(ctx->b.shader, &load->instr);
++      nir_intrinsic_instr *intrin = nir_instr_as_intrinsic(clone);
++      if (nir_intrinsic_has_access(intrin))
++         nir_intrinsic_set_access(intrin, nir_intrinsic_access(intrin) & ~ACCESS_CAN_REORDER);
++      nir_builder_instr_insert(&ctx->b, clone);
++      he = _mesa_hash_table_insert(ctx->reloads, v.def, nir_instr_def(clone));
++   }
++   return nir_get_scalar(he->data, v.comp);
++}
++
++/* A uniform weight that is a component of a vector load, which the op can read in place. */
++static bool
++tuple_weight(nir_scalar w)
++{
++   return w.def->num_components >= 3 && is_buffer_load(w.def);
++}
++
++/* Whether, for every input, the weight of chain b is two components after that of chain a in the
++ * same load.
++ */
++static bool
++tuple_pair(const struct dot_chain *a, const struct dot_chain *b)
++{
++   for (unsigned i = 0; i < a->num_terms; i++) {
++      nir_scalar wa = nir_scalar_chase_movs(a->terms[i].w);
++      nir_scalar wb = nir_scalar_chase_movs(b->terms[i].w);
++      if (!tuple_weight(wa) || wa.def != wb.def || wb.comp != wa.comp + 2)
++         return false;
++   }
++   return true;
++}
++
++static uint32_t
++const_w(const struct dot_chain *chain, unsigned i)
++{
++   return i < chain->num_terms ? nir_scalar_as_uint(chain->terms[i].w) : 0;
++}
++
++static bool
++same_weights(const struct dot_chain *a, const struct dot_chain *b)
++{
++   if (a->num_terms != b->num_terms)
++      return false;
++   for (unsigned i = 0; i < a->num_terms; i++) {
++      if (const_w(a, i) != const_w(b, i))
++         return false;
++   }
++   return true;
++}
++
++/* Rewrite a group of chains with the same inputs. With constant weights, the group can have twins:
++ * num_twins - 1 more groups of count chains each, after it in chains, whose chain k has the same
++ * weights as chain k of the group.
++ */
++static void
++emit_group(struct dot_ctx *ctx, struct dot_chain **chains, unsigned count, unsigned num_twins)
++{
++   nir_builder *b = &ctx->b;
++   const unsigned total = count * num_twins;
++   bool all_const = true;
++   for (unsigned i = 0; i < total; i++)
++      all_const &= chains[i]->const_w;
++   b->cursor = nir_after_instr(&last_chain(chains, total)->last->instr);
++
++   nir_def **acc = malloc(total * sizeof(*acc));
++   nir_def **rest = malloc(total * sizeof(*rest));
++   int *carried = malloc(total * sizeof(*carried));
++   unsigned *terms = malloc(total * sizeof(*terms));
++
++   /* With uniform weights, pair the chains that can share dot4x2t ops, lowest component first so
++    * that it gets the partner two components up.
++    */
++   bool *paired = calloc(total, sizeof(*paired));
++   unsigned *lo = NULL, *hi = NULL, *single = NULL;
++   unsigned num_pairs = 0, num_single = 0;
++   if (!all_const) {
++      lo = malloc(count * sizeof(*lo));
++      hi = malloc(count * sizeof(*hi));
++      single = malloc(count * sizeof(*single));
++      unsigned *order = malloc(count * sizeof(*order));
++      for (unsigned i = 0; i < count; i++)
++         order[i] = i;
++      for (unsigned i = 1; i < count; i++) {
++         for (unsigned k = i; k > 0 && cmp_scalar(nir_scalar_chase_movs(chains[order[k]]->terms[0].w),
++                                                  nir_scalar_chase_movs(chains[order[k - 1]]->terms[0].w)) < 0;
++              k--) {
++            unsigned t = order[k];
++            order[k] = order[k - 1];
++            order[k - 1] = t;
++         }
++      }
++      for (unsigned oi = 0; oi < count; oi++) {
++         const unsigned i = order[oi];
++         for (unsigned oj = 0; oj < count && !paired[i]; oj++) {
++            const unsigned j = order[oj];
++            if (j != i && !paired[j] && tuple_pair(chains[i], chains[j])) {
++               lo[num_pairs] = i;
++               hi[num_pairs++] = j;
++               paired[i] = paired[j] = true;
++            }
++         }
++      }
++      for (unsigned i = 0; i < count; i++) {
++         if (!paired[i])
++            single[num_single++] = i;
++      }
++      free(order);
++   }
++
++   for (unsigned i = 0; i < total; i++)
++      carried[i] = start_chain(ctx, chains[i], paired[i], &acc[i], &rest[i], &terms[i]);
++   _mesa_hash_table_clear(ctx->reloads, NULL);
++
++   /* Step through the inputs two at a time for several chains, so that dependent instructions are
++    * apart.
++    */
++   const unsigned num_terms = chains[0]->num_terms;
++   if (all_const) {
++      const unsigned num_const_pairs = DIV_ROUND_UP(count, 2);
++      nir_def **pair = malloc(num_twins * num_const_pairs * sizeof(*pair));
++      for (unsigned t = 0; t < num_twins; t++) {
++         nir_def **twin_acc = acc + t * count;
++         for (unsigned p = 0; p < num_const_pairs; p++) {
++            pair[t * num_const_pairs + p] =
++               nir_vec2(b, twin_acc[2 * p], 2 * p + 1 < count ? twin_acc[2 * p + 1] : nir_imm_int(b, 0));
++         }
++      }
++
++      for (unsigned s = 0; s < num_terms; s += 2) {
++         bool odd = s + 1 == num_terms;
++         nir_def *x0[MAX_TWINS], *x1[MAX_TWINS];
++         for (unsigned t = 0; t < num_twins; t++) {
++            x0[t] = nir_mov_scalar(b, chains[t * count]->terms[s].x);
++            x1[t] = odd ? x0[t] : nir_mov_scalar(b, chains[t * count]->terms[s + 1].x);
++         }
++
++         for (unsigned p = 0; p < num_const_pairs; p++) {
++            const struct dot_chain *ca = chains[2 * p];
++            const struct dot_chain *cb = 2 * p + 1 < count ? chains[2 * p + 1] : NULL;
++            uint32_t w[4] = {
++               const_w(ca, s),
++               odd ? 0 : const_w(ca, s + 1),
++               cb ? const_w(cb, s) : 0,
++               cb && !odd ? const_w(cb, s + 1) : 0,
++            };
++            for (unsigned t = 0; t < num_twins; t++) {
++               nir_def **twin_pair = &pair[t * num_const_pairs + p];
++               *twin_pair =
++                  nir_dot8x2_i8_viola_amd(b, *twin_pair, x0[t], x1[t], nir_imm_ivec4(b, w[0], w[1], w[2], w[3]));
++               ctx->stats.ops++;
++            }
++         }
++      }
++
++      for (unsigned i = 0; i < total; i++)
++         acc[i] = nir_channel(b, pair[(i / count) * num_const_pairs + (i % count) / 2], (i % count) % 2);
++      free(pair);
++   } else {
++      if (num_pairs) {
++         nir_def *zero = nir_imm_int(b, 0);
++         nir_def **pair = malloc(num_pairs * sizeof(*pair));
++         for (unsigned p = 0; p < num_pairs; p++)
++            pair[p] = nir_vec2(b, acc[lo[p]], acc[hi[p]]);
++
++         for (unsigned s = 0; s < num_terms; s++) {
++            nir_def *x = nir_mov_scalar(b, chains[0]->terms[s].x);
++            for (unsigned p = 0; p < num_pairs; p++) {
++               nir_scalar w = reload(ctx, chains[lo[p]]->terms[s].w);
++               if (s % 2)
++                  pair[p] = nir_dot4x2t_hi_i8_viola_amd(b, pair[p], x, zero, w.def, .base = w.comp);
++               else
++                  pair[p] = nir_dot4x2t_i8_viola_amd(b, pair[p], x, zero, w.def, .base = w.comp);
++               ctx->stats.ops++;
++            }
++         }
++
++         for (unsigned p = 0; p < num_pairs; p++) {
++            acc[lo[p]] = nir_channel(b, pair[p], 0);
++            acc[hi[p]] = nir_channel(b, pair[p], 1);
++         }
++         free(pair);
++      }
++
++      /* The other chains four at a time: enough to hide the latency of the op, and few enough that
++       * their weights fit in SGPRs. The op also writes the register after the accumulator, so the
++       * accumulators are pairs while they are in use.
++       */
++      for (unsigned t = 0; t < num_single; t += 4) {
++         const unsigned end = MIN2(t + 4, num_single);
++         for (unsigned k = t; k < end; k++)
++            acc[single[k]] = nir_vec2(b, acc[single[k]], nir_undef(b, 1, 32));
++
++         for (unsigned s = 0; s < num_terms; s += 2) {
++            bool odd = s + 1 == num_terms;
++            nir_def *x0 = nir_mov_scalar(b, chains[0]->terms[s].x);
++            nir_def *x1 = odd ? x0 : nir_mov_scalar(b, chains[0]->terms[s + 1].x);
++
++            for (unsigned k = t; k < end; k++) {
++               const unsigned i = single[k];
++               nir_scalar w[2] = {
++                  reload(ctx, chains[i]->terms[s].w),
++                  odd ? nir_get_scalar(nir_imm_int(b, 0), 0) : reload(ctx, chains[i]->terms[s + 1].w),
++               };
++               if (!odd && w[1].def == w[0].def && w[1].comp == w[0].comp + 1 && tuple_weight(w[0]))
++                  acc[i] = nir_dot4x2t_i8_viola_amd(b, acc[i], x0, x1, w[0].def, .base = w[0].comp);
++               else
++                  acc[i] = nir_dot4x2_i8_viola_amd(b, acc[i], x0, x1, nir_vec_scalars(b, w, 2));
++               ctx->stats.ops++;
++            }
++         }
++
++         for (unsigned k = t; k < end; k++)
++            acc[single[k]] = nir_channel(b, acc[single[k]], 0);
++      }
++   }
++
++   for (unsigned i = 0; i < total; i++) {
++      for (unsigned k = 0; k <= chains[i]->num_addends; k++) {
++         if ((int)k == carried[i])
++            continue;
++         nir_def *part = nir_mov_scalar(b, reload(ctx, chain_part(chains[i], k)));
++         rest[i] = rest[i] ? nir_iadd(b, rest[i], part) : part;
++      }
++
++      nir_def *sum = nir_iadd(b, rest[i], fp16_sum_to_int(b, acc[i], paired[i]));
++      struct dot_sum *info = ralloc(ctx->sums, struct dot_sum);
++      info->fp16 = acc[i];
++      info->rest = rest[i];
++      info->terms = terms[i];
++      info->hi = paired[i];
++      _mesa_hash_table_insert(ctx->sums, sum, info);
++      nir_def_rewrite_uses(&chains[i]->last->def, sum);
++   }
++   free(paired);
++   free(single);
++   free(hi);
++   free(lo);
++   free(terms);
++   free(carried);
++   free(rest);
++   free(acc);
++}
++
++/* Whether the results of all the chains are used after the last of them ends, where they are
++ * rewritten.
++ */
++static bool
++all_uses_after(struct dot_chain **chains, unsigned count)
++{
++   const unsigned end = last_chain(chains, count)->last->instr.index;
++   for (unsigned k = 0; k < count; k++) {
++      if (!uses_after(chains[k], end))
++         return false;
++   }
++   return true;
++}
++
++/* Finds a twin of group among the chains with the same inputs as chains[start]: for each chain of
++ * group, one with the same constant weights.
++ */
++static bool
++find_twin(struct dot_chain *chains, unsigned num_chains, const bool *done, unsigned start,
++          struct dot_chain **group, unsigned count, struct dot_chain **twin)
++{
++   for (unsigned k = 0; k < count; k++) {
++      twin[k] = NULL;
++      for (unsigned j = start; j < num_chains && !twin[k]; j++) {
++         if (done[j] || !chains[j].const_w || !same_weights(group[k], &chains[j]) ||
++             !same_inputs(&chains[start], &chains[j]))
++            continue;
++         bool taken = false;
++         for (unsigned m = 0; m < k; m++)
++            taken |= twin[m] == &chains[j];
++         if (!taken)
++            twin[k] = &chains[j];
++      }
++      if (!twin[k])
++         return false;
++   }
++   return true;
++}
++
++static bool
++opt_block(struct dot_ctx *ctx, nir_block *block)
++{
++   struct dot_chain *chains = NULL;
++   unsigned num_chains = 0, cap = 0;
++
++   /* pass_flags marks the terms that continue a chain, and below the adds that belong to one. */
++   nir_foreach_instr (instr, block)
++      instr->pass_flags = 0;
++   nir_foreach_instr (instr, block) {
++      struct dot_term t;
++      struct dot_addend addend;
++      if (instr->type == nir_instr_type_alu && get_term(nir_instr_as_alu(instr), &t)) {
++         nir_alu_instr *next = next_term(nir_instr_as_alu(instr), &addend);
++         if (next)
++            next->instr.pass_flags = 1;
++      }
++   }
++
++   nir_foreach_instr (instr, block) {
++      if (instr->type != nir_instr_type_alu || instr->pass_flags)
++         continue;
++
++      nir_alu_instr *alu = nir_instr_as_alu(instr);
++      struct dot_term t;
++      if (!get_term(alu, &t))
++         continue;
++
++      if (num_chains == cap) {
++         cap = MAX2(16, cap * 2);
++         chains = realloc(chains, cap * sizeof(*chains));
++      }
++      struct dot_chain *chain = &chains[num_chains];
++      chain->first = alu;
++      chain->num_terms = 0;
++      chain->num_addends = 0;
++      chain->const_w = true;
++      chain->add_at_end = false;
++
++      for (nir_alu_instr *cur = alu; cur;) {
++         struct dot_term *term = &chain->terms[chain->num_terms++];
++         get_term(cur, term);
++         chain->const_w &= nir_scalar_is_const(term->w);
++         chain->last = cur;
++
++         struct dot_addend addend;
++         nir_alu_instr *next = next_term(cur, &addend);
++         /* An add belongs to the first chain that reaches it. Where two chains meet at one, the
++          * other chain ends before it and becomes an input of the add.
++          */
++         if (next && addend.iadd && addend.iadd->instr.pass_flags)
++            break;
++         if (next && chain->num_terms == MAX_TERMS) {
++            /* The rest is another chain, which continues this one. */
++            next->instr.pass_flags = 0;
++            break;
++         }
++         cur = next;
++         if (cur && addend.iadd) {
++            addend.iadd->instr.pass_flags = 1;
++            chain->addends[chain->num_addends++] = addend;
++         }
++      }
++
++      /* An add of the result into a running sum usually follows, before the other chains end. */
++      nir_instr *use = single_use_in_block(&chain->last->def, block);
++      if (use && !use->pass_flags && use->type == nir_instr_type_alu &&
++          nir_instr_as_alu(use)->op == nir_op_iadd && nir_instr_as_alu(use)->def.num_components == 1) {
++         nir_alu_instr *iadd = nir_instr_as_alu(use);
++         unsigned src = iadd->src[0].src.ssa == &chain->last->def ? 1 : 0;
++         if (iadd->src[src].src.ssa != &chain->last->def) {
++            chain->addends[chain->num_addends++] = (struct dot_addend){iadd, src};
++            chain->last = iadd;
++            chain->add_at_end = true;
++            iadd->instr.pass_flags = 1;
++         }
++      }
++      qsort(chain->terms, chain->num_terms, sizeof(chain->terms[0]), cmp_term);
++      num_chains++;
++   }
++
++   bool progress = false;
++   bool *done = calloc(num_chains, sizeof(bool));
++   struct dot_chain **group = malloc(MAX2(num_chains, 1) * sizeof(*group));
++
++   for (unsigned i = 0; i < num_chains; i++) {
++      while (!done[i]) {
++         unsigned count = 0;
++         for (unsigned j = i; j < num_chains; j++) {
++            if (!done[j] && same_inputs(&chains[i], &chains[j])) {
++               group[count++] = &chains[j];
++               done[j] = true;
++            }
++         }
++
++         /* Leave chains whose result is used before the end of the group for a later group, until
++          * stable. A single chain always fits. If the group ends at an add after a chain, that
++          * chain first ends at its last term instead: each chain's add can be followed by a use, as
++          * in a running sum per output, which would otherwise split the group into single chains.
++          */
++         bool changed = true;
++         while (changed && count) {
++            changed = false;
++            struct dot_chain *last = last_chain(group, count);
++            for (unsigned k = 0; k < count; k++) {
++               if (!uses_after(group[k], last->last->instr.index)) {
++                  if (last->add_at_end) {
++                     drop_add_at_end(last);
++                  } else {
++                     done[group[k] - chains] = false;
++                     group[k] = group[--count];
++                  }
++                  changed = true;
++                  break;
++               }
++            }
++         }
++         if (!count)
++            break;
++
++         /* Groups with the same constant weights, rewritten with this one. */
++         unsigned num_twins = 1;
++         bool all_const = true;
++         for (unsigned k = 0; k < count; k++)
++            all_const &= group[k]->const_w;
++         for (unsigned j = i + 1; all_const && j < num_chains && num_twins < MAX_TWINS &&
++                                  (num_twins + 1) * count <= MIN2(num_chains, MAX_TWIN_CHAINS);
++              j++) {
++            struct dot_chain **twin = group + num_twins * count;
++            if (done[j] || !chains[j].const_w || !same_weights(group[0], &chains[j]) ||
++                !find_twin(chains, num_chains, done, j, group, count, twin) ||
++                !all_uses_after(group, (num_twins + 1) * count))
++               continue;
++            for (unsigned k = 0; k < count; k++)
++               done[twin[k] - chains] = true;
++            num_twins++;
++         }
++
++         emit_group(ctx, group, count, num_twins);
++         ctx->stats.chains += count * num_twins;
++         progress = true;
++
++         /* For uses_after() of the next groups. */
++         nir_index_instrs(ctx->b.impl);
++      }
++   }
++
++   free(group);
++   free(done);
++   free(chains);
++   return progress;
++}
++
++static bool
++is_alu_op(nir_scalar s, nir_op op)
++{
++   return nir_scalar_is_alu(s) && nir_scalar_alu_op(s) == op;
++}
++
++static bool
++is_const_val(nir_scalar s, uint32_t v)
++{
++   return nir_scalar_is_const(s) && nir_scalar_as_uint(s) == v;
++}
++
++/* (x >> s) & 1, as ubfe or as a shift and an and. */
++static bool
++match_bit(nir_scalar odd, unsigned s, nir_scalar *x)
++{
++   if (is_alu_op(odd, nir_op_ubfe)) {
++      if (!is_const_val(nir_scalar_chase_alu_src(odd, 1), s) || !is_const_val(nir_scalar_chase_alu_src(odd, 2), 1))
++         return false;
++      *x = nir_scalar_chase_alu_src(odd, 0);
++      return true;
++   }
++   if (!is_alu_op(odd, nir_op_iand))
++      return false;
++   for (unsigned i = 0; i < 2; i++) {
++      nir_scalar sh = nir_scalar_chase_alu_src(odd, !i);
++      if (is_const_val(nir_scalar_chase_alu_src(odd, i), 1) &&
++          (is_alu_op(sh, nir_op_ishr) || is_alu_op(sh, nir_op_ushr)) &&
++          is_const_val(nir_scalar_chase_alu_src(sh, 1), s)) {
++         *x = nir_scalar_chase_alu_src(sh, 0);
++         return true;
++      }
++   }
++   return false;
++}
++
++/* (x + (1 << (s - 1)) - 1 + ((x >> s) & 1)) >> s, which is x / 2^s rounded to even. */
++static bool
++match_rne_shift(nir_scalar q, nir_scalar *x, unsigned *shift)
++{
++   q = nir_scalar_chase_movs(q);
++   if (!is_alu_op(q, nir_op_ishr) || !nir_scalar_is_const(nir_scalar_chase_alu_src(q, 1)))
++      return false;
++   unsigned s = nir_scalar_as_uint(nir_scalar_chase_alu_src(q, 1)) & 31;
++   nir_scalar t = nir_scalar_chase_alu_src(q, 0);
++   if (s == 0 || s > 14 || !is_alu_op(t, nir_op_iadd))
++      return false;
++
++   for (unsigned i = 0; i < 2; i++) {
++      nir_scalar round = nir_scalar_chase_alu_src(t, i), odd = nir_scalar_chase_alu_src(t, !i);
++      nir_scalar v;
++      if (!is_alu_op(round, nir_op_iadd) || !match_bit(odd, s, &v))
++         continue;
++      for (unsigned j = 0; j < 2; j++) {
++         if (is_const_val(nir_scalar_chase_alu_src(round, !j), (1u << (s - 1)) - 1) &&
++             nir_scalar_equal(nir_scalar_chase_alu_src(round, j), v)) {
++            *x = v;
++            *shift = s;
++            return true;
++         }
++      }
++   }
++   return false;
++}
++
++/* The input of a requantization: one or two sums of this pass and possibly another int32 value. */
++struct requant {
++   const struct dot_sum *sum[2];
++   nir_scalar extra; /* extra.def is NULL without one */
++   unsigned shift;
++   bool relu;
++};
++
++/* The sum of this pass that s is, if any. */
++static const struct dot_sum *
++find_sum(struct dot_ctx *ctx, nir_scalar s)
++{
++   struct hash_entry *he = _mesa_hash_table_search(ctx->sums, s.def);
++   return he && s.comp == 0 ? he->data : NULL;
++}
++
++/* u2u8 or i2i8 of clamp(rne(x, s) or x, -128 or 0, 127), with x a sum of this pass, the sum of one
++ * and another value (which can be a second sum), or max of one of those and 0.
++ */
++static bool
++match_requant(struct dot_ctx *ctx, nir_scalar byte, struct requant *r)
++{
++   byte = nir_scalar_chase_movs(byte);
++   if (!is_alu_op(byte, nir_op_u2u8) && !is_alu_op(byte, nir_op_i2i8))
++      return false;
++
++   /* imin(imax(q, -128 or 0), 127) in either order. */
++   nir_scalar q = nir_scalar_chase_alu_src(byte, 0);
++   bool lo = false, hi = false;
++   r->relu = false;
++   for (unsigned n = 0; n < 2; n++) {
++      bool max = is_alu_op(q, nir_op_imax);
++      if (!max && !is_alu_op(q, nir_op_imin))
++         return false;
++      unsigned i;
++      for (i = 0; i < 2; i++) {
++         nir_scalar c = nir_scalar_chase_alu_src(q, i);
++         if (max && (is_const_val(c, 0xffffff80) || is_const_val(c, 0))) {
++            lo = true;
++            r->relu |= is_const_val(c, 0);
++            break;
++         }
++         if (!max && is_const_val(c, 127)) {
++            hi = true;
++            break;
++         }
++      }
++      if (i == 2)
++         return false;
++      q = nir_scalar_chase_alu_src(q, !i);
++   }
++   if (!lo || !hi)
++      return false;
++
++   nir_scalar x;
++   if (!match_rne_shift(q, &x, &r->shift)) {
++      x = q;
++      r->shift = 0;
++   }
++   if (is_alu_op(x, nir_op_imax)) {
++      for (unsigned i = 0; i < 2; i++) {
++         if (is_const_val(nir_scalar_chase_alu_src(x, i), 0)) {
++            x = nir_scalar_chase_alu_src(x, !i);
++            r->relu = true;
++            break;
++         }
++      }
++   }
++
++   r->sum[1] = NULL;
++   r->extra.def = NULL;
++   r->sum[0] = find_sum(ctx, x);
++   if (r->sum[0])
++      return true;
++   if (!is_alu_op(x, nir_op_iadd))
++      return false;
++   for (unsigned i = 0; i < 2; i++) {
++      r->sum[0] = find_sum(ctx, nir_scalar_chase_alu_src(x, i));
++      if (r->sum[0]) {
++         nir_scalar other = nir_scalar_chase_alu_src(x, !i);
++         r->sum[1] = find_sum(ctx, other);
++         if (!r->sum[1])
++            r->extra = other;
++         return true;
++      }
++   }
++   return false;
++}
++
++/* fp16 sum * scale + bias in float. */
++static nir_def *
++sum_to_float(nir_builder *b, const struct dot_sum *sum, double scale, nir_def *bias)
++{
++   nir_def *v = nir_ffma(b, nir_f2f32(b, nir_unpack_32_2x16_split_x(b, sum->fp16)), nir_imm_float(b, scale), bias);
++   if (sum->hi)
++      v = nir_ffma(b, nir_f2f32(b, nir_unpack_32_2x16_split_y(b, sum->fp16)), nir_imm_float(b, scale), v);
++   return v;
++}
++
++/* (fp16 sums * 2^14 + rest) / 2^s + 0.5 in fp16, which the quantize op rounds down. An fp16 sum
++ * (at most MAX_TERMS terms) is below 2^22, so with a shift of 8 or more the value stays in the
++ * fp16 range unless the int32 part is very large. With a smaller shift it can exceed the range,
++ * and the op turns -inf into -128 even with ReLU, so it is clamped first.
++ */
++static nir_def *
++requant_input(nir_builder *b, const struct requant *r)
++{
++   const unsigned s = r->shift;
++   nir_def *rest = r->sum[0]->rest;
++   if (r->sum[1])
++      rest = nir_iadd(b, rest, r->sum[1]->rest);
++   if (r->extra.def)
++      rest = nir_iadd(b, rest, nir_mov_scalar(b, r->extra));
++   nir_def *v = nir_fadd_imm(b, nir_fmul_imm(b, nir_i2f32(b, rest), 1.0 / (1u << s)), 0.5);
++   for (unsigned i = 0; i < 2 && r->sum[i]; i++)
++      v = sum_to_float(b, r->sum[i], 16384.0 / (1u << s), v);
++   if (s < 8)
++      v = nir_fmin(b, nir_fmax(b, v, nir_imm_float(b, -256.0)), nir_imm_float(b, 256.0));
++   return nir_f2f16_rtne(b, v);
++}
++
++/* i2f32 of a sum of this pass: fp16 sum * 2^14 + rest in float. */
++static bool
++fuse_i2f(nir_builder *b, nir_alu_instr *cvt, struct dot_ctx *ctx)
++{
++   if (cvt->op != nir_op_i2f32 || cvt->def.num_components != 1)
++      return false;
++   const struct dot_sum *sum = find_sum(ctx, nir_get_scalar(cvt->src[0].src.ssa, cvt->src[0].swizzle[0]));
++   if (!sum)
++      return false;
++
++   b->cursor = nir_before_instr(&cvt->instr);
++   nir_def_replace(&cvt->def, sum_to_float(b, sum, 16384.0, nir_i2f32(b, sum->rest)));
++   return true;
++}
++
++static bool
++fuse_requant(nir_builder *b, nir_alu_instr *pack, struct dot_ctx *ctx)
++{
++   if (fuse_i2f(b, pack, ctx))
++      return true;
++   if (pack->op != nir_op_pack_32_4x8)
++      return false;
++
++   struct requant r[4];
++   for (unsigned i = 0; i < 4; i++) {
++      nir_scalar byte = nir_get_scalar(pack->src[0].src.ssa, pack->src[0].swizzle[i]);
++      if (!match_requant(ctx, byte, &r[i]) || r[i].shift != r[0].shift || r[i].relu != r[0].relu)
++         return false;
++   }
++
++   b->cursor = nir_before_instr(&pack->instr);
++   nir_def *in[4];
++   for (unsigned i = 0; i < 4; i++)
++      in[i] = requant_input(b, &r[i]);
++   nir_def *q = nir_quant8x4_viola_amd(b, nir_pack_32_2x16_split(b, in[0], in[1]),
++                                     nir_pack_32_2x16_split(b, in[2], in[3]), .base = r[0].relu << 4);
++   nir_def_replace(&pack->def, q);
++   ctx->stats.quant++;
++   return true;
++}
++
++static bool
++is_store(nir_instr *instr)
++{
++   if (instr->type != nir_instr_type_intrinsic)
++      return false;
++   switch (nir_instr_as_intrinsic(instr)->intrinsic) {
++   case nir_intrinsic_store_ssbo:
++   case nir_intrinsic_store_global:
++   case nir_intrinsic_store_global_amd:
++   case nir_intrinsic_store_buffer_amd:
++   case nir_intrinsic_image_store:
++   case nir_intrinsic_image_deref_store:
++   case nir_intrinsic_bindless_image_store:
++      return true;
++   default:
++      return false;
++   }
++}
++
++/* The stores of quantize results would end up between the quantize ops. Keeping them together after
++ * the last one is about 6% faster in a 1x1 layer limited by memory and 0.2% slower in a 3x3 layer
++ * limited by arithmetic. Move the stores before the last quantize op of a block below it, in their
++ * order, as long as only arithmetic and reorderable intrinsics are in between.
++ */
++static void
++move_stores_after_quantize(nir_block *block)
++{
++   nir_instr *last = NULL;
++   nir_foreach_instr_reverse (instr, block) {
++      if (instr->type == nir_instr_type_intrinsic &&
++          nir_instr_as_intrinsic(instr)->intrinsic == nir_intrinsic_quant8x4_viola_amd) {
++         last = instr;
++         break;
++      }
++   }
++   if (!last)
++      return;
++
++   nir_cursor cursor = nir_after_instr(last);
++   for (nir_instr *instr = nir_instr_prev(last), *prev; instr; instr = prev) {
++      prev = nir_instr_prev(instr);
++      if (is_store(instr)) {
++         nir_instr_move(cursor, instr);
++         cursor = nir_before_instr(instr);
++      } else if (instr->type == nir_instr_type_intrinsic) {
++         if (!nir_intrinsic_can_reorder(nir_instr_as_intrinsic(instr)))
++            break;
++      } else if (instr->type != nir_instr_type_alu && instr->type != nir_instr_type_load_const &&
++                 instr->type != nir_instr_type_undef) {
++         break;
++      }
++   }
++}
++
++static nir_def *
++lower_sdot(nir_builder *b, nir_alu_instr *alu)
++{
++   nir_def *a = nir_ssa_for_alu_src(b, alu, 0);
++   nir_def *c = nir_ssa_for_alu_src(b, alu, 1);
++   nir_def *acc = nir_ssa_for_alu_src(b, alu, 2);
++   bool sat = alu->op == nir_op_sdot_4x8_iadd_sat;
++
++   /* Add each product to the running sum so that ACO can use v_mad_i32_i24 for all four. */
++   nir_def *sum = sat ? NULL : acc;
++   for (unsigned i = 0; i < 4; i++) {
++      nir_def *prod = nir_imul24_relaxed(b, nir_extract_i8_imm(b, a, i), nir_extract_i8_imm(b, c, i));
++      sum = sum ? nir_iadd(b, sum, prod) : prod;
++   }
++   return sat ? nir_iadd_sat(b, sum, acc) : sum;
++}
++
++static bool
++lower_remaining(nir_builder *b, nir_instr *instr, void *data)
++{
++   struct dot_stats *stats = data;
++   if (instr->type != nir_instr_type_alu)
++      return false;
++
++   nir_alu_instr *alu = nir_instr_as_alu(instr);
++   if (alu->op != nir_op_sdot_4x8_iadd && alu->op != nir_op_sdot_4x8_iadd_sat)
++      return false;
++
++   b->cursor = nir_before_instr(instr);
++   nir_def_replace(&alu->def, lower_sdot(b, alu));
++   stats->lowered++;
++   return true;
++}
++
++bool
++radv_nir_opt_viola_int8_dot(nir_shader *shader, bool use_ml, bool *has_ml_ops)
++{
++   struct dot_ctx ctx = {0};
++   bool progress = false;
++
++   if (use_ml) {
++      ctx.sums = _mesa_pointer_hash_table_create(NULL);
++      ctx.reloads = _mesa_pointer_hash_table_create(NULL);
++
++      nir_foreach_function_impl (impl, shader) {
++         nir_metadata_require(impl, nir_metadata_instr_index | nir_metadata_divergence);
++         ctx.b = nir_builder_create(impl);
++         bool impl_progress = false;
++
++         nir_foreach_block (block, impl)
++            impl_progress |= opt_block(&ctx, block);
++
++         if (impl_progress) {
++            nir_foreach_block (block, impl) {
++               nir_foreach_instr_safe (instr, block) {
++                  if (instr->type == nir_instr_type_alu)
++                     fuse_requant(&ctx.b, nir_instr_as_alu(instr), &ctx);
++               }
++               move_stores_after_quantize(block);
++            }
++         }
++
++         progress |= nir_progress(impl_progress, impl, nir_metadata_control_flow);
++      }
++      ralloc_free(ctx.sums);
++      ralloc_free(ctx.reloads);
++
++      if (progress)
++         NIR_PASS(_, shader, nir_opt_dce);
++   }
++
++   progress |= nir_shader_instructions_pass(shader, lower_remaining, nir_metadata_control_flow, &ctx.stats);
++
++   if (progress && debug_get_bool_option("RADV_VIOLA_ML_DEBUG", false))
++      fprintf(stderr, "radv viola int8: %s: %u dot chains -> %u int8 matrix ops, %u dot4 emulated, %u quantize ops\n",
++              _mesa_shader_stage_to_abbrev(shader->info.stage), ctx.stats.chains, ctx.stats.ops,
++              ctx.stats.lowered, ctx.stats.quant);
++   *has_ml_ops = ctx.stats.ops > 0;
++   return progress;
++}
+diff -ruN a/src/amd/vulkan/radv_device.c b/src/amd/vulkan/radv_device.c
+--- a/src/amd/vulkan/radv_device.c
++++ b/src/amd/vulkan/radv_device.c
+@@ -1244,6 +1244,11 @@
+             .force_nan_preserve_min_max = instance->drirc.debug.force_nan_preserve_min_max,
+             .nir_debug_info = !!(instance->debug_flags & RADV_DEBUG_NIR_DEBUG_INFO),
+             .force_exact_glsl_fma = instance->drirc.debug.force_exact_glsl_fma,
++            .viola_ml = pdev->use_viola_ml,
++            .viola_ml_max_waves =
++               pdev->use_viola_ml ? CLAMP(debug_get_num_option("RADV_VIOLA_ML_MAX_WAVES", 10), 0,
++                                          pdev->info.compiler_info.max_waves_per_simd)
++                                  : 0,
+             .force_aniso = device->force_aniso,
+             /* Use CHIP_UNKNOWN for increased compatiblity between caches. */
+             .family = pdev->use_llvm ? pdev->info.family : CHIP_UNKNOWN,
+diff -ruN a/src/amd/vulkan/radv_physical_device.c b/src/amd/vulkan/radv_physical_device.c
+--- a/src/amd/vulkan/radv_physical_device.c
++++ b/src/amd/vulkan/radv_physical_device.c
+@@ -1792,6 +1792,10 @@
+    VkShaderStageFlags rt_stages = radv_enable_rt(pdev) ? RADV_RT_STAGE_BITS : 0;
+ 
+    bool accel_dot = pdev->info.compiler_info.has_accelerated_dot_product;
++   /* Viola: signed int8 dot products with constant or uniform weights in compute shaders use the int8
++    * matrix instruction.
++    */
++   bool accel_dot_s8 = accel_dot || pdev->use_viola_ml;
+    bool gfx11plus = pdev->info.gfx_level >= GFX11;
+ 
+    VkExtent2D vrs_texel_extent = radv_vrs_attachment_enabled(pdev) ? (VkExtent2D){8, 8} : (VkExtent2D){0, 0};
+@@ -2031,10 +2035,10 @@
+       .maxDescriptorSetUpdateAfterBindInlineUniformBlocks = MAX_INLINE_UNIFORM_BLOCK_COUNT,
+       .maxInlineUniformTotalSize = UINT16_MAX,
+       .integerDotProduct8BitUnsignedAccelerated = accel_dot,
+-      .integerDotProduct8BitSignedAccelerated = accel_dot,
++      .integerDotProduct8BitSignedAccelerated = accel_dot_s8,
+       .integerDotProduct8BitMixedSignednessAccelerated = accel_dot && gfx11plus,
+       .integerDotProduct4x8BitPackedUnsignedAccelerated = accel_dot,
+-      .integerDotProduct4x8BitPackedSignedAccelerated = accel_dot,
++      .integerDotProduct4x8BitPackedSignedAccelerated = accel_dot_s8,
+       .integerDotProduct4x8BitPackedMixedSignednessAccelerated = accel_dot && gfx11plus,
+       .integerDotProduct16BitUnsignedAccelerated = accel_dot && !gfx11plus,
+       .integerDotProduct16BitSignedAccelerated = accel_dot && !gfx11plus,
+@@ -2671,6 +2675,9 @@
+    }
+ #endif
+ 
++   pdev->use_viola_ml =
++      pdev->info.compiler_info.has_viola_ml && !pdev->use_llvm && debug_get_bool_option("RADV_VIOLA_ML", true);
++
+ #if DETECT_OS_ANDROID
+    pdev->emulate_etc2 = !pdev->info.has_etc_support;
+    pdev->emulate_astc = true;
+diff -ruN a/src/amd/vulkan/radv_physical_device.h b/src/amd/vulkan/radv_physical_device.h
+--- a/src/amd/vulkan/radv_physical_device.h
++++ b/src/amd/vulkan/radv_physical_device.h
+@@ -131,6 +131,11 @@
+    /* Whether to use the LLVM compiler backend */
+    bool use_llvm;
+ 
++   /* Viola: compile int8 dot products with constant or uniform weights in compute shaders to the int8
++    * matrix instruction.
++    */
++   bool use_viola_ml;
++
+    /* Whether to emulate ETC2 image support on HW without support. */
+    bool emulate_etc2;
+ 
+diff -ruN a/src/amd/vulkan/radv_pipeline.c b/src/amd/vulkan/radv_pipeline.c
+--- a/src/amd/vulkan/radv_pipeline.c
++++ b/src/amd/vulkan/radv_pipeline.c
+@@ -562,6 +562,18 @@
+ 
+    NIR_PASS(_, stage->nir, nir_opt_uub, &(nir_opt_uub_options){0});
+ 
++   /* has_sdot_4x8 is set on Viola so that this pass sees the dot products. It uses the int8 matrix
++    * ops only in wave32 compute shaders (wave64 breaks their second result, and other stages are
++    * untested) and lowers the dot products of other shaders.
++    */
++   if (compiler_info->key.viola_ml) {
++      bool ml_ops = false;
++      NIR_PASS(_, stage->nir, radv_nir_opt_viola_int8_dot,
++               stage->stage == MESA_SHADER_COMPUTE && stage->info.wave_size == 32, &ml_ops);
++      if (ml_ops)
++         stage->info.cs.viola_ml_max_waves = compiler_info->key.viola_ml_max_waves;
++   }
++
+    radv_optimize_nir_algebraic(
+       stage->nir, io_to_mem || lowered_ngg || stage->stage == MESA_SHADER_COMPUTE || stage->stage == MESA_SHADER_TASK,
+       gfx_level >= GFX8, gfx_level);
+diff -ruN a/src/amd/vulkan/radv_shader.c b/src/amd/vulkan/radv_shader.c
+--- a/src/amd/vulkan/radv_shader.c
++++ b/src/amd/vulkan/radv_shader.c
+@@ -52,6 +52,20 @@
+ #include "ac_llvm_util.h"
+ #endif
+ 
++static bool
++radv_shader_has_sdot_4x8(nir_shader *nir)
++{
++   nir_foreach_function_impl (impl, nir) {
++      nir_foreach_block (block, impl) {
++         nir_foreach_instr (instr, block) {
++            if (instr->type == nir_instr_type_alu && nir_instr_as_alu(instr)->op == nir_op_sdot_4x8_iadd)
++               return true;
++         }
++      }
++   }
++   return false;
++}
++
+ static void
+ get_nir_options_for_stage(struct radv_compiler_info *compiler_info, mesa_shader_stage stage)
+ {
+@@ -72,6 +86,10 @@
+    options->frag_coord_form = nir_frag_coord_xy_z_w_separate | nir_frag_coord_use_w_rcp;
+    options->io_options |= nir_io_mediump_is_32bit | nir_io_radv_intrinsic_component_workaround;
+    options->varying_expression_max_cost = ac_nir_varying_expression_max_cost;
++
++   /* Keep sdot_4x8 until radv_nir_opt_viola_int8_dot, which lowers what it can't use. */
++   if (compiler_info->key.viola_ml)
++      options->has_sdot_4x8 = true;
+ }
+ 
+ void
+@@ -398,6 +416,13 @@
+       else
+          default_wave_size = compiler_info->key.cs_wave_size;
+ 
++      /* The Viola int8 matrix ops need wave32: in wave64, the second half of the wave writes its
++       * second result (D1) to the first half's lanes.
++       */
++      if (nir->info.stage == MESA_SHADER_COMPUTE && compiler_info->key.viola_ml &&
++          !nir->info.uses_wide_subgroup_intrinsics && local_size % 32 == 0 && radv_shader_has_sdot_4x8(nir))
++         default_wave_size = 32;
++
+       /* Games don't always request full subgroups when they should, which can cause bugs if cswave32
+        * is enabled. Furthermore, if cooperative matrices or subgroup info are used, we can't transparently change
+        * the subgroup size.
+@@ -2274,6 +2299,18 @@
+    }
+ 
+    unsigned num_vgprs = MAX2(config->num_vgprs, num_input_vgprs);
++
++   /* Viola int8 matrix shaders: once their ops are interleaved, FSR4's largest loop layer runs
++    * about 2x slower with 16 waves per SIMD than with 10, at any clock, which points at memory.
++    * Allocate enough VGPRs to limit the waves, but no more than a wave can have.
++    */
++   if (stage == MESA_SHADER_COMPUTE && info->cs.viola_ml_max_waves &&
++       info->cs.viola_ml_max_waves < compiler_info->ac->max_waves_per_simd) {
++      const unsigned granule = info->wave_size == 32 ? 8 : 4;
++      const unsigned physical = compiler_info->ac->num_physical_wave64_vgprs_per_simd * (64 / info->wave_size);
++      const unsigned vgprs = align(physical / (info->cs.viola_ml_max_waves + 1) + 1, granule);
++      num_vgprs = MAX2(num_vgprs, MIN2(vgprs, compiler_info->ac->max_vgpr_alloc));
++   }
+    /* +2 for the ring offsets, +3 for scratch wave offset and VCC */
+    unsigned num_sgprs = MAX2(config->num_sgprs, args->ac.num_sgprs_used + 2 + 3);
+    unsigned num_shared_vgprs = config->num_shared_vgprs;
+diff -ruN a/src/amd/vulkan/radv_shader.h b/src/amd/vulkan/radv_shader.h
+--- a/src/amd/vulkan/radv_shader.h
++++ b/src/amd/vulkan/radv_shader.h
+@@ -566,7 +566,9 @@
+       uint32_t force_nan_preserve_min_max : 1;
+       uint32_t force_exact_glsl_fma : 1;
+       uint32_t nir_debug_info : 1;
+-      uint32_t padding : 27;
++      uint32_t viola_ml : 1;
++      uint32_t viola_ml_max_waves : 5;
++      uint32_t padding : 21;
+ 
+       int32_t force_aniso;
+ 
+diff -ruN a/src/amd/vulkan/radv_shader_info.h b/src/amd/vulkan/radv_shader_info.h
+--- a/src/amd/vulkan/radv_shader_info.h
++++ b/src/amd/vulkan/radv_shader_info.h
+@@ -233,6 +233,9 @@
+       bool has_query : 1; /* Task shader only */
+ 
+       uint32_t derivative_group : 2;
++
++      /* Viola: maximum waves per SIMD for a shader with int8 matrix ops, 0 for no limit. */
++      uint8_t viola_ml_max_waves;
+    } cs;
+    struct {
+       ac_nir_tess_io_info io_info;
+diff -ruN a/src/compiler/nir/nir_divergence_analysis.c b/src/compiler/nir/nir_divergence_analysis.c
+--- a/src/compiler/nir/nir_divergence_analysis.c
++++ b/src/compiler/nir/nir_divergence_analysis.c
+@@ -1006,6 +1006,11 @@
+    case nir_intrinsic_ballot_bit_count_inclusive:
+    case nir_intrinsic_write_invocation_amd:
+    case nir_intrinsic_mbcnt_amd:
++   case nir_intrinsic_dot8x2_i8_viola_amd:
++   case nir_intrinsic_dot4x2_i8_viola_amd:
++   case nir_intrinsic_dot4x2t_i8_viola_amd:
++   case nir_intrinsic_dot4x2t_hi_i8_viola_amd:
++   case nir_intrinsic_quant8x4_viola_amd:
+    case nir_intrinsic_lane_permute_16_amd:
+    case nir_intrinsic_dpp16_shift_amd:
+    case nir_intrinsic_elect:
+diff -ruN a/src/compiler/nir/nir_intrinsics.py b/src/compiler/nir/nir_intrinsics.py
+--- a/src/compiler/nir/nir_intrinsics.py
++++ b/src/compiler/nir/nir_intrinsics.py
+@@ -2338,6 +2338,38 @@
+ intrinsic("cmat_muladd_amd", src_comp=[-1, -1, 0], dest_comp=0, bit_sizes=src2,
+           indices=[SATURATE, NEG_LO_AMD, NEG_HI_AMD, SRC_BASE_TYPE, SRC_BASE_TYPE2], flags=SUBGROUP_FLAGS)
+ 
++# Viola int8 matrix op (op 0x23). src0 is the accumulator, src1/src2 the packed
++# int8 inputs and src3 the packed int8 weights, which must be constant:
++#    dest.x.lo = src0.x.lo + (dot4(src1, src3.x) + dot4(src2, src3.y)) * 2^-14
++#    dest.y.lo = src0.y.lo + (dot4(src1, src3.z) + dot4(src2, src3.w)) * 2^-14
++# The low halves are fp16, the high halves are copied from src0.
++intrinsic("dot8x2_i8_viola_amd", src_comp=[2, 1, 1, 4], dest_comp=2, bit_sizes=[32],
++          flags=[CAN_ELIMINATE, CAN_REORDER])
++
++# The same op without the literal, for one accumulator. src3 holds two uniform weights:
++#    dest.x.lo = src0.x.lo + (dot4(src1, src3.x) + dot4(src2, src3.y)) * 2^-14
++# dest.y is undefined: the op always reads and writes the register after the accumulator.
++intrinsic("dot4x2_i8_viola_amd", src_comp=[2, 1, 1, 2], dest_comp=2, bit_sizes=[32],
++          flags=[CAN_ELIMINATE, CAN_REORDER])
++
++# The same op with its weights read in place from a vector of uniform values in consecutive SGPRs,
++# as loaded, from component BASE on:
++#    dest.x.lo = src0.x.lo + (dot4(src1, src3[base]) + dot4(src2, src3[base + 1])) * 2^-14
++#    dest.y.lo = src0.y.lo + dot4(src1, src3[base + 2]) * 2^-14
++# dest.y is undefined if src3 has fewer than base + 3 components.
++intrinsic("dot4x2t_i8_viola_amd", src_comp=[2, 1, 1, 0], dest_comp=2, indices=[BASE], bit_sizes=[32],
++          flags=[CAN_ELIMINATE, CAN_REORDER])
++
++# The same into the high halves (op 0x24); the low halves are copied from src0.
++intrinsic("dot4x2t_hi_i8_viola_amd", src_comp=[2, 1, 1, 0], dest_comp=2, indices=[BASE], bit_sizes=[32],
++          flags=[CAN_ELIMINATE, CAN_REORDER])
++
++# Viola quantize op (op 0x28): the fp16 halves src0.lo, src0.hi, src1.lo and src1.hi to the four
++# bytes of dest, each min(floor(x * 2^shift), 127) and at least -128, or 0 with ReLU (NaN gives 0,
++# -inf gives -128 even with ReLU). BASE is the literal byte: ReLU in bit 4, shift in bits 3:0.
++intrinsic("quant8x4_viola_amd", src_comp=[1, 1], dest_comp=1, indices=[BASE], bit_sizes=[32],
++          flags=[CAN_ELIMINATE, CAN_REORDER])
++
+ # Global cooperative matrix load with combined cooperative matrix transpose.
+ # This corresponds to RDNA4's global_load_tr_b{64,128}. Like typical cooperative matrix operations,
+ # this has to be in subgroup uniform control flow with all invocations active.

@@ -1,10 +1,13 @@
-# Build from the repository root: podman build -f bootc/Containerfile .
-# Needs the linux-ps5 RPM in bootc/kernel/ (bootc/docs/building.md).
-
+# From the repository root: podman build -f bootc/Containerfile . (needs the linux-ps5 RPM in bootc/kernel/)
 ARG BASE_IMAGE=ghcr.io/ublue-os/bazzite-deck
 ARG BASE_TAG=stable
 
+FROM ${BASE_IMAGE}:${BASE_TAG} AS radv
+COPY bootc/mesa/ /mesa/
+RUN --mount=type=tmpfs,dst=/tmp bash /mesa/build-radv.sh /out
+
 FROM scratch AS ctx
+COPY --from=radv /out/ /radv/
 COPY bootc/build_files/ /build_files/
 COPY bootc/kernel/ /kernel/
 COPY bootc/system_files/ /system_files/

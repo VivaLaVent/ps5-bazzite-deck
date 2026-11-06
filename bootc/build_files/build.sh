@@ -58,6 +58,14 @@ while read -r src dst mode; do
     install -Dm"${mode:-644}" "$f" "$dst"
     sed -i -e 's#/usr/local/s\?bin/#/usr/bin/#g' -e 's#/usr/local/share/#/usr/share/#g' "$dst"
 done
+# --- RADV with the PS5 Pro's int8 matrix instructions and compute queue (bootc/mesa); other GPUs as Bazzite's
+for d in lib64 lib; do
+    [ -e "/usr/$d/libvulkan_radeon.so" ] || continue
+    install -m755 "$CTX/radv/$d/libvulkan_radeon.so" "/usr/$d/libvulkan_radeon.so"
+    ! ldd -r "/usr/$d/libvulkan_radeon.so" 2>&1 | grep -E "not found|undefined symbol" ||
+        { echo "/usr/$d/libvulkan_radeon.so doesn't load against this image"; exit 1; }
+done
+
 [ -e /usr/sbin/kexec ] || install -Dm755 "$CTX/deck/files/kexec-shim" /usr/bin/kexec
 sed -i 's#/usr/local/s\?bin/#/usr/bin/#g' /usr/bin/kexec 2>/dev/null || true
 bash "$CTX/deck/tools/bt-mainconf.sh" /etc/bluetooth/main.conf
@@ -117,6 +125,7 @@ base=$BASE_IMAGE
 kernel=$KVER
 deck=$DECK
 loader=$LOADER
+radv=$(cat "$CTX/radv/VERSION")
 EOF
 echo "$IMAGE_VERSION (bootc, ps5-bazzite-deck $DECK)" > /etc/ps5-bazzite-deck-version   # for ps5-report
 

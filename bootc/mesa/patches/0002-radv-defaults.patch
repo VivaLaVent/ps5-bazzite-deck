@@ -1,0 +1,28 @@
+From 04afaf13b208f5c58c0b057f3dfc2dfa5c19a334 Mon Sep 17 00:00:00 2001
+From: Bas Nieuwenhuizen <bas@basnieuwenhuizen.nl>
+Date: Fri, 14 Jan 2022 15:58:45 +0100
+Subject: STEAMOS: radv: min image count override for FH5
+
+Otherwise in combination with the vblank time reservation in
+gamescope the game could get stuck in low power states.
+---
+ src/util/00-radv-defaults.conf | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/amd/vulkan/00-radv-defaults.conf b/src/amd/vulkan/00-radv-defaults.conf
+index 1cbb2e087c9..43488ada6bc 100644
+--- a/src/amd/vulkan/00-radv-defaults.conf
++++ b/src/amd/vulkan/00-radv-defaults.conf
+@@ -313,6 +313,10 @@
+             <option name="radv_app_layer" value="no_mans_sky" />
+         </application>
+ 
++        <application name="Forza Horizon 5" application_name_match="ForzaHorizon5.exe">
++            <option name="vk_x11_override_min_image_count" value="4" />
++        </application>
++
+         <application name="Crimson Desert" application_name_match="CrimsonDesert.exe">
+             <!-- Using 64 byte descriptors lets vkd3d-proton work around
+                  descriptor type mismatches.
+--
+2.42.0

@@ -25,7 +25,7 @@ release through Steam's Beta channel and one Legacy in-place update.
 | Install | Image extracted with 7-Zip, `.img` checksum matches, flashed with balenaEtcher, first start reaches the desktop |
 | Update | Beta channel or `bootc switch` reaches the release; `sudo bootc rollback` and a power off bring the previous one back |
 | Display | Desktop and Game Mode at the display's best mode; 4K120 over FRL where offered; VRR in a game; `hdmi.modes_100hz=1` modes on 100 Hz displays |
-| GPU | A D3D12 game (Dragon's Dogma 2), a D3D9 game, a Vulkan game for 30 minutes each; `active_cu_number` 36, or 60 on a Pro from the second start |
+| GPU | A D3D12 game (Dragon's Dogma 2), a D3D9 game, a Vulkan game for 30 minutes each; `active_cu_number` 36, or 60 on a Pro from the second start; on a Pro, FSR4 INT8 through OptiScaler, with and without `RADV_VIOLA_ML=0` |
 | Memory | `vram.txt` 6 GB in the log (`VRAM: 6144M`); a browser and a game together without OOM |
 | Fan | Idle, game, sleep and shutdown without ramps; `target_temp` 80; PS5 Hardware Control curve applies and survives a restart |
 | Input | DualSense pairs once and reconnects after switching between the PS5 OS and Linux; sleep and wake |
