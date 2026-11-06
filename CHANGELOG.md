@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.6.2] – unreleased
+## [v2.6.2] – 2026-11-06
 > Stable. Everything since v2.5: the v2.5.1 and v2.6.1 pre-releases, plus the fixes below.
 - **`ps5-report`:** VRAM in use next to the size in `vram.txt` (top block and SUMMARY), amdgpu's VRAM and GTT lines and the 6 GB default's log on every model; the first start after the 6 GB default still runs with the old size, which this shows
 - **`ps5-console-defaults`** is described as the defaults for every model (6 GB VRAM; the 80 °C GPU limit only on a Pro)
