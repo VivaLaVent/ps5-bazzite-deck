@@ -24,8 +24,8 @@ if [ "$id" = "0e8d:3603" ]; then
     # saved one, a freshly derived address is not stable across cold boots on every unit.
     SAVED=/etc/ps5-bazzite-deck/bt-address-value
     cur=""
-    for _ in $(seq 20); do cur=$(kernel_addr); [ -n "$cur" ] && break; sleep 0.5; done
-    [ -n "$cur" ] || { echo "Bluetooth address not readable, nothing to do"; exit 0; }
+    for _ in $(seq 20); do cur=$(kernel_addr); [ -n "${cur//[0:]/}" ] && break; sleep 0.5; done
+    [ -n "${cur//[0:]/}" ] || { echo "Bluetooth address not readable, nothing to do"; exit 0; }
     first=$((16#${cur%%:*}))
     new=$(cat "$SAVED" 2>/dev/null || true)
     if [ -z "$new" ]; then

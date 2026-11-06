@@ -14,9 +14,9 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 Everything is on **[wiki.ps5-linux.eu](https://wiki.ps5-linux.eu)**: what you need, the install step by step, what works
 on your console, and how to fix problems.
 
-- [Install PS5 Bazzite Deck](https://wiki.ps5-linux.eu/installation/bazzite-deck)
+- [Install PS5 Bazzite Deck](https://wiki.ps5-linux.eu/choose/bazzite-deck)
 - [Before you install](https://wiki.ps5-linux.eu/getting-started/overview): firmware, loader, drive, TV
-- [Troubleshooting and getting help](https://wiki.ps5-linux.eu/troubleshooting/getting-help)
+- [Troubleshooting](https://wiki.ps5-linux.eu/troubleshooting/getting-help): logs over SSH, then one page per component
 
 **Downloads:** the [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases). Use the release marked
 **Latest**; releases marked **Pre-release** are test builds, even when their number is higher. Flash with balenaEtcher. What changed in which
@@ -44,4 +44,4 @@ else about Linux on the PS5.
 
 ## Credits
 
-Built on the work of the PS5 Linux community: [credits](https://wiki.ps5-linux.eu/about/credits).
+Built on the work of the PS5 Linux community: [credits](https://wiki.ps5-linux.eu/credits).
