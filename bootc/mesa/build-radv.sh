@@ -6,7 +6,7 @@ M=$(cd "$(dirname "$0")" && pwd)
 OUT=${1:?usage: build-radv.sh <out dir>}
 . "$M/pins.env"
 
-base=$(rpm -q --qf '%{VERSION}\n' mesa-vulkan-drivers | head -1)
+base=$(rpm -q --qf '%{VERSION}\n' mesa-vulkan-drivers | sed -n 1p)
 [ "$base" = "$MESA_VERSION" ] || echo "::warning::Bazzite ships Mesa $base, RADV is built from $MESA_VERSION (bootc/mesa/pins.env)"
 
 # Bazzite builds with Terra and disables it afterwards; libdrm-devel must match the installed libdrm.
@@ -32,7 +32,7 @@ for arch in x86_64 i686; do
     for _ in 1 2 3 4; do
         need=$("pc_$arch" --exists --print-errors "${pcs[@]}" 2>&1 | sed -n "s/^Package '\([^']*\)'.* not found$/\1/p" | sort -u)
         [ -n "$need" ] || break
-        pkgs=$(for n in $need; do rpm -q --whatprovides "pkgconfig($n)" --qf "%{NAME}.$arch\n" 2>/dev/null | head -1; done | sort -u)
+        pkgs=$(for n in $need; do rpm -q --whatprovides "pkgconfig($n)" --qf "%{NAME}.$arch\n" 2>/dev/null | sed -n 1p; done | sort -u)
         [ -n "$pkgs" ] || break
         echo "$arch: $need -> $pkgs"
         # shellcheck disable=SC2086
