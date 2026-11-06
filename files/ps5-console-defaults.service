@@ -1,5 +1,5 @@
 [Unit]
-Description=PS5 Pro defaults: VRAM and GPU temperature limit
+Description=PS5 defaults: 6 GB VRAM, and the GPU temperature limit on a Pro
 After=local-fs.target boot-efi.mount
 
 [Service]
