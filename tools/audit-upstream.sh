@@ -16,7 +16,7 @@ case "$REF" in v*.*.*) URL=https://git.kernel.org/pub/scm/linux/kernel/git/stabl
 git clone -q --depth 1 --branch "$REF" "$URL" "$W/linux"
 if git -C "$W/linux" apply --exclude=Makefile "$W/rmux/linux.patch"; then
   echo "| patch | on $BR $HEAD |"; echo "|---|---|"
-  for p in $(sed -n 's#^git -C work/linux73 apply "\$SRC/patches/\([^"]*\)".*#\1#p' "$SRC/build.sh"); do
+  for p in $(grep -o '^[^# ]*\.patch' "$SRC/patches/series"); do
     if git -C "$W/linux" apply --check "$SRC/patches/$p" 2>/dev/null; then git -C "$W/linux" apply "$SRC/patches/$p"; r="applies"
     elif git -C "$W/linux" apply -R --check "$SRC/patches/$p" 2>/dev/null; then r="already upstream"
     else r="**conflicts**: $(git -C "$W/linux" apply --check "$SRC/patches/$p" 2>&1 | sed -n 's/^error: patch failed: //p' | head -3 | tr '\n' ' ')"; fi

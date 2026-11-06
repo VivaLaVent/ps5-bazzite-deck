@@ -1,5 +1,5 @@
 # Build from the repository root: podman build -f bootc/Containerfile .
-# Needs the linux-ps5 RPM in bootc/kernel/ (see docs/bootc.md).
+# Needs the linux-ps5 RPM in bootc/kernel/ (bootc/docs/building.md).
 
 ARG BASE_IMAGE=ghcr.io/ublue-os/bazzite-deck
 ARG BASE_TAG=stable

@@ -26,7 +26,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 - **Parked:** rmux's display rework adapted (`patches-next/rmux-display/`, v2.4.2's kernel), for 4K120 and VRR on his path
 - **bootc is the standard form.** Release notes, README and wiki lead with it (why, switching by reflash); Legacy installs keep in-place updates and are advised to switch
 
-## [v1.8.9] – 2026-10-<DD>
+## [v1.8.9] – 2026-10-30
 > Full release (image and update bundle) with the v1.8.8 kernel. Replaces the first v1.8.9 (4K120 as YCbCr 4:2:2), which showed the wrong colour range.
 - **One DualSense for the PS5 and Linux, on by default on every console:** Linux has its own Bluetooth address, so the controller keeps a pairing for each (on separate profiles) instead of losing one every time you switch. IW620: while it's on, restarts go through the PS5 system instead of warm ones, because the chip didn't survive a warm restart with the changed address (Max). `ps5-bt-address off` switches it off
 - **MediaTek (Slim): the Linux-only Bluetooth address works on more consoles:** where the kernel's way of setting it didn't stick (hsgodd: the controller lost its PS5-system pairing every time), MediaTek's own command is used as a fallback

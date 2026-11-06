@@ -115,6 +115,6 @@ jobs:
           jq -n --arg v "$VERSION" --arg u "$URL" --arg deck "$DECK" --arg digest "$DIGEST" --arg repo "$GITHUB_REPOSITORY" \
                 --arg kind "$KIND" --arg kernel "$KERNEL_TAG" '
             {embeds: [{title: "\($kind) for bootc: \($v)", url: $u, color: 3447003,
-              description: "Bazzite\u0027s latest base updates, the kernel of \($kernel), and the PS5 files as of \($deck).\n\nOn the console: Steam\u0027s update button or `sudo bootc upgrade`, then restart and start with bazzite-bootc-loader.\nBack to the previous image: `sudo bootc rollback`, then restart.\n\nDigest `\($digest)`",
+              description: "Bazzite\u0027s latest base updates, the kernel of \($kernel), and the PS5 files as of \($deck).\n\nOn the console: Steam\u0027s update button or `sudo bootc upgrade`, then restart and start with bazzite-bootc-loader.\nBack to the previous image: `sudo bootc rollback`, then power off and start with the loader.\n\nDigest `\($digest)`",
               footer: {text: "\($repo) • :stable"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"

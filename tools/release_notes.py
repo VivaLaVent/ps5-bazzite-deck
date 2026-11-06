@@ -1,32 +1,27 @@
 #!/usr/bin/env python3
-"""Render the GitHub release notes in one common structure and update them.
+"""Render docs/release-notes/<tag>.md (and docs/update-sections/<tag>.md) with the release's files and update GitHub.
 
-  python3 tools/release_notes.py            # render to /tmp/release-notes/<tag>.md and update GitHub
-  python3 tools/release_notes.py --dry-run  # render only
-
-Per release it combines: the release's
-"What's new" / "What to test" / "Testing" / "Sharing logs" / "Known issues" (docs/release-notes/<tag>.md), its in-place update section
-(docs/update-sections/<tag>.md), the common settings/install/known-issues blocks below, the release's
-own VERSIONS.md (downloaded from the release) and its actual asset list.
+  python3 tools/release_notes.py [tag ...] [--dry-run]
 """
 import json, os, re, subprocess, sys, tempfile
 
 REPO = "VivaLaVent/ps5-bazzite-deck"
-def _tags():
-    d = os.path.join(SRC, "docs/release-notes")
-    tags = [f[:-3] for f in os.listdir(d) if re.fullmatch(r"v\d+\.\d+(?:\.\d+)?\.md", f)]
-    return sorted(tags, key=lambda t: tuple(int(x) for x in t[1:].split(".")))
-
 DISCORD = "https://discord.gg/ps5linux"
 KOFI = "https://ko-fi.com/vivalavent"
 SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = "/tmp/release-notes"
+PROBLEMS = (f"**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\n"
+            f"Like the project? Support it on [Ko-fi]({KOFI}).\n")
 
-COMMON_ISSUES = []
+
+def tags():
+    d = os.path.join(SRC, "docs/release-notes")
+    t = [f[:-3] for f in os.listdir(d) if re.fullmatch(r"v\d+\.\d+(?:\.\d+)?\.md", f)]
+    return sorted(t, key=lambda t: tuple(int(x) for x in t[1:].split(".")))
 
 
-def gh(*args, capture=True):
-    r = subprocess.run(["gh", *args], capture_output=capture, text=True)
+def gh(*args):
+    r = subprocess.run(["gh", *args], capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip())
     return r.stdout
@@ -40,26 +35,22 @@ def section(text, name):
 def files_section(tag, assets):
     base = f"ps5-bazzite-deck-{tag}"
     used, lines = set(), []
-    vols = sorted(a for a in assets if re.fullmatch(rf"{re.escape(base)}\.img\.7z\.\d{{3}}", a))
-    if vols:
-        lines.append(f"- `{base}.img.7z.{'/.'.join(v.rsplit('.', 1)[1] for v in vols)}` – full image, 7-Zip multi-volume (extract from `.001`)")
+    for prefix, desc in [(base, "full image"), (f"ps5-bazzite-deck-bootc-{tag}", "bootc disk image")]:
+        vols = sorted(a for a in assets if re.fullmatch(rf"{re.escape(prefix)}\.img\.7z\.\d{{3}}", a))
+        if not vols:
+            continue
+        if prefix == base:
+            lines.append(f"- `{base}.img.7z.{'/.'.join(v.rsplit('.', 1)[1] for v in vols)}` – {desc}, 7-Zip multi-volume (extract from `.001`)")
+        else:
+            lines.append(f"- `{prefix}.img.7z.*` – {desc}, 7-Zip multi-volume (extract from `.001`)")
         used.update(vols)
-    bootc_vols = sorted(a for a in assets if re.fullmatch(rf"ps5-bazzite-deck-bootc-{re.escape(tag)}\.img\.7z\.\d{{3}}", a))
-    if bootc_vols:
-        lines.append(f"- `ps5-bazzite-deck-bootc-{tag}.img.7z.*` – bootc disk image, 7-Zip multi-volume (extract from `.001`)")
-        used.update(bootc_vols)
     for name, desc in [
         (f"{base}.sha256", "checksums for the image volumes"),
         (f"ps5-bazzite-deck-bootc-{tag}.sha256", "checksums for the bootc image volumes"),
-        (f"{base}-update.tar.gz", "in-place update (see Updating above)"),
-        (f"{base}-update.tar.gz.sha256", "checksum"),
         (f"{base}-update.tar.xz", "in-place update (see Updating above)"),
         (f"{base}-update.tar.xz.sha256", "checksum"),
-        (f"ps5-quick-{tag}.tar.gz", "quick kernel package"),
-        (f"ps5-quick-{tag}.tar.gz.sha256", "checksum"),
         (f"bazzite-bootc-loader-{tag}.elf", "replaces the standard PS5 Linux loader; built from rmux's ps5-linux-loader + BLS/bootc patches"),
         (f"bazzite-bootc-loader-{tag}.elf.sha256", "loader checksum"),
-        ("btusb.ko", "Bluetooth kernel module for v1.0.2 users"),
     ] + [(a, "PS5 Linux kernel RPM (used by the bootc image build)") for a in sorted(assets) if a.endswith(".rpm")]:
         if name in assets:
             lines.append(f"- `{name}` – {desc}")
@@ -69,8 +60,7 @@ def files_section(tag, assets):
 
 
 def render(tag, tmp):
-    info = json.loads(gh("release", "view", tag, "--repo", REPO, "--json", "body,assets"))
-    assets = [a["name"] for a in info["assets"]]
+    assets = [a["name"] for a in json.loads(gh("release", "view", tag, "--repo", REPO, "--json", "body,assets"))["assets"]]
     per = open(os.path.join(SRC, "docs/release-notes", f"{tag}.md"), encoding="utf-8").read()
     upd_path = os.path.join(SRC, "docs/update-sections", f"{tag}.md")
     upd = open(upd_path, encoding="utf-8").read().strip() if os.path.exists(upd_path) else ""
@@ -79,34 +69,30 @@ def render(tag, tmp):
         gh("release", "download", tag, "--repo", REPO, "-p", "VERSIONS.md", "-D", tmp, "--clobber")
         v = open(os.path.join(tmp, "VERSIONS.md"), encoding="utf-8").read().split("\n")
         versions = "## Versions\n" + "\n".join(l for l in v if l.startswith("|")) + "\n"
-    issues = [l[2:] for l in section(per, "Known issues").splitlines() if l.startswith("- ")]
-    vrr = section(per, "VRR test")
+    issues = [l for l in section(per, "Known issues").splitlines() if l.startswith("- ")]
+    known = ("## Known issues\n" + "\n".join(issues) + "\n") if issues else ""
+
     def secs(*names):
-        return "".join(f"## {name}\n{body}\n" for name in names if (body := section(per, name)))
-    before = secs("Already running", "Already running PS5 Bazzite Deck")
-    after = secs("New install", "New installs", "Trying the bootc image", "What to test", "Testing", "Sharing logs")
-    own_install = bool(section(per, "New install") or section(per, "New installs"))
-    known = ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else ""
-    problems = (f"**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\n"
-                f"Like the project? Support it on [Ko-fi]({KOFI}).\n")
+        return "".join(f"## {n}\n{body}\n" for n in names if (body := section(per, n)))
+
+    head = "## What's new\n" + section(per, "What's new") + "\n"
     if section(per, "Legacy"):
-        # notes with a Legacy section: bootc first, Legacy last as a footnote
-        parts = ["## What's new\n" + section(per, "What's new") + "\n",
-                 secs("bootc", "Bootc (experimental)", "Problems"), known,
-                 secs("What to test", "Sharing logs", "Legacy"), versions, files_section(tag, assets), "---\n" + problems]
-        return "\n".join(p for p in parts if p)
-    parts = ["## What's new\n" + section(per, "What's new") + "\n",
-             ("## VRR test\n" + vrr + "\n") if vrr else "", before, upd + "\n", after,
-             ("## Known issues\n" + "\n".join(f"- {i}" for i in COMMON_ISSUES + issues) + "\n") if issues else "",
-             versions, files_section(tag, assets),
-             "" if own_install else f"---\n**New install:** download the [latest stable release](https://github.com/{REPO}/releases/latest) full image, flash it to USB, then update using the built-in update command above.\n**Bootc image:** `sudo bootc upgrade` on a running bootc install pulls the latest image in the background.\n\n**Found a problem?** Run `ps5-report` on the PS5 and post the file it saves in [Discord]({DISCORD}).\nLike the project? Support it on [Ko-fi]({KOFI}).\n"]
+        parts = [head, secs("bootc", "Problems"), known, secs("What to test", "Sharing logs", "Legacy"),
+                 versions, files_section(tag, assets), "---\n" + PROBLEMS]
+    else:
+        footer = "" if section(per, "New install") else (
+            f"---\n**New install:** download the [latest stable release](https://github.com/{REPO}/releases/latest) full image, "
+            "flash it to USB, then update using the built-in update command above.\n"
+            "**Bootc image:** `sudo bootc upgrade` on a running bootc install pulls the latest image in the background.\n\n" + PROBLEMS)
+        parts = [head, upd + "\n", secs("New install", "What to test", "Testing", "Sharing logs"), known,
+                 versions, files_section(tag, assets), footer]
     return "\n".join(p for p in parts if p)
 
 
 def main():
     dry = "--dry-run" in sys.argv
     os.makedirs(OUT, exist_ok=True)
-    for tag in [a for a in sys.argv[1:] if not a.startswith("--")] or _tags():
+    for tag in [a for a in sys.argv[1:] if not a.startswith("--")] or tags():
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 notes = render(tag, tmp)
@@ -117,12 +103,12 @@ def main():
         open(path, "w", encoding="utf-8").write(notes)
         if dry:
             print(f"rendered {tag} -> {path}")
-        else:
-            try:
-                gh("release", "edit", tag, "--repo", REPO, "--notes-file", path)
-                print(f"updated {tag}")
-            except Exception as e:      # release deleted on GitHub: its notes stay in docs/
-                print(f"skip {tag}: no release ({e})")
+            continue
+        try:
+            gh("release", "edit", tag, "--repo", REPO, "--notes-file", path)
+            print(f"updated {tag}")
+        except Exception as e:
+            print(f"skip {tag}: no release ({e})")
 
 
 if __name__ == "__main__":

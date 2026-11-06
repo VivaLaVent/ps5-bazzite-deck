@@ -46,7 +46,7 @@ the USB drive was updated. It catches up during the start, so restart once more 
 
 ## Going back to the previous version
 
-`sudo bootc rollback`, then restart and run the loader. If the new version doesn't start at all, the USB drive's
+`sudo bootc rollback`, then power off (not restart) and run the loader. If the new version doesn't start at all, the USB drive's
 small `boot` partition has a `ROLLBACK.txt` that explains how to start the previous one from a PC.
 
 ## Boot options (cmdline.txt)

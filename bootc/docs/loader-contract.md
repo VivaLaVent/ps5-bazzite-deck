@@ -19,10 +19,11 @@ and in the release notes.
 | `lib/` | Linux | Wi-Fi and PS5 Pro GPU firmware the loader dumps next to the `initrd.img` it loaded |
 | `.ps5-bootc-sync.json` | `ps5-bootc-sync` | which deployment the root files belong to, and the options it wrote |
 
-Two limits of the loader matter here. `path-override.txt` redirects `bzImage` and `initrd.img` only, so a
-manual rollback also needs that deployment's `cmdline.txt` copied over the root one. And the firmware is
+Two limits of the loader matter here. The standard loader's `path-override.txt` redirects `bzImage` and
+`initrd.img` only (bazzite-bootc-loader also `cmdline.txt` and `vram.txt`), so `ROLLBACK.txt` has the
+deployment's `cmdline.txt` copied over the root one, which works with both. And the firmware is
 dumped next to the redirected initrd, under `ostree/<id>/lib/`, where Linux doesn't look: during a manual
 rollback Wi-Fi and the PS5 Pro GPU firmware can be missing until you're back on the default deployment.
 
-A loader that reads Boot Loader Specification entries (`loader/entries/*.conf`) would replace the copying
-above. Until then, this table is the contract.
+bazzite-bootc-loader boots Boot Loader Specification entries when the FAT partition has `loader/entries/`.
+This image keeps them on `/boot` (ext4), so the loader uses the files above, and this table is the contract.
