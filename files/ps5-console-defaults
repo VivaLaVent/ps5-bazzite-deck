@@ -1,14 +1,18 @@
 #!/bin/bash
-# PS5 Pro, once: 1 GB VRAM (512 MB fails framebuffer pins under load) and an 80 °C GPU limit
-# (at 85 °C the firmware cuts power first). Settings the user changes later are left alone.
+# Once per install: 6 GB VRAM on every console; PS5 Pro also an 80 °C GPU limit. Later changes by the user are kept.
 set -eu
-DONE=/var/lib/ps5-bazzite-deck/console-defaults
-[ -e "$DONE" ] && exit 0
-grep -qsiE '^0x13d[ac]$' /sys/bus/pci/devices/0000:20:00.0/device || exit 0
+D=/var/lib/ps5-bazzite-deck
 E=; for d in /efi /boot/efi; do [ -f "$d/cmdline.txt" ] && { E=$d; break; }; done
 [ -n "$E" ] || exit 0
-[ -s "$E/vram.txt" ] || echo 0x40000000 > "$E/vram.txt"
-grep -q 'ps5[_-]gpufreq\.temp_limit=' "$E/cmdline.txt" || sed -i '1s/[[:space:]]*$/ ps5_gpufreq.temp_limit=80/' "$E/cmdline.txt"
+mkdir -p "$D"
+if [ ! -e "$D/vram-6g" ]; then
+    echo 0x180000000 > "$E/vram.txt"
+    touch "$D/vram-6g"
+    echo "6 GB VRAM set in $E/vram.txt; used from the next start with the loader"
+fi
+if grep -qsiE '^0x13d[ac]$' /sys/bus/pci/devices/0000:20:00.0/device && [ ! -e "$D/console-defaults" ]; then
+    grep -q 'ps5[_-]gpufreq\.temp_limit=' "$E/cmdline.txt" || sed -i '1s/[[:space:]]*$/ ps5_gpufreq.temp_limit=80/' "$E/cmdline.txt"
+    touch "$D/console-defaults"
+    echo "PS5 Pro: 80 °C GPU limit set; used from the next start with the loader"
+fi
 sync
-mkdir -p "${DONE%/*}"; touch "$DONE"
-echo "PS5 Pro: 1 GB VRAM and an 80 °C GPU limit set; used from the next start with the loader"

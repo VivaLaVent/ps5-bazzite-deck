@@ -56,10 +56,11 @@ sudo rm -f /etc/NetworkManager/conf.d/99-ps5-wifi.conf /usr/local/share/ps5-bazz
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
 # a leftover hdmi.rearm=0 keeps TVs dark after mode changes
 sudo sed -i 's/ *hdmi\.rearm=0//' "$EFI/cmdline.txt"
-for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-connectable ps5-bt-revive ps5-wifi-repair ps5-perf ps5-stage-viola-fw ps5-console-defaults; do
+for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-connectable ps5-bt-revive ps5-wifi-repair ps5-perf ps5-stage-viola-fw ps5-console-defaults ps5-session-defaults; do
   [ -f "/etc/systemd/system/$u.service" ] && sudo systemctl enable "$u.service" 2>/dev/null || true
 done
 [ -f /etc/systemd/system/ps5-wifi-powersave.timer ] && sudo systemctl enable ps5-wifi-powersave.timer 2>/dev/null || true
+[ -f /etc/systemd/user/ps5-user-defaults.service ] && sudo systemctl --global enable ps5-user-defaults.service 2>/dev/null || true
 sudo sed -i 's/ video=DP-1:1920x1080@60//' "$EFI/cmdline.txt"
 # options that became kernel defaults; only the exact strings we added
 sudo sed -i -e 's/ lsm=landlock,lockdown,yama,integrity,apparmor,bpf//' -e 's/ usbcore\.autosuspend=-1//' "$EFI/cmdline.txt"

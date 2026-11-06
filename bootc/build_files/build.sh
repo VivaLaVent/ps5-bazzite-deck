@@ -70,8 +70,9 @@ systemctl enable \
     ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
     ps5-bt-revive.service ps5-perf.service ps5-stage-viola-fw.service ps5-console-defaults.service \
     ps5-wifi-repair.service ps5-wifi-powersave.timer \
-    ps5-gamescope-recovery.service ps5-bootc-channel.service \
+    ps5-gamescope-recovery.service ps5-bootc-channel.service ps5-session-defaults.service \
     sshd.service
+systemctl --global enable ps5-user-defaults.service
 mkdir -p /etc/systemd/system/bluetooth.target.wants
 ln -sf /etc/systemd/system/ps5-bt-addr.service /etc/systemd/system/bluetooth.target.wants/
 ln -sf /etc/systemd/system/ps5-bt-connectable.service /etc/systemd/system/bluetooth.target.wants/
@@ -129,13 +130,19 @@ else
 fi
 cat "$C"
 
-# --- image-info.json names this image, so Bazzite's tools and the login banner don't point at bazzite-deck
+# --- identity: "deck" in image-name keeps Bazzite's deck setup (Steam bootstrap and -steamdeck, Return shortcut,
+# default desktop session); Steam's own branding instead of Bazzite's
 I=/usr/share/ublue-os/image-info.json
 if [ -f "$I" ]; then
-    jq '."image-name"="ps5-bazzite-bootc" | ."image-vendor"="vivalavent" | ."image-tag"="stable"
+    jq '."image-name"="ps5-bazzite-deck" | ."image-vendor"="vivalavent" | ."image-tag"="stable"
         | ."image-ref"="ostree-image-signed:docker://ghcr.io/vivalavent/ps5-bazzite-bootc"' "$I" > /tmp/image-info.json
     mv /tmp/image-info.json "$I"
 fi
+sed -i -e 's|^NAME=.*|NAME="PS5 Bazzite Deck"|' -e "s|^PRETTY_NAME=.*|PRETTY_NAME=\"PS5 Bazzite Deck ${DECK%%-*}\"|" \
+    -e 's|^HOME_URL=.*|HOME_URL="https://wiki.ps5-linux.eu"|' -e 's|^DOCUMENTATION_URL=.*|DOCUMENTATION_URL="https://wiki.ps5-linux.eu"|' \
+    -e 's|^SUPPORT_URL=.*|SUPPORT_URL="https://discord.gg/ps5linux"|' \
+    -e 's|^BUG_REPORT_URL=.*|BUG_REPORT_URL="https://github.com/VivaLaVent/ps5-bazzite-deck/issues"|' /usr/lib/os-release
+[ ! -f /usr/bin/bazzite-steam-brand ] || printf '#!/bin/sh\nexit 0\n' > /usr/bin/bazzite-steam-brand
 
 # --- initramfs, last: amdgpu loads from it, so it needs the firmware and options above.
 # Same as Bazzite's build-initramfs.sh.

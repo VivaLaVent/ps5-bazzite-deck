@@ -116,9 +116,19 @@ jobs:
     uses: ./.github/workflows/bootc-build-image.yml
     with:
       tag: ${{ needs.meta.outputs.tag }}
-      stable: false
       kernel_artifact: kernel-rpm
     secrets: inherit
+
+  beta:
+    needs: [meta, kernel]
+    if: ${{ !inputs.resume }}
+    permissions:
+      contents: write
+      actions: write
+    uses: ./.github/workflows/pin-kernel.yml
+    with:
+      tag: ${{ needs.meta.outputs.tag }}
+      channel: beta
 
   bundle:
     needs: [meta, image]
@@ -176,12 +186,19 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v5
       - name: Release notes with every file
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 tools/release_notes.py "${{ needs.meta.outputs.tag }}"
+      # a release created with GITHUB_TOKEN starts no release-event workflows
+      - name: Post to the pre-release channel
+        if: ${{ !inputs.resume }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run discord-release.yml --repo "$GITHUB_REPOSITORY" -f tag="${{ needs.meta.outputs.tag }}"
       - name: Post to the bootc testing channel
         if: needs.disk.result == 'success' && needs.loader.result == 'success'
         env:
@@ -192,7 +209,7 @@ jobs:
           [ -n "$HOOK" ] || exit 0
           jq -n --arg tag "$TAG" --arg u "$URL" --arg repo "$GITHUB_REPOSITORY" '
             {embeds: [{title: "New bootc release: \($tag)", url: $u, color: 3447003,
-              description: "The disk image and `bazzite-bootc-loader-\($tag).elf` are attached to the release.\n\nNew install: extract the `.7z.001`, flash it with Rufus (DD mode), Balena Etcher or `dd`, start it with the loader.\nAlready on bootc: `sudo bootc switch ghcr.io/vivalavent/ps5-bazzite-bootc:\($tag)`, then restart (`sudo bootc rollback` goes back).\n\nReport results here with `sudo bootc status` and `ps5-report`.",
+              description: "The disk image and `bazzite-bootc-loader-\($tag).elf` are attached to the release.\n\nNew install: extract the `.7z.001` with 7-Zip, flash the `.img` with balenaEtcher or `dd`, start it with the loader.\nAlready on bootc: `sudo bootc switch ghcr.io/vivalavent/ps5-bazzite-bootc:\($tag)`, then restart (`sudo bootc rollback` goes back).\n\nReport results here with `sudo bootc status` and `ps5-report`.",
               footer: {text: "\($repo) • \($tag)"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"
       - name: Report missing parts

@@ -2,7 +2,7 @@
 
 ## How it boots
 
-The [PS5 Linux loader](https://github.com/ps5-linux/ps5-linux-loader) knows nothing about bootc.
+The PS5 Linux loader knows nothing about bootc.
 It loads `bzImage`, `initrd.img` and `cmdline.txt` from the USB drive's FAT partition, as it
 always has. bootc writes its boot entries to `/boot/loader/entries`, as it does on any other
 Fedora system. `ps5-bootc-sync` copies the current entry's kernel and initramfs to the FAT
@@ -76,8 +76,8 @@ Locally, `bash build.sh` produces the same RPM in `~/ps5-build-7.3/linux-bin/`.
 In the ps5-bazzite-deck repository:
 
 - Settings → Actions → General → Workflow permissions: *Read and write*.
-- Secrets: `SIGNING_SECRET` (cosign key) and `DISCORD_TESTING_WEBHOOK` (posts every image push), next to the
-  release webhooks ps5-bazzite-deck already has.
+- Secrets: `SIGNING_SECRET` (cosign key) and three Discord webhooks: `DISCORD_RELEASES_WEBHOOK` (stable releases),
+  `DISCORD_PRERELEASE_WEBHOOK` (pre-releases) and `DISCORD_BOOTC_WEBHOOK` (bootc releases and image builds).
 - The image keeps its name, `ghcr.io/vivalavent/ps5-bazzite-bootc`, so consoles keep updating. Its package
   settings → *Manage Actions access* → add ps5-bazzite-deck with the *Write* role.
 

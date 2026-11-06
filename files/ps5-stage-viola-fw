@@ -1,12 +1,12 @@
 #!/bin/bash
-# PS5 Pro: amdgpu loads the Viola firmware from the initramfs, so the loader's 8 dumped files are appended
-# to initrd.img as a cpio (original kept as initrd.img.noviola). Used from the next start.
+# PS5 Pro: appends the loader's Viola firmware dump to initrd.img (original kept as initrd.img.noviola).
+# ps5.viola_cp=cs2 on the kernel command line swaps in linux-firmware's cyan_skillfish2 CP microcode instead
+# of Sony's (DXVK D3D9 hangs on Sony's, vkd3d D3D12 on cyan_skillfish2).
 set -eu
 E=; for d in /boot/efi /efi; do [ -f "$d/initrd.img" ] && { E=$d; break; }; done
 [ -n "$E" ] || exit 0
 SRC=$E/lib/firmware/amdgpu
 FILES="viola_ce viola_me viola_mec viola_mec2 viola_pfp viola_rlc viola_sdma viola_sdma1"
-# Pro only (1002:13da/13dc); say so when the loader didn't dump the firmware.
 grep -qsiE '^0x13d[ac]$' /sys/bus/pci/devices/0000:20:00.0/device || exit 0
 missing=; for f in $FILES; do [ -s "$SRC/$f.bin" ] || missing="$missing $f.bin"; done
 if [ -n "$missing" ]; then
@@ -15,31 +15,32 @@ if [ -n "$missing" ]; then
     exit 0
 fi
 command -v cpio >/dev/null || { echo "PS5 Pro: Viola firmware found, but cpio is missing: can't add it to the initrd"; exit 1; }
+MODE=sony; grep -qw 'ps5.viola_cp=cs2' /proc/cmdline && MODE=cs2
+REQ=$MODE
 STATE=/var/lib/ps5-bazzite-deck/viola-initrd.sha256
 cur=$(sha256sum "$E/initrd.img" | cut -d' ' -f1)
-[ -f "$STATE" ] && [ "$(cat "$STATE")" = "$cur" ] && exit 0
+done_sha=; done_mode=; [ -f "$STATE" ] && read -r done_sha done_mode < "$STATE" || true
+[ "$done_sha" = "$cur" ] && [ "${done_mode:-cs2}" = "$REQ" ] && exit 0
+base=$E/initrd.img
+[ "$done_sha" = "$cur" ] && [ -s "$E/initrd.img.noviola" ] && base=$E/initrd.img.noviola
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
+cp "$base" "$T/base.img"
 mkdir -p "$T/usr/lib/firmware/amdgpu"
 for f in $FILES; do cp "$SRC/$f.bin" "$T/usr/lib/firmware/amdgpu/"; done
-# Sony's command-processor microcode hangs DXVK D3D9 at the first draw (GE busy at DRAW_INDEX_2);
-# AMD's cyan_skillfish2 CE/ME/PFP/MEC/MEC2 don't. Sony's RLC and SDMA stay. linux-firmware is compressed.
 cs2() { local b=/usr/lib/firmware/amdgpu/cyan_skillfish2_$1.bin
         if [ -s "$b" ]; then cat "$b"; elif [ -s "$b.xz" ]; then xz -dc "$b.xz"; elif [ -s "$b.zst" ]; then zstd -dcq "$b.zst"; else return 1; fi; }
-ok=1; for p in ce me pfp mec mec2; do cs2 $p > "$T/cs2_$p.bin" || { ok=0; break; }; done
-if [ $ok = 1 ]; then
-    for p in ce me pfp mec mec2; do mv "$T/cs2_$p.bin" "$T/usr/lib/firmware/amdgpu/viola_$p.bin"; done
-    echo "PS5 Pro: command-processor microcode from linux-firmware (cyan_skillfish2)"
+if [ "$MODE" = cs2 ]; then
+    for p in ce me pfp mec mec2; do cs2 $p > "$T/cs2_$p.bin" || { echo "PS5 Pro: cyan_skillfish2_$p.bin missing, keeping Sony's CP microcode"; MODE=sony; break; }; done
+    [ "$MODE" = cs2 ] && for p in ce me pfp mec mec2; do mv "$T/cs2_$p.bin" "$T/usr/lib/firmware/amdgpu/viola_$p.bin"; done
 fi
 (cd "$T" && find usr | sort | cpio -o -H newc --quiet) > "$T/viola.cpio"
-cp -a "$E/initrd.img" "$E/initrd.img.noviola"
-# Each archive in a concatenated initramfs has to start on a 4-byte boundary.
-base_size=$(stat -c %s "$E/initrd.img.noviola")
-padding=$(( (4 - (base_size % 4)) % 4 ))
+cp "$T/base.img" "$E/initrd.img.noviola"
+padding=$(( (4 - ($(stat -c %s "$T/base.img") % 4)) % 4 ))
 {
-  cat "$E/initrd.img.noviola"
+  cat "$T/base.img"
   [ "$padding" -ne 0 ] && dd if=/dev/zero bs=1 count="$padding" status=none
   cat "$T/viola.cpio"
 } > "$E/initrd.img.new" && mv "$E/initrd.img.new" "$E/initrd.img"
 sync
-mkdir -p "$(dirname "$STATE")"; sha256sum "$E/initrd.img" | cut -d' ' -f1 > "$STATE"
-echo "PS5 Pro: Viola GPU firmware added to $E/initrd.img; it's used from the next start with the loader"
+mkdir -p "${STATE%/*}"; echo "$(sha256sum "$E/initrd.img" | cut -d' ' -f1) $REQ" > "$STATE"
+echo "PS5 Pro: Viola GPU firmware ($MODE CP microcode) added to $E/initrd.img; used from the next start with the loader"

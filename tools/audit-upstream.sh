@@ -1,6 +1,6 @@
 #!/bin/bash
 # Do the patches still apply to upstream's newest work? Kernel: rmux's default branch of ps5-linux-patches-1
-# on the kernel it names; loader: ps5-linux-loader's main. Read-only; prints a Markdown report.
+# on the kernel it names; loader: the main branch of the loader in loader/pins.env. Read-only; prints a Markdown report.
 #   bash tools/audit-upstream.sh [workdir]
 set -uo pipefail
 SRC=$(cd "$(dirname "$0")/.." && pwd); W=${1:-$(mktemp -d)}; mkdir -p "$W"
@@ -26,8 +26,8 @@ else
   echo "rmux's linux.patch doesn't apply to $REF itself; check build.cfg"
 fi
 
-echo; echo "## Loader: loader/patches on ps5-linux-loader main"
 . "$SRC/loader/pins.env"
+echo; echo "## Loader: loader/patches on $LOADER_REPO main"
 git clone -q "https://github.com/$LOADER_REPO" "$W/loader"
 LH=$(git -C "$W/loader" rev-parse --short HEAD)
 echo "upstream main at $LH (built on ${LOADER_COMMIT:0:7}); $(git -C "$W/loader" rev-list --count "$LOADER_COMMIT..HEAD" 2>/dev/null || echo "?") new commits"

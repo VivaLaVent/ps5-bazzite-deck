@@ -1,0 +1,10 @@
+#!/bin/bash
+# Once per install: start in Desktop Mode. Steam's Game Mode setting for the default session turns it off again.
+set -eu
+M=/var/lib/ps5-bazzite-deck/desktop-default
+[ -e "$M" ] && exit 0
+[ -x /usr/libexec/bazzite-autologin ] || exit 0
+mkdir -p /etc/sddm.conf.d "${M%/*}"
+printf '[Autologin]\nSession=plasma.desktop\n' > /etc/sddm.conf.d/zz-holo-autologin.conf
+touch "$M"
+echo "Desktop Mode is the default session from now on"

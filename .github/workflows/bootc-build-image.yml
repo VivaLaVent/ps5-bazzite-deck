@@ -1,6 +1,6 @@
 name: Build bootc image
-# Weekly and by hand (gh workflow run bootc-build-image.yml): :stable and :<date> from main with the kernel
-# pinned in pins.env, so Bazzite's base updates come through; no kernel is built. Releases call it with theirs.
+# Weekly and by hand: :stable (stable release's kernel) and :beta (newest pre-release's kernel) from main, kernels
+# pinned in pins.env. Releases call it with their own kernel and push :<tag>.
 on:
   schedule:
     - cron: "41 4 * * 1"
@@ -10,9 +10,6 @@ on:
       tag:
         type: string
         default: ""
-      stable:
-        type: boolean
-        default: true
       kernel_artifact:
         type: string
         default: ""
@@ -23,8 +20,12 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: ${{ fromJSON(inputs.tag == '' && '["stable","beta"]' || '["release"]') }}
     concurrency:
-      group: image-${{ inputs.tag || github.ref }}
+      group: image-${{ inputs.tag || github.ref }}-${{ matrix.channel }}
       cancel-in-progress: ${{ inputs.tag == '' }}
     permissions:
       contents: read
@@ -36,7 +37,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.tag }}
-          fetch-depth: 0   # tags, for the deck version in the image
+          fetch-depth: 0
       - name: Test the boot partition sync
         run: bash tests/ps5-bootc-sync.sh
       - name: Kernel RPM from this release's build
@@ -50,20 +51,25 @@ jobs:
         if: inputs.kernel_artifact == ''
         env:
           GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ matrix.channel }}
         run: |
           . ./pins.env
+          if [ "$CHANNEL" = beta ]; then
+            KERNEL_REPO=$BETA_KERNEL_REPO KERNEL_TAG=$BETA_KERNEL_TAG KERNEL_RPM=$BETA_KERNEL_RPM KERNEL_SHA256=$BETA_KERNEL_SHA256
+          fi
           gh release download "$KERNEL_TAG" --repo "$KERNEL_REPO" --pattern "$KERNEL_RPM" --dir kernel
           echo "$KERNEL_SHA256  kernel/$KERNEL_RPM" | sha256sum -c
+          echo "KERNEL_FROM=$KERNEL_TAG" >> "$GITHUB_ENV"
 
       - name: Build
         id: build
         run: |
-          . ./pins.env; . ../loader/pins.env
-          LOADER="$LOADER_REPO@${LOADER_COMMIT:0:12}+bls-$(cat ../loader/patches/*.patch | sha256sum | cut -c1-12)"
+          . ../loader/pins.env
+          LOADER="$LOADER_REPO@${LOADER_COMMIT:0:12}+$(cat ../loader/patches/*.patch | sha256sum | cut -c1-12)"
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE
           VERSION=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
           podman build --pull=newer --build-arg IMAGE_VERSION="$VERSION" --build-arg LOADER="$LOADER" \
-            --build-arg DECK="$(git describe --tags --always)" -f Containerfile -t "$REF:stable" ..
+            --build-arg DECK="$(git describe --tags --always)" -f Containerfile -t "$REF:build" ..
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -74,18 +80,21 @@ jobs:
           REF: ${{ steps.build.outputs.ref }}
           VERSION: ${{ steps.build.outputs.version }}
           TAG: ${{ inputs.tag }}
-          STABLE: ${{ inputs.stable || inputs.tag == '' }}
+          CHANNEL: ${{ matrix.channel }}
         run: |
           echo "${{ github.token }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman push --digestfile digest "$REF:stable" "$REF:${TAG:-${VERSION%%.*}}"
-          # :beta is the same image for now; later it gets the newest pre-release kernel and the next Bazzite
-          [ "$STABLE" != true ] || { podman push "$REF:stable"; podman push "$REF:stable" "$REF:beta"; }
+          if [ "$CHANNEL" = release ]; then
+            podman push --digestfile digest "$REF:build" "$REF:$TAG"
+          else
+            podman push --digestfile digest "$REF:build" "$REF:$CHANNEL"
+            podman push "$REF:build" "$REF:$CHANNEL-${VERSION%%.*}"
+          fi
           echo "digest=$(cat digest)" >> "$GITHUB_OUTPUT"
 
       - uses: sigstore/cosign-installer@v3
         if: github.event_name != 'pull_request'
 
-      # Consoles with the public key refuse unsigned images, so a key without a secret is an error.
+      # consoles with the public key refuse unsigned images
       - name: Sign
         if: github.event_name != 'pull_request'
         env:
@@ -102,19 +111,21 @@ jobs:
           cosign sign -y --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST"
 
       - name: Post to Discord
-        if: github.event_name != 'pull_request' && inputs.tag == ''
+        if: github.event_name != 'pull_request' && matrix.channel != 'release'
         env:
-          HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK || secrets.DISCORD_TESTING_WEBHOOK }}
+          HOOK: ${{ secrets.DISCORD_BOOTC_WEBHOOK }}
           DIGEST: ${{ steps.push.outputs.digest }}
           VERSION: ${{ steps.build.outputs.version }}
+          CHANNEL: ${{ matrix.channel }}
           URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -n "$HOOK" ] || exit 0
-          DECK=$(git describe --tags --always); . ./pins.env
+          DECK=$(git describe --tags --always)
           [ "$GITHUB_EVENT_NAME" = schedule ] && KIND="Weekly update" || KIND="Update"
+          [ "$CHANNEL" = beta ] && LABEL=Beta || LABEL=Stable
           jq -n --arg v "$VERSION" --arg u "$URL" --arg deck "$DECK" --arg digest "$DIGEST" --arg repo "$GITHUB_REPOSITORY" \
-                --arg kind "$KIND" --arg kernel "$KERNEL_TAG" '
-            {embeds: [{title: "\($kind) for bootc: \($v)", url: $u, color: 3447003,
+                --arg kind "$KIND" --arg kernel "$KERNEL_FROM" --arg label "$LABEL" --arg ch "$CHANNEL" '
+            {embeds: [{title: "\($kind) for bootc \($label): \($v)", url: $u, color: 3447003,
               description: "Bazzite\u0027s latest base updates, the kernel of \($kernel), and the PS5 files as of \($deck).\n\nOn the console: Steam\u0027s update button or `sudo bootc upgrade`, then restart and start with bazzite-bootc-loader.\nBack to the previous image: `sudo bootc rollback`, then power off and start with the loader.\n\nDigest `\($digest)`",
-              footer: {text: "\($repo) • :stable"}}]}' |
+              footer: {text: "\($repo) • :\($ch)"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"

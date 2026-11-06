@@ -1,0 +1,10 @@
+[Unit]
+Description=PS5 Bazzite Deck: Desktop Mode default and Steam's own videos, once
+After=steamos-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ps5-user-defaults
+
+[Install]
+WantedBy=default.target

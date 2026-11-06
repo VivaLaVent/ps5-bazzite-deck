@@ -1,19 +1,20 @@
 #!/usr/bin/bash
-# Steam's OS update channel: Stable (:stable) and Beta (:beta) of this image. Replaces Bazzite's script, which rebases
-# to Bazzite's own images; those have no PS5 kernel and wouldn't start.
+# Steam's OS Update Channel: Stable (:stable, the stable release's kernel) and Beta (:beta, the newest pre-release's
+# kernel), both of this image. Every other channel Steam may offer maps to Beta.
 set -e
 IMG=ghcr.io/vivalavent/ps5-bazzite-bootc
 
 current() {
     local ref
     ref=$(bootc status --format=json 2>/dev/null | jq -r '.spec.image.image // .status.booted.image.image.image // empty')
-    [ "${ref##*:}" = beta ] && echo beta || echo rel   # a release tag such as v2.5 counts as Stable
+    [ "${ref##*:}" = beta ] && echo beta || echo rel
 }
+switch() { runcon system_u:unconfined_r:unconfined_t:s0 bootc switch "$IMG:$1"; }
 
 case "${1-}" in
     -c) current ;;
     -l) echo rel; echo beta ;;
-    rel|latest|stable) runcon system_u:unconfined_r:unconfined_t:s0 bootc switch "$IMG:stable" ;;
-    beta|rc|testing) runcon system_u:unconfined_r:unconfined_t:s0 bootc switch "$IMG:beta" ;;
+    rel|latest|stable) switch stable ;;
+    rc|beta|bc|main|testing|unstable|prerelease|preview) switch beta ;;
     *) echo "Usage: steamos-select-branch <stable|beta>" >&2; exit 1 ;;
 esac

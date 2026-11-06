@@ -1,0 +1,11 @@
+[Unit]
+Description=PS5 Bazzite Deck: Desktop Mode as the default session, once
+After=local-fs.target
+Before=bazzite-autologin.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps5-session-defaults
+
+[Install]
+WantedBy=multi-user.target

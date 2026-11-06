@@ -35,12 +35,15 @@ jobs:
 
       - name: Pull image
         id: img
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ps5-bazzite-bootc
           if sudo podman pull "$REF:${{ inputs.release }}"; then REF=$REF:${{ inputs.release }}; else REF=$REF:stable; sudo podman pull "$REF"; fi
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          # installs follow :stable, not this release's fixed tag (the content is this release's)
-          T=${REF%:*}:stable; [ "$REF" = "$T" ] || sudo podman tag "$REF" "$T"; echo "target=$T" >> "$GITHUB_OUTPUT"
+          # installs follow :beta from a pre-release and :stable from a release, not the fixed tag
+          C=stable; [ "$(gh release view "${{ inputs.release }}" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q .isPrerelease)" = true ] && C=beta
+          T=${REF%:*}:$C; [ "$REF" = "$T" ] || sudo podman tag "$REF" "$T"; echo "target=$T" >> "$GITHUB_OUTPUT"
           echo "digest=$(sudo podman image inspect "$REF" --format '{{.Digest}}')" >> "$GITHUB_OUTPUT"
           echo "loader=$(sudo podman run --rm "$REF" sed -n 's/^loader=//p' /usr/share/ps5-bazzite-bootc/VERSION)" >> "$GITHUB_OUTPUT"
           echo "tag=${{ inputs.release }}" >> "$GITHUB_OUTPUT"

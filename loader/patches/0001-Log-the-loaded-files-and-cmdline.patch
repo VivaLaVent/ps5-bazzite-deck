@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Tue, 3 Nov 2026 17:15:16 +0100
+Subject: [PATCH 1/2] Log the loaded files and cmdline
+
+Print the resolved kernel and initrd paths with their sizes, and the full cmdline, so a bug report shows which files were booted.
+---
+ source/loader.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/source/loader.c b/source/loader.c
+index 4545db1..4cee61e 100644
+--- a/source/loader.c
++++ b/source/loader.c
+@@ -248,6 +248,10 @@ int fetch_linux(struct linux_info *info) {
+     trim_newline(cmdline);
+   }
+ 
++  printf("Kernel %s (%ld bytes)\n", bzimage_path, bzimage_size);
++  printf("Initrd %s (%ld bytes)\n", initrd_path, initrd_size);
++  printf("Cmdline %s\n", cmdline);
++
+   info->linux_info = kernel_cave_linux_info;
+   info->bzimage = kernel_cave_bzImage;
+   info->bzimage_size = bzimage_size;

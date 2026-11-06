@@ -26,5 +26,6 @@ done
 fatlabel "$ESP" boot   # the name ps5-bazzite-deck's docs use; nothing depends on it
 mount "$ESP" "$M/esp"
 "$HERE/system_files/usr/bin/ps5-bootc-sync" --boot "$M/boot" --esp "$M/esp"
+echo 0x180000000 > "$M/esp/vram.txt"
 ls -l "$M/esp"
 cat "$M/esp/cmdline.txt"

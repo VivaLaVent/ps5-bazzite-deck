@@ -1,20 +1,33 @@
 name: Pin kernel
-# A release promoted to stable (gh release edit vX.Y --prerelease=false --latest) becomes the kernel of
-# the :stable bootc image (weekly build, or gh workflow run bootc-build-image.yml). Pre-releases never reach it.
+# A release's kernel becomes the kernel of :beta when it is published as a pre-release (release.yml calls this),
+# and of :stable and :beta when it is promoted (gh release edit vX.Y --prerelease=false --latest). Both images are
+# rebuilt right after.
 on:
   release:
     types: [released]
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+      channel:
+        type: string
+        required: true
   workflow_dispatch:
     inputs:
       tag:
-        description: "stable release whose kernel to pin, e.g. v2.5"
+        description: "release whose kernel to pin, e.g. v2.6"
         required: true
+      channel:
+        description: "stable (pins :stable and :beta) or beta"
+        default: stable
 
 jobs:
   pin:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -22,13 +35,22 @@ jobs:
       - env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          CHANNEL: ${{ inputs.channel || 'stable' }}
         run: |
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'linux-ps5-*.rpm' --dir rpm ||
             { echo "$TAG has no kernel RPM, nothing to pin"; exit 0; }
-          R=$(ls rpm/*.rpm); N=$(basename "$R")
-          sed -i -e "s|^KERNEL_REPO=.*|KERNEL_REPO=$GITHUB_REPOSITORY|" -e "s|^KERNEL_TAG=.*|KERNEL_TAG=$TAG|" \
-                 -e "s|^KERNEL_RPM=.*|KERNEL_RPM=$N|" -e "s|^KERNEL_SHA256=.*|KERNEL_SHA256=$(sha256sum "$R" | cut -d' ' -f1)|" bootc/pins.env
+          R=$(ls rpm/*.rpm); N=$(basename "$R"); S=$(sha256sum "$R" | cut -d' ' -f1)
+          pin() {
+            sed -i -e "s|^$1KERNEL_REPO=.*|$1KERNEL_REPO=$GITHUB_REPOSITORY|" -e "s|^$1KERNEL_TAG=.*|$1KERNEL_TAG=$TAG|" \
+                   -e "s|^$1KERNEL_RPM=.*|$1KERNEL_RPM=$N|" -e "s|^$1KERNEL_SHA256=.*|$1KERNEL_SHA256=$S|" bootc/pins.env
+          }
+          newer() { [ "$(printf '%s\n%s\n' "${1#v}" "${2#v}" | sort -V | tail -1)" = "${1#v}" ]; }
+          . bootc/pins.env
+          [ "$CHANNEL" = beta ] || pin ""
+          if [ "$CHANNEL" = beta ] || newer "$TAG" "$BETA_KERNEL_TAG"; then pin BETA_; fi
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git diff --quiet bootc/pins.env && { echo "pins unchanged"; exit 0; }
-          git commit -qm "pins: kernel from $TAG" bootc/pins.env
-          git pull -q --rebase && git push -q   # main may have moved since the checkout
+          if git diff --quiet bootc/pins.env; then echo "pins unchanged"; else
+            git commit -qm "pins: $CHANNEL kernel from $TAG" bootc/pins.env
+            git pull -q --rebase && git push -q
+          fi
+          gh workflow run bootc-build-image.yml --repo "$GITHUB_REPOSITORY" --ref main

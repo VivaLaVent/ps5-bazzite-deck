@@ -17,14 +17,14 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 ## Install
 
 You need a PS5 that runs the PS5 Linux loader (firmware 3.00 to 13.60), **bazzite-bootc-loader** from the same release
-(rmux's loader with support for bootc's boot entries; it starts Legacy installs too), and a USB drive or SSD of 64 GB or
+(soniciso1's loader, which dumps the PS5 Pro's GPU firmware on most firmware versions; it starts Legacy installs too), and a USB drive or SSD of 64 GB or
 more (the system alone is about 25 GB; an SSD is much faster). When switching from a Legacy install, a second drive lets
 you swap back.
 
 1. Download all `ps5-bazzite-deck-bootc-*.img.7z` parts of the newest release from the
    [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases)
    and extract them with [7-Zip](https://www.7-zip.org) (open the `.001` file).
-2. Write the `.img` to the drive with [Rufus](https://rufus.ie) in **DD Image mode** (balenaEtcher has produced drives that don't boot). This erases the drive.
+2. Write the `.img` to the drive with [balenaEtcher](https://etcher.balena.io) (or `dd` on Linux). This erases the drive.
 3. Plug it into a **rear** USB-A port of the PS5.
 4. In the PS5 settings: keep USB power on in rest mode, and switch HDMI Device Link off.
 5. Run the jailbreak and bazzite-bootc-loader, and wait until the light stops blinking orange before pressing power.
@@ -32,7 +32,7 @@ you swap back.
 
 ## Update channels
 
-**Settings → System → OS Update Channel** in Steam offers **Stable** (`:stable`, rebuilt every week with Bazzite's updates and the kernel of the stable release) and **Beta** (`:beta`, the same for now; later the newest test kernel and the next Bazzite). Both are this image; the switch takes effect at the next start.
+**Settings → System → OS Update Channel** in Steam offers **Stable** (`:stable`: the kernel of the stable release) and **Beta** (`:beta`: the kernel of the newest pre-release). Both are this image with Bazzite's weekly updates; any other channel Steam shows maps to Beta. The switch takes effect at the next start.
 
 ## Updating
 
@@ -75,7 +75,7 @@ else about Linux on the PS5.
 ## Credits
 
 Everything PS5-specific comes from [PS5 Bazzite Deck](https://github.com/VivaLaVent/ps5-bazzite-deck),
-[ps5-linux-image](https://github.com/ps5-linux/ps5-linux-image), rmux's loader and kernel patches, and their
+[ps5-linux-image](https://github.com/ps5-linux/ps5-linux-image), soniciso1's loader, rmux's kernel patches, and their
 contributors. The image is built like Universal Blue's [image template](https://github.com/ublue-os/image-template);
 the boot partition sync follows Armada's (thanks JustRadical).
 
