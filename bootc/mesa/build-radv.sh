@@ -9,18 +9,22 @@ OUT=${1:?usage: build-radv.sh <out dir>}
 base=$(rpm -q --qf '%{VERSION}\n' mesa-vulkan-drivers | head -1)
 [ "$base" = "$MESA_VERSION" ] || echo "::warning::Bazzite ships Mesa $base, RADV is built from $MESA_VERSION (bootc/mesa/pins.env)"
 
-# Bazzite builds with Terra and disables it afterwards; libdrm-devel must match the installed libdrm
+# Bazzite builds with Terra and disables it afterwards; libdrm-devel must match the installed libdrm.
+# Arch on every -devel package: a bare name next to its .i686 is satisfied by the i686 one alone.
 dnf5 config-manager setopt terra.enabled=1 terra-mesa.enabled=1
+x64=(libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel wayland-devel libxcb-devel
+     libX11-devel libxshmfence-devel libXrandr-devel libXext-devel libXxf86vm-devel libXfixes-devel libdisplay-info-devel)
+x32=(glibc-devel libstdc++-devel libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel
+     wayland-devel libxcb-devel libX11-devel libxshmfence-devel libXrandr-devel libXext-devel libXxf86vm-devel libXfixes-devel)
 dnf5 -y install --setopt=install_weak_deps=False \
     gcc gcc-c++ meson ninja-build patch git-core pkgconf-pkg-config bison flex glslang \
-    python3-mako python3-pyyaml python3-packaging \
-    libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel \
-    wayland-devel wayland-protocols-devel libxcb-devel libX11-devel libxshmfence-devel libXrandr-devel \
-    libXext-devel libXxf86vm-devel libXfixes-devel libdisplay-info-devel \
-    glibc-devel.i686 libstdc++-devel.i686 libdrm-devel.i686 expat-devel.i686 \
-    zlib-ng-compat-devel.i686 libzstd-devel.i686 elfutils-libelf-devel.i686 wayland-devel.i686 libxcb-devel.i686 \
-    libX11-devel.i686 libxshmfence-devel.i686 libXrandr-devel.i686 libXext-devel.i686 libXxf86vm-devel.i686 \
-    libXfixes-devel.i686
+    python3-mako python3-pyyaml python3-packaging wayland-protocols-devel \
+    "${x64[@]/%/.x86_64}" "${x32[@]/%/.i686}"
+rpm -q libdrm libdrm-devel
+for pc in libdrm libdrm_amdgpu wayland-client xcb x11-xcb expat zlib libzstd libelf; do
+    pkg-config --exists "$pc" || { echo "64-bit $pc.pc missing"; exit 1; }
+    PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig:/usr/share/pkgconfig pkg-config --exists "$pc" || { echo "32-bit $pc.pc missing"; exit 1; }
+done
 
 W=$(mktemp -d)
 git clone -q --depth 1 --branch "mesa-$MESA_VERSION" "https://github.com/$MESA_REPO" "$W/mesa"
