@@ -15,16 +15,28 @@ dnf5 config-manager setopt terra.enabled=1 terra-mesa.enabled=1
 x64=(libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel wayland-devel libxcb-devel
      libX11-devel libxshmfence-devel libXrandr-devel libXext-devel libXxf86vm-devel libXfixes-devel libdisplay-info-devel)
 x32=(glibc-devel libstdc++-devel libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel
-     wayland-devel libxcb-devel libX11-devel libxshmfence-devel libXrandr-devel libXext-devel libXxf86vm-devel libXfixes-devel)
+     wayland-devel libffi-devel libxcb-devel libXau-devel libX11-devel libxshmfence-devel libXrandr-devel libXrender-devel
+     libXext-devel libXxf86vm-devel libXfixes-devel)
 dnf5 -y install --setopt=install_weak_deps=False \
     gcc gcc-c++ meson ninja-build patch git-core pkgconf-pkg-config bison flex glslang \
     python3-mako python3-pyyaml python3-packaging wayland-protocols-devel \
     "${x64[@]/%/.x86_64}" "${x32[@]/%/.i686}"
 rpm -q libdrm libdrm-devel
-for pc in libdrm libdrm_amdgpu wayland-client xcb x11-xcb expat zlib libzstd libelf; do
-    pkg-config --exists "$pc" || { echo "64-bit $pc.pc missing"; exit 1; }
-    PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig:/usr/share/pkgconfig pkg-config --exists "$pc" || { echo "32-bit $pc.pc missing"; exit 1; }
+pcs=(libdrm libdrm_amdgpu wayland-client xcb x11-xcb xcb-dri3 xcb-present xcb-randr xcb-shm xcb-sync xcb-xfixes
+     xrandr xshmfence expat zlib libzstd libelf)
+pc32() { PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig:/usr/share/pkgconfig pkg-config "$@"; }
+pkg-config --exists --print-errors "${pcs[@]}" || { echo "64-bit .pc files missing"; exit 1; }
+# an i686 -devel package doesn't pull in the i686 -devel packages its .pc file requires
+for _ in 1 2 3 4; do
+    need=$(pc32 --exists --print-errors "${pcs[@]}" 2>&1 | sed -n "s/^Package '\([^']*\)'.* not found$/\1/p" | sort -u)
+    [ -n "$need" ] || break
+    pkgs=$(for n in $need; do rpm -q --whatprovides "pkgconfig($n)" --qf '%{NAME}.i686\n' 2>/dev/null | head -1; done | sort -u)
+    [ -n "$pkgs" ] || break
+    echo "32-bit: $need -> $pkgs"
+    # shellcheck disable=SC2086
+    dnf5 -y install --setopt=install_weak_deps=False $pkgs
 done
+pc32 --exists --print-errors "${pcs[@]}" || { echo "32-bit .pc files missing"; exit 1; }
 
 W=$(mktemp -d)
 git clone -q --depth 1 --branch "mesa-$MESA_VERSION" "https://github.com/$MESA_REPO" "$W/mesa"
