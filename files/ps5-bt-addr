@@ -79,8 +79,8 @@ if [ "$id" != "1286:2059" ]; then
     exit 0
 fi
 # IW620: on by default ("ps5-bt-address off" switches it off). The address change is a vendor
-# command to the Wi-Fi/Bluetooth combo chip; it doesn't survive a warm restart (chip hung), so while it's on,
-# warm restarts become normal ones (ps5-kexec).
+# command to the Wi-Fi/Bluetooth combo chip; it doesn't survive a warm reboot (chip hung), so while it's on,
+# warm reboots become normal ones (ps5-kexec).
 if [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
     echo "IW620: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on); the controller keeps one pairing"
     exit 0

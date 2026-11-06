@@ -29,6 +29,6 @@ release through Steam's Beta channel and one Legacy in-place update.
 | Memory | `vram.txt` 6 GB in the log (`VRAM: 6144M`); a browser and a game together without OOM |
 | Fan | Idle, game, sleep and shutdown without ramps; `target_temp` 80; PS5 Hardware Control curve applies and survives a restart |
 | Input | DualSense pairs once and reconnects after switching between the PS5 OS and Linux; sleep and wake |
-| Network | Wi-Fi connects and survives sleep; Ethernet; a warm restart (`ps5-warm-reboot on`) keeps Wi-Fi and Bluetooth |
+| Network | Wi-Fi connects and survives sleep; Ethernet; a warm reboot (`ps5-warm-reboot on`) keeps Wi-Fi and Bluetooth |
 | Session | Starts in Desktop Mode; Steam's setting switches the default to Game Mode; Switch to Desktop and back; Steam's own startup video |
 | M.2 | `ps5-m2-install`, start from the M.2, `--back` |

@@ -38,7 +38,7 @@ you swap back.
 
 In Steam: **Settings → System**, check for updates and apply. Or in a terminal: `sudo bootc upgrade`.
 
-After an update, restart: the PS5 starts its own system first (a warm restart is skipped once), then run the loader as
+After an update, restart: the PS5 starts its own system first (a warm reboot is skipped once), then run the loader as
 usual and you're on the new version. Your games, settings and files are kept.
 
 Still on the old version after that? The shutdown was probably cut short (power loss, holding the power button) before
