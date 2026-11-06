@@ -5,6 +5,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 ## [v2.6.2] – 2026-11-06
 > Stable. Everything since v2.5: the v2.5.1 and v2.6.1 pre-releases, plus the fixes below.
 - **`ps5-report`:** VRAM in use next to the size in `vram.txt` (top block and SUMMARY), amdgpu's VRAM and GTT lines and the 6 GB default's log on every model; the first start after the 6 GB default still runs with the old size, which this shows
+- **bootc updates fail to stage** ("Failed to start ostree-finalize-staged.service") on installs from the v2.5.1 and v2.6.1 disk images too, not only on v2.5: something still requires greenboot's rollback trigger, and it was masked. The image now ships that trigger as a unit that does nothing, as the v2.5.1 notes' fix does, instead of masking it; `ps5-report` flags a console whose trigger is still masked
 - **`ps5-console-defaults`** is described as the defaults for every model (6 GB VRAM; the 80 °C GPU limit only on a Pro)
 - **RADV build stage (bootc):** every -devel package installed with its architecture, and missing `.pc` dependencies resolved per architecture (the first v2.6.1 builds lacked libdrm and others for 64-bit); `sed -n 1p` instead of `head -1`, which could stop the build with SIGPIPE
 - **Releases:** the bootc Discord post points at the Beta channel instead of the fixed release tag, which never updates; `release.sh` waits for the run of the commit it tagged, not an older run of a re-pushed tag

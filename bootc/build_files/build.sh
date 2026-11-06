@@ -96,8 +96,10 @@ systemctl mask bazzite-hardware-setup.service
 systemctl disable greenboot-healthcheck.service greenboot-set-rollback-trigger.service greenboot-success.target 2>/dev/null || true
 rm -f /etc/systemd/system/*.requires/greenboot-* /etc/systemd/system/*.wants/greenboot-* \
       /usr/lib/systemd/system/*.requires/greenboot-* /usr/lib/systemd/system/*.wants/greenboot-*
-systemctl mask bootloader-update.service greenboot-healthcheck.service \
-    greenboot-set-rollback-trigger.service greenboot-success.target
+systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target
+# whatever still requires the rollback trigger gets a unit that does nothing, not a masked one (as the v2.5.1 fix)
+printf '[Unit]\nDescription=No greenboot rollbacks on the PS5\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\nRemainAfterExit=yes\n' \
+    > /etc/systemd/system/greenboot-set-rollback-trigger.service
 
 dnf5 install -y --setopt=install_weak_deps=False \
     cloud-utils-growpart plasma-systemmonitor ksystemstats \

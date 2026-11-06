@@ -107,6 +107,8 @@ command -v ps5-perf >/dev/null && ps5-perf status | sed 's/^/  /'
 if [ -e /run/ostree-booted ]; then
   echo; echo "=== bootc"
   sudo bootc status 2>/dev/null | sed 's/^/  /' | head -20
+  [ "$(systemctl is-enabled greenboot-set-rollback-trigger.service 2>/dev/null)" = masked ] &&
+    echo "  greenboot-set-rollback-trigger is masked: updates fail to stage, run the fix in the v2.6.2 notes"
   sed 's/^/  /' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null
   journalctl -b -u ps5-bootc-sync -u ps5-grow-root --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
 fi
