@@ -19,14 +19,15 @@ on your console, and how to fix problems.
 - [Troubleshooting and getting help](https://wiki.ps5-linux.eu/troubleshooting/getting-help)
 
 **Downloads:** the [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases). Use the release marked
-**Latest**; releases marked **Pre-release** are test builds, even when their number is higher. What changed in which
+**Latest**; releases marked **Pre-release** are test builds, even when their number is higher. Flash with balenaEtcher. What changed in which
 version is in the [changelog](CHANGELOG.md).
 
 ## Built with bootc
 
 PS5 Bazzite Deck is a bootc image: the whole system is one image, built and checked by GitHub Actions, the way Bazzite
 itself is made. Updates come from Steam's update button (or `sudo bootc upgrade`), download in the background and take
-over at the next start; `sudo bootc rollback` goes back to the version before. It starts with bazzite-bootc-loader from
+over at the next start; `sudo bootc rollback` goes back to the version before. Steam's OS Update Channel offers **Stable**
+(the stable release's kernel) and **Beta** (the newest pre-release's). It starts with bazzite-bootc-loader from
 the release. More: [bootc/README.md](bootc/README.md).
 
 Installs from before v2.5 run the older **Legacy** form and update in place with the command in each release's notes.

@@ -10,6 +10,8 @@ A failed part doesn't need a full rebuild: `gh workflow run release.yml -f tag=v
 
 A new release's kernel becomes the kernel of `:beta` as soon as it is built (`pin-kernel.yml` from `release.yml`), and both images are rebuilt. After testers confirm: `gh release edit vX.Y --prerelease=false --latest`; `pin-kernel.yml` then pins it for `:stable` (and `:beta`, unless a newer pre-release is there) and rebuilds both. That also makes it the release `update-latest.sh` installs. Both images are rebuilt every Monday with Bazzite's base updates, or with `gh workflow run bootc-build-image.yml`.
 
+Who tests what before a pre-release is promoted: [testing.md](testing.md).
+
 ## Testing a kernel change quickly
 
 `bash tools/quick-kernel.sh <label>` rebuilds bzImage and the amdgpu and btusb modules in the tree `build.sh` made, and copies them with an installer to a Legacy console (bootc's `/usr` is read-only). `tools/upstream-pr.sh` turns a patch into a pull request against rmux's branch.

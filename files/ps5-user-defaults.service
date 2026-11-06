@@ -4,6 +4,7 @@ After=steamos-manager.service
 
 [Service]
 Type=oneshot
+TimeoutStartSec=90
 ExecStart=/usr/local/bin/ps5-user-defaults
 
 [Install]

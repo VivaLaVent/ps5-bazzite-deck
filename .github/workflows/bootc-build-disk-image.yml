@@ -67,7 +67,7 @@ jobs:
         run: |
           N=ps5-bazzite-deck-bootc-${{ steps.img.outputs.tag }}.img
           sudo mv out/image/disk.raw "out/$N"
-          cd out && 7z a -v1900m -mx=5 "$N.7z" "$N" >/dev/null && sha256sum "$N".7z.* > "$N.sha256"
+          cd out && sha256sum "$N" > "$N.sha256" && 7z a -v1900m -mx=5 "$N.7z" "$N" >/dev/null && sha256sum "$N".7z.* >> "$N.sha256"
 
       - name: Attach to the release
         env:

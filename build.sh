@@ -1,17 +1,15 @@
 #!/bin/bash
-# The PS5 kernel package: Linux 7.3.1 + rmux's shitshow linux.patch + patches/series, built with ps5-linux-image's
-# builder. CI runs this for every release (.github/workflows/release.yml); locally: bash build.sh
-# Output: $REPO/linux-bin/linux-ps5-*.rpm
+# PS5 kernel RPM: Linux 7.3.1 + rmux's shitshow + patches/series, built with ps5-linux-image's builder
 set -euo pipefail
 
-SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # this repo
-PATCHES=$(cd "${PATCHES:-$SRC/patches}" && pwd)       # the kernel patch series to apply
+SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCHES=$(cd "${PATCHES:-$SRC/patches}" && pwd)
 RELEASE="${RELEASE:-$(git -C "$SRC" describe --tags --always 2>/dev/null || echo dev)}"
 
-REPO="${REPO:-$HOME/ps5-build-7.3}"   # fresh build directory
-OLD="${OLD:-$HOME/ps5-linux-image}"   # previous build dir, only used to reuse its download cache
-BUILDER_COMMIT=52db0a4                 # ps5-linux/ps5-linux-image
-PATCHES_BRANCH=shitshow                # rmuxnet/ps5-linux-patches-1, 7.3.1 port
+REPO="${REPO:-$HOME/ps5-build-7.3}"
+OLD="${OLD:-$HOME/ps5-linux-image}"
+BUILDER_COMMIT=52db0a4
+PATCHES_BRANCH=shitshow
 KERNEL_TAG=v7.3.1
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
@@ -50,21 +48,21 @@ cp "$SRC/patches/ps5-iw620-kernel73-compat.patch" extra-patches/
 echo "==> 3. kernel source: $KERNEL_TAG + $PATCHES_BRANCH patches"
 mkdir -p work
 git clone -q -b "$PATCHES_BRANCH" https://github.com/rmuxnet/ps5-linux-patches-1 work/ps5-linux-patches
-git -C work/ps5-linux-patches checkout -q 8de2aff        # pinned: the commit patches/ was ported onto
+git -C work/ps5-linux-patches checkout -q 8de2aff
 sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-viva"/' work/ps5-linux-patches/.config
-sed -i 's/^# CONFIG_SUSPEND is not set/CONFIG_SUSPEND=y/' work/ps5-linux-patches/.config   # suspend-to-idle (patches/ps5-s2idle.patch)
+sed -i 's/^# CONFIG_SUSPEND is not set/CONFIG_SUSPEND=y/' work/ps5-linux-patches/.config
 sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"/' work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_DEBUG_INFO_BTF is not set/CONFIG_DEBUG_INFO_BTF=y/' work/ps5-linux-patches/.config
-sed -i 's/^CONFIG_USB_AUTOSUSPEND_DELAY=.*/CONFIG_USB_AUTOSUSPEND_DELAY=-1/' work/ps5-linux-patches/.config   # USB never sleeps: the kernel default now, not a cmdline option
-sed -i 's/^CONFIG_LOG_BUF_SHIFT=.*/CONFIG_LOG_BUF_SHIFT=20/' work/ps5-linux-patches/.config   # 1 MiB boot log (was 256 KiB): early lines (HDMI chip, Pro firmware) were scrolling out of ps5-report
+sed -i 's/^CONFIG_USB_AUTOSUSPEND_DELAY=.*/CONFIG_USB_AUTOSUSPEND_DELAY=-1/' work/ps5-linux-patches/.config
+sed -i 's/^CONFIG_LOG_BUF_SHIFT=.*/CONFIG_LOG_BUF_SHIFT=20/' work/ps5-linux-patches/.config
 grep -q '^CONFIG_DEBUG_INFO_BTF=y' work/ps5-linux-patches/.config || echo 'CONFIG_DEBUG_INFO_BTF=y' >> work/ps5-linux-patches/.config
-sed -i 's/^# CONFIG_MODULE_ALLOW_BTF_MISMATCH is not set/CONFIG_MODULE_ALLOW_BTF_MISMATCH=y/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' work/ps5-linux-patches/.config || echo 'CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' >> work/ps5-linux-patches/.config   # kernel-only hotfixes keep loading the release modules
-sed -i 's/^# CONFIG_MT7921E is not set/CONFIG_MT7921E=m/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MT7921E=m' work/ps5-linux-patches/.config || echo 'CONFIG_MT7921E=m' >> work/ps5-linux-patches/.config   # MediaTek MT7921 Wi-Fi (PS5 Slim)
+sed -i 's/^# CONFIG_MODULE_ALLOW_BTF_MISMATCH is not set/CONFIG_MODULE_ALLOW_BTF_MISMATCH=y/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' work/ps5-linux-patches/.config || echo 'CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' >> work/ps5-linux-patches/.config
+sed -i 's/^# CONFIG_MT7921E is not set/CONFIG_MT7921E=m/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MT7921E=m' work/ps5-linux-patches/.config || echo 'CONFIG_MT7921E=m' >> work/ps5-linux-patches/.config
 sed -i 's/^CONFIG_PS5_GPUFREQ=.*/# CONFIG_PS5_GPUFREQ is not set/' work/ps5-linux-patches/.config   # rmux's GPU clock driver: replaced by upstream's governor (drivers/ps5/gpufreq.c)
 for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do sed -i "s/^# CONFIG_$o is not set/CONFIG_$o=y/" work/ps5-linux-patches/.config; done   # wheel force feedback, as rmux's meower (36b9828)
 git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git work/linux73
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
-grep -o '^[^# ]*\.patch' "$PATCHES/series" > work/series      # patches/series, or a parked variant via PATCHES=
+grep -o '^[^# ]*\.patch' "$PATCHES/series" > work/series
 while read -r p; do git -C work/linux73 apply "$PATCHES/$p"; done < work/series
 # committed and at an annotated tag, so the release is exactly <version>-viva (no "+" or "-dirty")
 git -C work/linux73 add -A

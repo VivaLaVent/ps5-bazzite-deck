@@ -46,7 +46,7 @@ def files_section(tag, assets):
         used.update(vols)
     for name, desc in [
         (f"{base}.sha256", "checksums for the image volumes"),
-        (f"ps5-bazzite-deck-bootc-{tag}.sha256", "checksums for the bootc image volumes"),
+        (f"ps5-bazzite-deck-bootc-{tag}.sha256", "checksums for the bootc image and its volumes"),
         (f"{base}-update.tar.xz", "in-place update (see Updating above)"),
         (f"{base}-update.tar.xz.sha256", "checksum"),
         (f"bazzite-bootc-loader-{tag}.elf", "the PS5 Linux loader: soniciso1's ps5-linux-loader, which dumps the PS5 Pro GPU firmware on most firmware versions"),

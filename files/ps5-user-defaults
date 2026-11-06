@@ -5,8 +5,8 @@ set -u
 S=${XDG_STATE_HOME:-$HOME/.local/state}/ps5-bazzite-deck
 mkdir -p "$S"
 if [ ! -e "$S/desktop-default" ] && command -v steamosctl >/dev/null; then
-    for _ in $(seq 1 30); do
-        timeout 10 steamosctl set-default-login-mode desktop >/dev/null 2>&1 && { touch "$S/desktop-default"; break; }
+    for _ in $(seq 1 6); do
+        timeout 5 steamosctl set-default-login-mode desktop >/dev/null 2>&1 && { touch "$S/desktop-default"; break; }
         sleep 2
     done
 fi

@@ -5,7 +5,8 @@ set -euo pipefail
 cd "$(dirname "$0")"
 V=$(cat VERSION); K=$(cat KERNEL); OLD=$(uname -r)
 echo "PS5 Bazzite Deck: in-place update to $V (kernel $OLD -> $K)"
-grep -q "root=LABEL=bazzite-deck" /proc/cmdline || { echo "STOP: this is not a PS5 Bazzite Deck install"; exit 1; }
+[ -f /etc/ps5-bazzite-deck-version ] || grep -q "root=LABEL=bazzite-deck" /proc/cmdline ||
+  { grep -qs '^ID=bazzite' /etc/os-release && [ -e /usr/local/sbin/ps5-bt-addr ]; } || { echo "STOP: this is not a PS5 Bazzite Deck install"; exit 1; }
 # /efi on a USB install, often /boot/efi or unmounted on M.2: mount it at /efi if needed
 EFI=""; MOUNTED=0
 for d in /efi /boot/efi; do if sudo test -f "$d/cmdline.txt"; then EFI=$d; break; fi; done

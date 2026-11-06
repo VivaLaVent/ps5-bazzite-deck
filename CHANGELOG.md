@@ -3,15 +3,19 @@
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
 ## [v2.6] – unreleased
-> Pre-release: PS5 Pro GPU hangs fixed, Pro firmware dump on more firmware versions, 6 GB VRAM, Desktop Mode at start.
+> Pre-release: PS5 Pro GPU hangs fixed, Pro firmware dump on more firmware versions, fan back on the console's own control, 6 GB VRAM, Desktop Mode at start.
 - **PS5 Pro: Sony's own GPU command-processor microcode again** (as up to v2.1.1). The cyan_skillfish2 substitute from v2.1.6 on hung vkd3d (D3D12) games such as Dragon's Dogma 2 in a GPU reset that never recovered (black screen, SSH still up). `ps5.viola_cp=cs2` on the command line brings the substitute back for DXVK D3D9 games that hang on Sony's. Existing installs switch at the next start
 - **bazzite-bootc-loader from soniciso1's loader:** it dumps the PS5 Pro GPU firmware on 11.00 to 11.60, 12.00, 12.02, 12.40, 12.70 and 13.20 to 13.60 (the official loader only on 11.60, 13.20 and 13.60), so more Pros reach 60 compute units. The dormant boot-entry (BLS) patches are gone; path-override.txt still applies to cmdline.txt and vram.txt
+- **Fan: the console's own control by default again, with an 80 °C target** (as in v1.8.9 and v2.1.x; the 7.3.1 kernel had switched to its own quiet curve at boot, and left the firmware's lower target in place during sleep and shutdown). `target_temp` and `ps5-perf`'s FAN_TARGET work again; rmux's kernel curve stays available (`pwm1_enable` 2, or `ps5_fan.curve=1` to start with it), and is what the hwcon plugin and app use
+- **100 Hz modes behind `hdmi.modes_100hz=1`** (off by default; FLAVA3): 1080p100, 1440p100 and 4K100 over FRL, as the v2.1.x test. 1440p100 uses a 148.5 kHz timing (2720×1485, 403.92 MHz) when the display's own 1440p100 is slower than the CVT-RB one, which monitors such as the Philips 27E1N1600AE showed as out of range
+- **MediaTek Bluetooth (most Slims):** no ISO interface setup (ps5-linux-patches #71); it timed out, and Bluetooth was gone after a warm restart until a cold boot
 - **6 GB VRAM on every console:** new disk images ship `vram.txt` with 6 GB; existing installs get it once (`ps5-console-defaults`), later changes are kept
 - **Desktop Mode at start, Steam's own videos:** once per install (new and existing), the default session becomes Desktop Mode; Steam's default-session setting in Game Mode turns it off. Bazzite's startup and suspend videos are removed (custom videos stay) and its Steam branding is off
 - **Bazzite's deck setup works again:** v2.5.1 renamed the image, and Bazzite then treated it as a desktop image (no `-steamdeck` for Steam in Desktop Mode, no Steam bootstrap, no Return shortcut, no default desktop session). The image is `ps5-bazzite-deck` again; Steam's System page names PS5 Bazzite Deck
 - **Update channels:** Stable follows the stable release's kernel, Beta the newest pre-release's; every other channel Steam lists maps to Beta. Pre-release disk images install on Beta
 - **`ps5-m2-install`** (moves the running system, bootc and Legacy, to the M.2 partition `m2_init` prepared; `--back` returns to USB): copies through a bind mount (mounting the root device a second time read-only always failed), shows progress (rsync), makes `/boot` writable for the boot entries on bootc, and checks that `cmdline.txt` and every boot entry start the new root before it finishes
-- Pre-releases post to the pre-release Discord channel; flashing instructions name balenaEtcher
+- **Legacy update:** `update.sh` recognises installs whose root isn't `LABEL=bazzite-deck` (M.2 copies, other install methods) by the installed version file instead of refusing with "this is not a PS5 Bazzite Deck install"
+- The release lists the `.img`'s own SHA-256 next to the volumes', to check the extraction. Pre-releases post to the pre-release Discord channel; flashing instructions name balenaEtcher (drives flashed with Rufus didn't start: emergency shell, root partition not found)
 
 ## [v2.5.1] – 2026-11-05
 > bootc channels in Steam, Stable for every bootc console, PS5 Pro Bluetooth and temperatures.
