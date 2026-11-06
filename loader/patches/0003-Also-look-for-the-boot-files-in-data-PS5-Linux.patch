@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 18:28:03 +0100
+Subject: [PATCH] Also look for the boot files in /data/PS5/Linux
+
+After the USB drives, so a console without a USB drive can start from files copied to its own storage.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ source/loader.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/source/loader.c b/source/loader.c
+index b27a436..cde3189 100644
+--- a/source/loader.c
++++ b/source/loader.c
+@@ -15,6 +15,8 @@ const char *file_paths[] = {
+     "/mnt/usb0/",           "/mnt/usb1/",           "/mnt/usb2/",
+     "/mnt/usb3/",           "/mnt/usb0/PS5/Linux/", "/mnt/usb1/PS5/Linux/",
+     "/mnt/usb2/PS5/Linux/", "/mnt/usb3/PS5/Linux/",
++    /* the console's own storage, for an M.2 system without a USB drive */
++    "/data/PS5/Linux/",
+ };
+ 
+ long find_and_get_size_of_file(const char *filename, char *found_path);
+-- 
+2.43.0
+

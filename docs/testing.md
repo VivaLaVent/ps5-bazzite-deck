@@ -32,3 +32,18 @@ release through Steam's Beta channel and one Legacy in-place update.
 | Network | Wi-Fi connects and survives sleep; Ethernet; a warm reboot (`ps5-warm-reboot on`) keeps Wi-Fi and Bluetooth |
 | Session | Starts in Desktop Mode; Steam's setting switches the default to Game Mode; Switch to Desktop and back; Steam's own startup video |
 | M.2 | `ps5-m2-install`, start from the M.2, `--back` |
+
+## Starting without a USB drive (in progress)
+
+The loader also looks for its files in `/data/PS5/Linux/` on the console's own storage, after the USB drives
+(`loader/patches/0003`), so a USB drive that has them always wins. Plan: the loader starts a fixed kernel and initrd
+from there, whose initrd mounts the M.2 and kexecs the system's current boot entry; nothing else needs the USB drive.
+
+First test, loader only, on a console whose system is on the M.2 (`ps5-m2-install`):
+
+1. Over FTP, create `/data/PS5/Linux/` and copy `bzImage`, `initrd.img`, `cmdline.txt` and `vram.txt` from the USB
+   drive's boot partition into it.
+2. Unplug the USB drive and start with the test loader.
+3. Report: does Linux start, and how far (desktop, emergency shell, waiting for a device), a photo of where it stops,
+   `/data/linuxdebug/loader.log` over FTP, and on a Pro whether `/data/PS5/Linux/lib/firmware/amdgpu/` was created.
+4. Plug the USB drive back in; it is used again from the next start. The copies go stale after the next update.
