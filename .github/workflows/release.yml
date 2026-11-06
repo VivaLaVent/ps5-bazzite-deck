@@ -209,7 +209,7 @@ jobs:
           [ -n "$HOOK" ] || exit 0
           jq -n --arg tag "$TAG" --arg u "$URL" --arg repo "$GITHUB_REPOSITORY" '
             {embeds: [{title: "New bootc release: \($tag)", url: $u, color: 3447003,
-              description: "The disk image and `bazzite-bootc-loader-\($tag).elf` are attached to the release.\n\nNew install: extract the `.7z.001` with 7-Zip, flash the `.img` with balenaEtcher or `dd`, start it with the loader.\nAlready on bootc: `sudo bootc switch ghcr.io/vivalavent/ps5-bazzite-bootc:\($tag)`, then restart (`sudo bootc rollback` goes back).\n\nReport results here with `sudo bootc status` and `ps5-report`.",
+              description: "The disk image and `bazzite-bootc-loader-\($tag).elf` are attached to the release.\n\nNew install: extract the `.7z.001` with 7-Zip, flash the `.img` with balenaEtcher or `dd`, start it with the loader.\nAlready on bootc: switch to the Beta channel (Settings → System → OS Update Channel) or run `sudo bootc switch ghcr.io/vivalavent/ps5-bazzite-bootc:beta`, then restart and start with this release\u0027s loader (`sudo bootc rollback` goes back).\n\nReport results here with `sudo bootc status` and `ps5-report`.",
               footer: {text: "\($repo) • \($tag)"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"
       - name: Report missing parts
