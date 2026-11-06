@@ -12,8 +12,9 @@ base=$(rpm -q --qf '%{VERSION}\n' mesa-vulkan-drivers | head -1)
 # Bazzite builds with Terra and disables it afterwards; libdrm-devel must match the installed libdrm.
 # Arch on every -devel package: a bare name next to its .i686 is satisfied by the i686 one alone.
 dnf5 config-manager setopt terra.enabled=1 terra-mesa.enabled=1
-x64=(libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel wayland-devel libxcb-devel
-     libX11-devel libxshmfence-devel libXrandr-devel libXext-devel libXxf86vm-devel libXfixes-devel libdisplay-info-devel)
+x64=(libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel wayland-devel libffi-devel
+     libxcb-devel libXau-devel libX11-devel libxshmfence-devel libXrandr-devel libXrender-devel libXext-devel
+     libXxf86vm-devel libXfixes-devel libdisplay-info-devel)
 x32=(glibc-devel libstdc++-devel libdrm-devel expat-devel zlib-ng-compat-devel libzstd-devel elfutils-libelf-devel
      wayland-devel libffi-devel libxcb-devel libXau-devel libX11-devel libxshmfence-devel libXrandr-devel libXrender-devel
      libXext-devel libXxf86vm-devel libXfixes-devel)
@@ -24,19 +25,21 @@ dnf5 -y install --setopt=install_weak_deps=False \
 rpm -q libdrm libdrm-devel
 pcs=(libdrm libdrm_amdgpu wayland-client xcb x11-xcb xcb-dri3 xcb-present xcb-randr xcb-shm xcb-sync xcb-xfixes
      xrandr xshmfence expat zlib libzstd libelf)
-pc32() { PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig:/usr/share/pkgconfig pkg-config "$@"; }
-pkg-config --exists --print-errors "${pcs[@]}" || { echo "64-bit .pc files missing"; exit 1; }
-# an i686 -devel package doesn't pull in the i686 -devel packages its .pc file requires
-for _ in 1 2 3 4; do
-    need=$(pc32 --exists --print-errors "${pcs[@]}" 2>&1 | sed -n "s/^Package '\([^']*\)'.* not found$/\1/p" | sort -u)
-    [ -n "$need" ] || break
-    pkgs=$(for n in $need; do rpm -q --whatprovides "pkgconfig($n)" --qf '%{NAME}.i686\n' 2>/dev/null | head -1; done | sort -u)
-    [ -n "$pkgs" ] || break
-    echo "32-bit: $need -> $pkgs"
-    # shellcheck disable=SC2086
-    dnf5 -y install --setopt=install_weak_deps=False $pkgs
+pc_x86_64() { pkg-config "$@"; }
+pc_i686() { PKG_CONFIG_LIBDIR=/usr/lib/pkgconfig:/usr/share/pkgconfig pkg-config "$@"; }
+# a -devel package's pkgconfig() requirements can be met by the other arch: install what each arch's .pc files miss
+for arch in x86_64 i686; do
+    for _ in 1 2 3 4; do
+        need=$("pc_$arch" --exists --print-errors "${pcs[@]}" 2>&1 | sed -n "s/^Package '\([^']*\)'.* not found$/\1/p" | sort -u)
+        [ -n "$need" ] || break
+        pkgs=$(for n in $need; do rpm -q --whatprovides "pkgconfig($n)" --qf "%{NAME}.$arch\n" 2>/dev/null | head -1; done | sort -u)
+        [ -n "$pkgs" ] || break
+        echo "$arch: $need -> $pkgs"
+        # shellcheck disable=SC2086
+        dnf5 -y install --setopt=install_weak_deps=False $pkgs
+    done
+    "pc_$arch" --exists --print-errors "${pcs[@]}" || { echo "$arch .pc files missing"; exit 1; }
 done
-pc32 --exists --print-errors "${pcs[@]}" || { echo "32-bit .pc files missing"; exit 1; }
 
 W=$(mktemp -d)
 git clone -q --depth 1 --branch "mesa-$MESA_VERSION" "https://github.com/$MESA_REPO" "$W/mesa"
