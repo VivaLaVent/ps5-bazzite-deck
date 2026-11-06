@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.6.1] – unreleased
+## [v2.6.1] – 2026-11-06
 > Pre-release: PS5 Pro GPU hangs fixed, Pro firmware dump on more firmware versions, fan back on the console's own control, 6 GB VRAM, Desktop Mode at start.
 - **PS5 Pro: Sony's own GPU command-processor microcode again** (as up to v2.1.1). The cyan_skillfish2 substitute from v2.1.6 on hung vkd3d (D3D12) games such as Dragon's Dogma 2 in a GPU reset that never recovered (black screen, SSH still up). `ps5.viola_cp=cs2` on the command line brings the substitute back for DXVK D3D9 games that hang on Sony's. Existing installs switch at the next start
 - **bazzite-bootc-loader from soniciso1's loader:** it dumps the PS5 Pro GPU firmware on 11.00 to 11.60, 12.00, 12.02, 12.40, 12.70 and 13.20 to 13.60 (the official loader only on 11.60, 13.20 and 13.60), so more Pros reach 60 compute units. The dormant boot-entry (BLS) patches are gone; path-override.txt still applies to cmdline.txt and vram.txt
