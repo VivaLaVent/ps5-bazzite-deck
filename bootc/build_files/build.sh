@@ -154,6 +154,9 @@ sed -i -e 's|^NAME=.*|NAME="PS5 Bazzite Deck"|' -e "s|^PRETTY_NAME=.*|PRETTY_NAM
     -e 's|^SUPPORT_URL=.*|SUPPORT_URL="https://discord.gg/ps5linux"|' \
     -e 's|^BUG_REPORT_URL=.*|BUG_REPORT_URL="https://github.com/VivaLaVent/ps5-bazzite-deck/issues"|' /usr/lib/os-release
 [ ! -f /usr/bin/bazzite-steam-brand ] || printf '#!/bin/sh\nexit 0\n' > /usr/bin/bazzite-steam-brand
+# Steam's OS update runs uupd through runcon, which fails without SELinux (not active on the PS5 kernel)
+O=/usr/libexec/ogc/os-update
+[ ! -f "$O" ] || sed -i 's|runcon system_u:unconfined_r:unconfined_t:s0 |env |' "$O"
 
 # --- initramfs, last: amdgpu loads from it, so it needs the firmware and options above.
 # Same as Bazzite's build-initramfs.sh.
