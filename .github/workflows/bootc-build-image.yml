@@ -112,9 +112,10 @@ jobs:
             echo "not signed: no SIGNING_SECRET"; exit 0
           fi
           echo "${{ github.token }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for i in 1 2 3 4 5; do
-            cosign sign -y --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST" && exit 0
-            echo "sigstore unreachable, retry $i in $((i * 60)) s"; sleep $((i * 60))
+          # consoles check the key only (policy.json has no Rekor key): no transparency log, so sigstore can't block a build
+          for i in 1 2 3; do
+            cosign sign -y --tlog-upload=false --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST" && exit 0
+            sleep $((i * 30))
           done
           exit 1
 
