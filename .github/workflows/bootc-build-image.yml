@@ -112,7 +112,11 @@ jobs:
             echo "not signed: no SIGNING_SECRET"; exit 0
           fi
           echo "${{ github.token }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
-          cosign sign -y --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST"
+          for i in 1 2 3 4 5; do
+            cosign sign -y --key env://COSIGN_PRIVATE_KEY "$REF@$DIGEST" && exit 0
+            echo "sigstore unreachable, retry $i in $((i * 60)) s"; sleep $((i * 60))
+          done
+          exit 1
 
       - name: Post to Discord
         if: github.event_name != 'pull_request' && matrix.channel != 'release'
