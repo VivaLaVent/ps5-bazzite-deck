@@ -46,6 +46,9 @@ elif [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then BT="$BTA (Linux-only addr
 elif [ $(( 0x${BTA%%:*} & 2 )) -ne 0 ]; then BT="$BTA (Linux-only address applied)"
 else BT="$BTA (Linux-only address NOT applied)"; fi
 WIFI=$(nmcli -t -f TYPE,STATE device 2>/dev/null | grep -m1 '^wifi' | cut -d: -f2)
+VUSE=$(k | grep -o -m1 'VRAM: [0-9]*M' | grep -o '[0-9]*')
+VTXT=$(for d in /efi /boot/efi; do [ -f "$d/vram.txt" ] && { tr -d '[:space:]' < "$d/vram.txt"; break; }; done)
+VSET=; [[ ${VTXT#0x} =~ ^[0-9a-fA-F]{1,12}$ ]] && VSET=$(( 16#${VTXT#0x} / 1048576 ))
 
 {
 INFO=(
@@ -56,6 +59,7 @@ INFO=(
   "Wireless   $WIRELESS"
   "Install    $INSTALL"
   "Kernel     $(uname -r)"
+  "VRAM       ${VUSE:-?} MB in use${VSET:+, vram.txt ${VSET} MB}$( [ -n "$VSET" ] && [ -n "$VUSE" ] && [ "$VSET" != "$VUSE" ] && echo " (applies at the next start with the loader)")"
   "Display    ${DNAME:-?} on ${CON:-nothing connected}${MODE:+, $MODE}${VRR:+, VRR $VRR}"
   "Bluetooth  $BT"
   "Wi-Fi      ${WIFI:-no Wi-Fi device}"
@@ -65,7 +69,7 @@ INFO=(
 LOGO=(' ____  ____  ____ ' '|  _ \/ ___|| ___| ' '| |_) \___ \|___ \ ' '|  __/ ___) |___) |' '|_|   |____/|____/ ')
 for i in "${!INFO[@]}"; do printf '%-20s  %s\n' "${LOGO[$i]:-}" "${INFO[$i]}"; done
 echo
-echo "SUMMARY: $INSTALL | $MODEL | HDMI ${HDMI:-?} | ${WIRELESS%% (*} | ${DNAME:-?} ${MODE:-} | $(uname -r) | ${ROOT:-?}"
+echo "SUMMARY: $INSTALL | $MODEL | HDMI ${HDMI:-?} | ${WIRELESS%% (*} | ${DNAME:-?} ${MODE:-} | VRAM ${VUSE:-?}M | $(uname -r) | ${ROOT:-?}"
 
 echo; echo "=== Bluetooth"
 btmgmt info 2>/dev/null | grep -m2 -e 'addr ' -e 'current settings' | sed 's/^\s*/  /'
@@ -100,15 +104,17 @@ if [ "$MODEL" = "PS5 Pro" ]; then
   echo "  compute units: $(k | grep -o -m1 'active_cu_number [0-9]*' | awk '{print $2}')"
   echo "  Viola firmware loaded: $(k | grep -qi 'using Viola firmware' && echo yes || echo no), SMU: $(k | grep -qi 'SMU is initialized successfully' && echo up || echo down)"
   k | grep -i -e 'ps5-gpufreq' -e 'mp1fw_sendmsg' | last 5
-  journalctl -b -u ps5-stage-viola-fw -u ps5-console-defaults --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
+  journalctl -b -u ps5-stage-viola-fw --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
 fi
+k | grep -o -m2 -e 'VRAM: [0-9]*M.*' -e 'GTT: [0-9]*M.*' | sed 's/^/  /'
+journalctl -b -u ps5-console-defaults --no-pager -o cat 2>/dev/null | tail -3 | sed 's/^/  /'
 command -v ps5-perf >/dev/null && ps5-perf status | sed 's/^/  /'
 
 if [ -e /run/ostree-booted ]; then
   echo; echo "=== bootc"
   sudo bootc status 2>/dev/null | sed 's/^/  /' | head -20
   [ "$(systemctl is-enabled greenboot-set-rollback-trigger.service 2>/dev/null)" = masked ] &&
-    echo "  greenboot-set-rollback-trigger is masked: updates fail to stage, run the fix in the v2.6.3 notes"
+    echo "  greenboot-set-rollback-trigger is masked: updates fail to stage, run the fix in the v2.7 notes"
   sed 's/^/  /' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null
   journalctl -b -u ps5-bootc-sync -u ps5-grow-root --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
 fi

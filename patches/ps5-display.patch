@@ -1455,7 +1455,7 @@ index 7e484adb4..8ec16faed 100644
  	acrtc->dm_irq_params.vrr_params = vrr_params;
  	new_crtc_state->vrr_infopacket = vrr_infopacket;
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c
-index 279775c14..efa3a927f 100644
+index 279775c14..134acf549 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c
 @@ -979,7 +979,7 @@ void amdgpu_dm_hpd_init(struct amdgpu_device *adev)
@@ -1500,74 +1500,6 @@ index 279775c14..efa3a927f 100644
  	handle_hpd_irq_helper(aconnector, DETECT_REASON_HPD);
  
  }
-@@ -2294,6 +2311,57 @@ static void schedule_dc_vmin_vmax(struct amdgpu_device *adev,
-  * dm_vupdate_high_irq(); on DCE it is driven by VLINE0 at the start of vblank
-  * from dm_crtc_high_irq().
-  */
-+#ifdef CONFIG_X86_PS5
-+/* hdmi.vrr_measure=1: log the vblank interval every 2 s (variable in VRR, fixed without). */
-+static struct {
-+	ktime_t last, window;
-+	u32 n, min_us, max_us;
-+	u64 sum_us;
-+	int vrr;
-+} ps5_drr[6];
-+
-+static void ps5_vrr_drr_measure(struct amdgpu_crtc *acrtc, int vrr_active)
-+{
-+	unsigned int i = acrtc->crtc_id;
-+	ktime_t now = ktime_get();
-+	u32 us;
-+
-+	if (!ps5_hdmi_vrr_possible() || !ps5_hdmi_vrr_measure() || i >= ARRAY_SIZE(ps5_drr))
-+		return;
-+	if (ps5_drr[i].vrr != vrr_active || !ps5_drr[i].last) {
-+		/* new window when VRR switches */
-+		memset(&ps5_drr[i], 0, sizeof(ps5_drr[i]));
-+		ps5_drr[i].vrr = vrr_active;
-+		ps5_drr[i].last = ps5_drr[i].window = now;
-+		return;
-+	}
-+	us = ktime_us_delta(now, ps5_drr[i].last);
-+	ps5_drr[i].last = now;
-+	if (us > 200000)		/* a stall, not a frame */
-+		return;
-+	if (!ps5_drr[i].n || us < ps5_drr[i].min_us)
-+		ps5_drr[i].min_us = us;
-+	if (us > ps5_drr[i].max_us)
-+		ps5_drr[i].max_us = us;
-+	ps5_drr[i].sum_us += us;
-+	ps5_drr[i].n++;
-+	if (ktime_ms_delta(now, ps5_drr[i].window) >= 2000 && ps5_drr[i].n) {
-+		u32 avg = div_u64(ps5_drr[i].sum_us, ps5_drr[i].n);
-+
-+		pr_info("PS5 VRR DRR: crtc %u vrr_active=%d frames=%u vblank interval avg %u.%02u ms, min %u.%02u, max %u.%02u => %s\n",
-+			i, vrr_active, ps5_drr[i].n, avg / 1000, (avg % 1000) / 10,
-+			ps5_drr[i].min_us / 1000, (ps5_drr[i].min_us % 1000) / 10,
-+			ps5_drr[i].max_us / 1000, (ps5_drr[i].max_us % 1000) / 10,
-+			ps5_drr[i].max_us - ps5_drr[i].min_us > 1000 ? "frame length VARIES (DRR active)" :
-+			"frame length FIXED");
-+		ps5_drr[i].window = now;
-+		ps5_drr[i].n = 0;
-+		ps5_drr[i].sum_us = 0;
-+		ps5_drr[i].min_us = ps5_drr[i].max_us = 0;
-+	}
-+}
-+#endif
-+
- static void dm_crtc_high_irq_handler(struct amdgpu_device *adev,
- 				     struct amdgpu_crtc *acrtc)
- {
-@@ -2325,6 +2393,9 @@ static void dm_crtc_high_irq_handler(struct amdgpu_device *adev,
- 	}
- 
- 	vrr_active = amdgpu_dm_crtc_vrr_active_irq(acrtc);
-+#ifdef CONFIG_X86_PS5
-+	ps5_vrr_drr_measure(acrtc, vrr_active);
-+#endif
- 
- 	drm_dbg_vbl(adev_to_drm(adev),
- 		    "crtc:%d, vupdate-vrr:%d, planes:%d\n", acrtc->crtc_id,
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/ps5-hdmi-fallback.inc b/drivers/gpu/drm/amd/display/amdgpu_dm/ps5-hdmi-fallback.inc
 deleted file mode 100644
 index 6c6e4f7af..000000000
@@ -3240,7 +3172,7 @@ index a2b12d65a..000000000
 -	return !rate || (rate <= 4 && permitted & BIT(rate));
 -}
 diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
-index 4ade01ba6..8284b1d10 100755
+index 4ade01ba6..399305253 100755
 --- a/drivers/ps5/hdmi.c
 +++ b/drivers/ps5/hdmi.c
 @@ -3,51 +3,31 @@
@@ -3586,48 +3518,90 @@ index 4ade01ba6..8284b1d10 100755
  	i2c_ctx.msg_cur = i2c_ctx.msg_buf;
  	i2c_ctx.msg_hdr = (struct icc_i2c_msg *)i2c_ctx.msg_cur;
  
-@@ -383,6 +185,19 @@ static void i2c_init(u8 code)
- 	i2c_ctx.msg_cur += sizeof(*i2c_ctx.msg_hdr);
- }
- 
-+/* hdmi.icc_trace=1: every message to the HDMI chip and its reply in the log (debugging) */
-+static bool icc_trace;
-+module_param(icc_trace, bool, 0644);
-+MODULE_PARM_DESC(icc_trace, "Log every HDMI chip (ICC) message and reply, for debugging (default off)");
-+
-+static void icc_trace_dump(const char *dir, const u8 *buf)
-+{
-+	const struct icc_msg *m = (const struct icc_msg *)buf;
-+
-+	print_hex_dump(KERN_INFO, dir, DUMP_PREFIX_OFFSET, 16, 1, buf,
-+		       min_t(int, m->length, ICC_MSG_MAX_SIZE), false);
-+}
-+
- static int i2c_exec(void)
+@@ -387,7 +189,6 @@ static int i2c_exec(void)
  {
  	u8 buf[ICC_MSG_MAX_SIZE] = {};
-@@ -395,16 +210,14 @@ static int i2c_exec(void)
+ 	struct icc_msg *msg = (struct icc_msg *)buf;
+-	int ret;
+ 
+ 	i2c_ctx.msg_hdr->length = i2c_ctx.msg_cur - i2c_ctx.msg_buf;
+ 
+@@ -395,18 +196,8 @@ static int i2c_exec(void)
  	msg->msg_type = 0;
  	msg->length = sizeof(*msg) + i2c_ctx.msg_hdr->length;
  	memcpy(msg->data, i2c_ctx.msg_hdr, i2c_ctx.msg_hdr->length);
 -	mutex_unlock(&i2c_lock);
- 
-+	if (icc_trace)
-+		icc_trace_dump("hdmi icc query: ", buf);
- 	ret = icc_query(buf, buf);
- 	if (ret)
- 		return ret;
+-
+-	ret = icc_query(buf, buf);
+-	if (ret)
+-		return ret;
 -	if (msg->service_id != ICC_SERVICE_ID_HDMI || msg->msg_type != 0x4000 ||
 -	    msg->length < sizeof(*msg) + 2 || msg->length > ICC_MSG_MAX_SIZE)
 -		return -EPROTO;
 -	if (msg->data[0] || msg->data[1])
 -		return -EIO;
-+	if (icc_trace)
-+		icc_trace_dump("hdmi icc reply: ", buf);
  
- 	return 0;
+-	return 0;
++	return icc_query(buf, buf);
  }
-@@ -790,13 +603,8 @@ static void sceControlHdmiEvent(u8 enable)
+ 
+ static void i2c_write_block(struct i2c_block *block, size_t count)
+@@ -669,22 +460,6 @@ static int stopHdcpHw(void)
+ 	return icc_query(buf, buf);
+ }
+ 
+-static void sceSetBackToUnpluggedSequence(void)
+-{
+-	static u8 data[] = {0x11, 0x51, 0x09, 0x00, 0x02, 0x09, 0x03, 0x01, 0x01, 0x70, 0x5f, 0x80, 0x80, 0x03, 0x08, 0x01, 0x01, 0x00, 0x32, 0x00, 0x00, 0x02, 0x09, 0x03, 0x01, 0x01, 0x7a, 0x88, 0xff, 0xff, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x09, 0x03, 0x01, 0x01, 0x74, 0x0a, 0xff, 0xff, 0x03, 0x08, 0x03, 0x01, 0x00, 0x74, 0x0a, 0xff, 0x02, 0x09, 0x03, 0x01, 0x01, 0x74, 0x19, 0x05, 0x07, 0x02, 0x09, 0x03, 0x01, 0x01, 0x7a, 0x8b, 0x00, 0x07, 0x03, 0x08, 0x01, 0x01, 0x00, 0x32, 0x00, 0x00};
+-	i2c_init(0);
+-	i2c_cmd_4_16(data, sizeof(data));
+-	i2c_exec();
+-}
+-
+-static void sceSetBackToWaitResolutionSequence(void)
+-{
+-	static u8 data[] = {0x12, 0x47, 0x08, 0x00, 0x02, 0x09, 0x03, 0x01, 0x01, 0x70, 0x5f, 0x80, 0x80, 0x02, 0x08, 0x02, 0x01, 0x01, 0x7a, 0x88, 0xff, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x08, 0x02, 0x01, 0x01, 0x74, 0x0a, 0xff, 0x03, 0x08, 0x03, 0x01, 0x00, 0x74, 0x0a, 0xff, 0x02, 0x09, 0x03, 0x01, 0x01, 0x74, 0x19, 0x05, 0x07, 0x02, 0x09, 0x03, 0x01, 0x01, 0x7a, 0x8b, 0x00, 0x07, 0x03, 0x08, 0x01, 0x01, 0x00, 0x64, 0x00, 0x00};
+-	i2c_init(0);
+-	i2c_cmd_4_16(data, sizeof(data));
+-	i2c_exec();
+-}
+-
+ static void i2c_cmd_4_2(void)
+ {
+ 	static u8 data[] = {0x31, 0x7a, 0xb8, 0x08, 0x32, 0x7a, 0xb0, 0x05, 0x33, 0x7a, 0xa0, 0x05, 0x34, 0x7a, 0xe1, 0x01, 0x35, 0x7a, 0xe2, 0x01, 0x36, 0x7a, 0xe0, 0x01, 0x37, 0x7c, 0x00, 0x05};
+@@ -707,31 +482,6 @@ static void i2c_cmd_4_2(void)
+ 	i2c_exec();
+ }
+ 
+-static void sceSetHdcpSequence1st(void)
+-{
+-	static u8 data[] = {0x0b, 0x91, 0x0f, 0x00, 0x02, 0x0c, 0x02, 0x02, 0x01, 0x7a, 0x8b, 0x05, 0x01, 0x7a, 0x88, 0xff, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x11, 0x02, 0x03, 0x02, 0x10, 0xe5, 0xff, 0xff, 0x01, 0x7a, 0x85, 0x00, 0x01, 0x7a, 0x83, 0x84, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x08, 0x01, 0x01, 0x01, 0x7a, 0x83, 0x83, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x03, 0x08, 0x01, 0x01, 0x00, 0x0f, 0x00, 0x00, 0x02, 0x08, 0x01, 0x01, 0x01, 0x7a, 0x83, 0x84, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x10, 0x02, 0x03, 0x01, 0x10, 0xe6, 0xff, 0x01, 0x7a, 0x85, 0x00, 0x01, 0x7a, 0x83, 0xe3, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01};
+-
+-	i2c_init(0);
+-	i2c_cmd_4_16(data, sizeof(data));
+-	i2c_exec();
+-}
+-
+-static void sceSetHdcpSequence2nd(void)
+-{
+-	static u8 data[] = {0x0c, 0x39, 0x06, 0x00, 0x02, 0x0d, 0x02, 0x02, 0x02, 0x10, 0xe5, 0xff, 0xff, 0x01, 0x7a, 0x83, 0xdc, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x08, 0x01, 0x01, 0x01, 0x7a, 0x83, 0xc4, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01};
+-	i2c_init(0);
+-	i2c_cmd_4_16(data, sizeof(data));
+-	i2c_exec();
+-}
+-
+-static void sceSetHdcpSequence3rd(void)
+-{
+-	static u8 data[] = {0x0d, 0x21, 0x01, 0x00, 0x02, 0x1d, 0x02, 0x06, 0x01, 0x10, 0xe7, 0xff, 0x01, 0x7a, 0x8b, 0x03, 0x02, 0x10, 0xe5, 0xff, 0xff, 0x01, 0x7a, 0x9d, 0x4f, 0x01, 0x7a, 0x83, 0x8e, 0x01, 0x7e, 0x03, 0x10};
+-	i2c_init(0);
+-	i2c_cmd_4_16(data, sizeof(data));
+-	i2c_exec();
+-}
+-
+ static void sceSetEdidSequence(int sequence)
+ {
+ 	static u8 seq_0[] = {0x04, 0x3f, 0x06, 0x00, 0x02, 0x0c, 0x02, 0x02, 0x01, 0x7a, 0x88, 0xff, 0x01, 0x7a, 0x83, 0x88, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x0f, 0x02, 0x02, 0x01, 0x7a, 0x9c, 0x0e, 0x04, 0x7a, 0x80, 0x00, 0x00, 0x7f, 0x82, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01};
+@@ -790,13 +540,8 @@ static void sceControlHdmiEvent(u8 enable)
  
  void hdmiSystemResume(void)
  {
@@ -3642,7 +3616,7 @@ index 4ade01ba6..8284b1d10 100755
  		i2c_cmd_4_2();
  		// sceSetHdcpSequence1st();
  		// sceSetHdcpSequence2nd();
-@@ -807,18 +615,28 @@ void hdmiSystemResume(void)
+@@ -807,18 +552,28 @@ void hdmiSystemResume(void)
  		sceSetEdidSequence(3);
  		sceSetWaitPllSequence();
  		unk_akv();
@@ -3678,7 +3652,7 @@ index 4ade01ba6..8284b1d10 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -840,10 +658,10 @@ static int initIsrForFlava3(void)
+@@ -840,10 +595,10 @@ static int initIsrForFlava3(void)
  	if (tmds_ch_swap == 1) {
  		i2c_mask(0x701a, 0xb1, 0xff);
  	}
@@ -3691,7 +3665,7 @@ index 4ade01ba6..8284b1d10 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -871,14 +689,17 @@ static int initDpForFlava3(unsigned int delay_ms)
+@@ -871,14 +626,17 @@ static int initDpForFlava3(unsigned int delay_ms)
  	i2c_write(0x603c, 0x04);
  	i2c_write(0x100e, 0x10);
  	i2c_end_block();
@@ -3713,7 +3687,7 @@ index 4ade01ba6..8284b1d10 100755
  {
  	i2c_init(1);
  	i2c_begin_block();
-@@ -888,10 +709,10 @@ static int configVSyncSettingFlava3(void)
+@@ -888,10 +646,10 @@ static int configVSyncSettingFlava3(void)
  	i2c_write(0x6c07, 0x00);
  	i2c_write_data(0x7214, (u8[]){0x00, 0x00}, 2);
  	i2c_end_block();
@@ -3726,7 +3700,7 @@ index 4ade01ba6..8284b1d10 100755
  {
  	i2c_init(1);
  	i2c_begin_block();
-@@ -902,10 +723,10 @@ static int configParamFlava3Pre(void)
+@@ -902,10 +660,10 @@ static int configParamFlava3Pre(void)
  	i2c_write(0x7077, 0x00);
  	i2c_write(0x7079, 0x80);
  	i2c_end_block();
@@ -3739,7 +3713,7 @@ index 4ade01ba6..8284b1d10 100755
  {
  	i2c_init(1);
  	i2c_begin_block();
-@@ -923,10 +744,10 @@ static int configLinkTrainingFlava3(void)
+@@ -923,10 +681,10 @@ static int configLinkTrainingFlava3(void)
  	i2c_write(0x6a01, 0x4d);
  	i2c_waitset(0x60f9, 0x1a);
  	i2c_waitset(0x6083, 0x02);
@@ -3752,7 +3726,7 @@ index 4ade01ba6..8284b1d10 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -963,11 +784,39 @@ static int initHdmiPhyForFlava3_1st(void)
+@@ -963,11 +721,39 @@ static int initHdmiPhyForFlava3_1st(void)
  	i2c_write(0x7025, 0x70);
  	i2c_write(0x7030, 0x36);
  	i2c_write(0x7025, 0x77);
@@ -3794,7 +3768,7 @@ index 4ade01ba6..8284b1d10 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -1010,152 +859,234 @@ static int initHdmiPhyForFlava3_2nd(void)
+@@ -1010,152 +796,234 @@ static int initHdmiPhyForFlava3_2nd(void)
  	i2c_write(0x7030, 0x3b);
  	i2c_write(0x7026, 0xef);
  	i2c_end_block();
@@ -3884,16 +3858,16 @@ index 4ade01ba6..8284b1d10 100755
  {
 -	unsigned int policy = READ_ONCE(allm);
 +	int ext, n = len >= 128 ? e[0x7e] : 0, i;
-+
+ 
+-	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && READ_ONCE(frl_edid_valid) &&
+-	       READ_ONCE(sink_allm) &&
+-	       (policy == 2 || (policy == 1 && READ_ONCE(allm_game)));
 +	*max_frl = 0;
 +	*y422 = false;
 +	for (ext = 1; ext <= n && (ext + 1) * 128 <= len; ext++) {
 +		const u8 *b = &e[ext * 128];
 +		int d = b[2];
- 
--	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && READ_ONCE(frl_edid_valid) &&
--	       READ_ONCE(sink_allm) &&
--	       (policy == 2 || (policy == 1 && READ_ONCE(allm_game)));
++
 +		if (b[0] != 0x02 || d < 4 || d > 127)
 +			continue;
 +		if (b[3] & 0x10)
@@ -4132,7 +4106,7 @@ index 4ade01ba6..8284b1d10 100755
  	i2c_begin_block();
  	i2c_write(0x100c, 0x01);
  	i2c_write_data(0x68a0, (u8[]){0x96, 0x04}, 2);
-@@ -1163,17 +1094,10 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1163,17 +1031,10 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  	i2c_write(0x7019, 0x00);
  	i2c_write(0x100c, 0x01);
  	i2c_write(0x7005, 0x80);
@@ -4152,7 +4126,7 @@ index 4ade01ba6..8284b1d10 100755
  		/* Set VIC and content type */
  		i2c_write_data(0x7227, (u8[]){vic, 0x00}, 2);
  		i2c_write_data(0x7070, (u8[]){vic, vic, 0x00, 0x00, 0x00, 0x00}, 6);
-@@ -1185,32 +1109,27 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1185,32 +1046,27 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  		/* Set VIC and content type */
  		i2c_write_data(0x7227, (u8[]){0x06, 0x00}, 2);
  		i2c_write_data(0x7070, (u8[]){0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 6);
@@ -4198,7 +4172,7 @@ index 4ade01ba6..8284b1d10 100755
  	i2c_write(0x7018, (tmds_polarity == 1) << 1);
  	if (tmds_ch_swap == 1) {
  		i2c_end_block();
-@@ -1219,18 +1138,12 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1219,18 +1075,12 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  	}
  	i2c_write(0x10e7, 0xff);
  	i2c_write(0x7202, 0x20);
@@ -4222,7 +4196,7 @@ index 4ade01ba6..8284b1d10 100755
  		i2c_write(0x7072, 0x01);
  		i2c_write(0x7074, 0x07);
  		i2c_write(0x7206, 0x80);
-@@ -1242,29 +1155,14 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1242,29 +1092,14 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  	}
  	i2c_end_block();
  	i2c_waitclear(0x7011, 0xff);
@@ -4254,7 +4228,7 @@ index 4ade01ba6..8284b1d10 100755
  
  	i2c_init(1);
  	i2c_waitset(0x10e7, 0x80);
-@@ -1272,33 +1170,21 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+@@ -1272,33 +1107,21 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
  		/* Set VIC */
  		i2c_mask(0x7227, vic, 0xff);
  	}
@@ -4300,7 +4274,7 @@ index 4ade01ba6..8284b1d10 100755
  		i2c_write(0x7019, 0x01);
  	} else {
  		i2c_write(0x7019, 0x00);
-@@ -1314,14 +1200,29 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+@@ -1314,14 +1137,29 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
  	i2c_waitclear(0x7a84, 0x01);
  	i2c_begin_block();
  	i2c_write(0x7a8b, 0x05);
@@ -4334,7 +4308,7 @@ index 4ade01ba6..8284b1d10 100755
  	i2c_begin_block();
  	i2c_write(0x7021, 0xff);
  	i2c_write(0x700a, 0x02);
-@@ -1329,65 +1230,303 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+@@ -1329,53 +1167,282 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
  	i2c_end_block();
  	i2c_delay(700);
  	i2c_write(0x7a8b, 0x00);
@@ -4343,12 +4317,9 @@ index 4ade01ba6..8284b1d10 100755
 -	ret = i2c_exec();
 -
 -	WRITE_ONCE(hdcp_abort_until, jiffies + msecs_to_jiffies(HDCP_ABORT_MS));
--	return ret;
 +	i2c_exec();
- }
- 
--static int setHdmiVideoConfigFlava3(const struct drm_display_mode *mode,
--				    unsigned int bpc, bool yuv422)
++}
++
 +/*
 + * VRR on FLAVA3: the chip follows a variable frame length only with Sony's timing SDP flowing
 + * (amdgpu_dm_freesync.c) and MSA kept (link_dpms.c), switched over after the setup with the
@@ -4357,9 +4328,6 @@ index 4ade01ba6..8284b1d10 100755
 +static bool vrr = true;
 +module_param(vrr, bool, 0444);
 +MODULE_PARM_DESC(vrr, "VRR on FLAVA3 consoles: offer the TV's VRR range, switched with Steam's VRR setting (default on; 0 never offers it)");
-+static bool vrr_measure;
-+module_param(vrr_measure, bool, 0644);
-+MODULE_PARM_DESC(vrr_measure, "Log the measured frame intervals every 2 s while VRR is on, for debugging (default off)");
 +
 +#define VRR_FOLLOW_STEP_MS	250	/* between the follow steps (tested up to 1000) */
 +/* Never below 48 Hz, the PS5 system's floor: lower, OLEDs flicker visibly. */
@@ -4379,78 +4347,30 @@ index 4ade01ba6..8284b1d10 100755
 +
 +/* copy of the sink's EDID for the VRR range, bounded by what the message holds */
 +static void ps5_vrr_save_edid(const struct icc_msg *msg)
- {
--	unsigned int generation;
--	bool allm;
--	int ret, packet_ret;
++{
 +	int len = *(const u16 *)&msg->data[2];
 +	int avail = (int)msg->length - (int)sizeof(*msg) - 4;
 +	unsigned long flags;
- 
--	mutex_lock(&frl_setup_lock);
--	generation = frl_get_sink_generation();
--	allm = allm_wanted();
--	allm_reset();
--	ret = configParamFlava3Pre();
--	if (ret)
--		goto out;
--	ret = configLinkTrainingFlava3();
--	if (ret)
--		goto out;
--	ret = setHdmiBasicVideoConfigFlava3(mode, bpc, yuv422, NULL, false);
--	if (ret)
--		goto out;
--	ret = initHdmiPhyForFlava3_1st();
--	if (ret)
--		goto out;
--	ret = initHdmiPhyForFlava3_2nd();
--	if (ret)
--		goto out;
--	packet_ret = setAllmFlava3(allm);
--	ret = setVideoAdditionalConfigFlava3(mode);
--	if (ret)
--		goto out;
--	if (!allm_record(generation, allm, !packet_ret))
--		ret = -ENODEV;
--	if (packet_ret)
--		pr_warn("ALLM setup failed: %d\n", packet_ret);
--out:
--	if (ret)
--		allm_reset();
--	mutex_unlock(&frl_setup_lock);
--	return ret;
++
 +	len = clamp(min(len, avail), 0, (int)sizeof(vrr_edid));
 +	spin_lock_irqsave(&vrr_edid_lock, flags);
 +	memcpy(vrr_edid, &msg->data[4], len);
 +	vrr_edid_len = len;
 +	spin_unlock_irqrestore(&vrr_edid_lock, flags);
- }
- 
--static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt2020)
++}
++
 +bool ps5_hdmi_vrr_possible(void)
- {
--	struct hdmi_drm_infoframe sdr;
--	u8 data[HDMI_INFOFRAME_SIZE(DRM)];
--	bool hdr = frame != NULL;
--	int ret;
++{
 +	return vrr && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3;
 +}
 +EXPORT_SYMBOL(ps5_hdmi_vrr_possible);
- 
--	/* Sinks keep the last InfoFrame, send EOTF 0 when leaving HDR. */
--	if (!frame && hdr_enabled) {
--		hdmi_drm_infoframe_init(&sdr);
++
 +bool ps5_hdmi_ic_is_flava3(void)
 +{
 +	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3;
 +}
 +EXPORT_SYMBOL(ps5_hdmi_ic_is_flava3);
 +
-+bool ps5_hdmi_vrr_measure(void)
-+{
-+	return vrr_measure;
-+}
-+EXPORT_SYMBOL(ps5_hdmi_vrr_measure);
 +
 +/* the TV's VRR range: HDMI Forum VSDB (VRRmin/VRRmax), else the AMD FreeSync VSDB */
 +int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src)
@@ -4541,21 +4461,42 @@ index 4ade01ba6..8284b1d10 100755
 +	msg->service_id = ICC_SERVICE_ID_HDMI;
 +	msg->length = sizeof(*msg) + n;
 +	memcpy(msg->data, body, n);
-+	if (icc_trace)
-+		icc_trace_dump("hdmi icc query: ", buf);
 +	ret = icc_query(buf, buf);
 +	if (!ret && buf[0xc])
 +		ret = -EIO;
 +	mutex_unlock(&lock);
-+	return ret;
-+}
-+
+ 	return ret;
+ }
+ 
+-static int setHdmiVideoConfigFlava3(const struct drm_display_mode *mode,
+-				    unsigned int bpc, bool yuv422)
 +/* one block write of one register (code, then a 2/2 command) */
 +static int vrr_icc_write(u8 code, u16 reg, const u8 *data, int len)
-+{
+ {
+-	unsigned int generation;
+-	bool allm;
+-	int ret, packet_ret;
 +	u8 b[48];
 +	int n = 0;
-+
+ 
+-	mutex_lock(&frl_setup_lock);
+-	generation = frl_get_sink_generation();
+-	allm = allm_wanted();
+-	allm_reset();
+-	ret = configParamFlava3Pre();
+-	if (ret)
+-		goto out;
+-	ret = configLinkTrainingFlava3();
+-	if (ret)
+-		goto out;
+-	ret = setHdmiBasicVideoConfigFlava3(mode, bpc, yuv422, NULL, false);
+-	if (ret)
+-		goto out;
+-	ret = initHdmiPhyForFlava3_1st();
+-	if (ret)
+-		goto out;
+-	ret = initHdmiPhyForFlava3_2nd();
+-	if (ret)
 +	b[n++] = code; b[n++] = 0; b[n++] = 0; b[n++] = 1;
 +	b[n++] = 0x02; b[n++] = 4 + 3 + len; b[n++] = 0x02; b[n++] = 1;
 +	b[n++] = len; b[n++] = reg >> 8; b[n++] = reg & 0xff;
@@ -4584,7 +4525,9 @@ index 4ade01ba6..8284b1d10 100755
 +	int gen = atomic_read(&vrr_follow_gen);
 +
 +	if (!READ_ONCE(vrr_follow))
-+		goto out;
+ 		goto out;
+-	packet_ret = setAllmFlava3(allm);
+-	ret = setVideoAdditionalConfigFlava3(mode);
 +	/* FreeSync SPD (AMD OUI; supported, enabled, active; min, max) in the SPD slot */
 +	spd[10] = READ_ONCE(vrr_min_hz);
 +	spd[11] = vrr_follow_hz;
@@ -4610,12 +4553,21 @@ index 4ade01ba6..8284b1d10 100755
 +			goto out;
 +		ret = vrr_icc_write(0x01, steps[i].reg, steps[i].v, steps[i].len);
 +	}
-+	if (ret)
+ 	if (ret)
+-		goto out;
+-	if (!allm_record(generation, allm, !packet_ret))
+-		ret = -ENODEV;
+-	if (packet_ret)
+-		pr_warn("ALLM setup failed: %d\n", packet_ret);
 +		pr_warn("VRR: switching the HDMI chip over failed (%d)\n", ret);
 +	else
 +		pr_info("VRR: on, %u-%u Hz\n", spd[10], vrr_follow_hz);
 +	msleep(VRR_FOLLOW_SETTLE_MS);
-+out:
+ out:
+-	if (ret)
+-		allm_reset();
+-	mutex_unlock(&frl_setup_lock);
+-	return ret;
 +	vrr_follow_unmute();
 +}
 +static DECLARE_DELAYED_WORK(vrr_follow_work, vrr_follow_fn);
@@ -4674,21 +4626,18 @@ index 4ade01ba6..8284b1d10 100755
 +		setVideoAdditionalConfigFlava3(mode);
 +	}
 +	vrr_follow_after_setup(mode);
-+}
-+
-+static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt2020)
-+{
-+	struct hdmi_drm_infoframe sdr;
-+	u8 data[HDMI_INFOFRAME_SIZE(DRM)];
-+	bool hdr = frame != NULL;
-+
-+	/* Sinks keep the last InfoFrame, send EOTF 0 when leaving HDR. */
-+	if (!frame && hdr_enabled) {
-+		hdmi_drm_infoframe_init(&sdr);
- 		frame = &sdr;
- 	}
- 	if (!frame && bt2020 == bt2020_enabled)
-@@ -1410,26 +1549,11 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
+ }
+ 
+ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt2020)
+@@ -1383,7 +1450,6 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
+ 	struct hdmi_drm_infoframe sdr;
+ 	u8 data[HDMI_INFOFRAME_SIZE(DRM)];
+ 	bool hdr = frame != NULL;
+-	int ret;
+ 
+ 	/* Sinks keep the last InfoFrame, send EOTF 0 when leaving HDR. */
+ 	if (!frame && hdr_enabled) {
+@@ -1410,26 +1476,11 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
  		i2c_write(0x7204, 0x40);
  		i2c_waitclear(0x7204, 0x40);
  	}
@@ -4716,7 +4665,7 @@ index 4ade01ba6..8284b1d10 100755
  static void setHdmiAudioConfigBasic(int channels)
  {
  	i2c_init(2);
-@@ -1559,6 +1683,10 @@ static void setTmdsConfigVerde(void)
+@@ -1559,6 +1610,10 @@ static void setTmdsConfigVerde(void)
  	i2c_exec();
  }
  
@@ -4727,7 +4676,7 @@ index 4ade01ba6..8284b1d10 100755
  static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
  {
  	u8 vic = drm_match_cea_mode(mode);
-@@ -1566,11 +1694,11 @@ static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
+@@ -1566,11 +1621,11 @@ static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
  	i2c_init(0);
  	i2c_begin_block();
  	if (vic == 16) {
@@ -4742,7 +4691,7 @@ index 4ade01ba6..8284b1d10 100755
  	}
  	i2c_write_data(0x31d0, (u8[]){0x01, 0x19, 0x5f, 0x53, 0x43, 0x45, 0x49, 0x00, 0x00, 0x00, 0x00, 0x50, 0x53, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08}, 28);
  	i2c_end_block();
-@@ -1638,236 +1766,34 @@ static void sceHdmiSetAudioConfigVerde(int channels)
+@@ -1638,236 +1693,34 @@ static void sceHdmiSetAudioConfigVerde(int channels)
  	setAudioConfigForVerde(channels);
  }
  
@@ -4757,8 +4706,7 @@ index 4ade01ba6..8284b1d10 100755
 -
 -/* Apply a changed ALLM decision to the running output without a modeset. */
 -int ps5_hdmi_allm_update(void)
-+void sceHdmiInitVideoConfig(void)
- {
+-{
 -	unsigned int generation;
 -	bool on, ready, valid, active;
 -	int ret = 0;
@@ -4822,7 +4770,8 @@ index 4ade01ba6..8284b1d10 100755
 -MODULE_PARM_DESC(allm, "ALLM on FLAVA3 for supporting sinks: 0 = off, 1 = while the content type is Game (default), 2 = always; applies to the running output");
 -
 -int sceHdmiInitVideoConfig(void)
--{
++void sceHdmiInitVideoConfig(void)
+ {
 -	int mode = READ_ONCE(hdcp_mode);
 -	int ret = 0;
 -
@@ -4873,14 +4822,11 @@ index 4ade01ba6..8284b1d10 100755
 -	}
 -	return true;
 -}
-+/* when the bridge was last set up for a mode (any path); see rearm_quiet_ms */
-+static ktime_t last_video_setup;
- 
+-
 -/* Converter timing selectors are shared across displays, not EDID IDs. */
 -static bool frl_mode_config(const struct drm_display_mode *mode, unsigned int max_bpc,
 -			    struct ps5_hdmi_frl_config *config)
-+void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422)
- {
+-{
 -	struct ps5_hdmi_frl_config candidate = {
 -		.vic = drm_match_cea_mode(mode),
 -		.bpc = max_bpc >= 10 ? 10 : 8,
@@ -4923,9 +4869,12 @@ index 4ade01ba6..8284b1d10 100755
 -	       frl_wiring_valid() && frl_mode_config(mode, max_bpc, config);
 -}
 -EXPORT_SYMBOL(getHdmiFrlConfig);
--
++/* when the bridge was last set up for a mode (any path); see REARM_QUIET_MS */
++static ktime_t last_video_setup;
+ 
 -bool isHdmiFrlTiming(const struct drm_display_mode *mode)
--{
++void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422)
+ {
 -	struct ps5_hdmi_frl_config config;
 -
 -	return frl_mode_config(mode, 10, &config);
@@ -4996,21 +4945,21 @@ index 4ade01ba6..8284b1d10 100755
  }
  EXPORT_SYMBOL(sceHdmiSetVideoConfig);
  
-@@ -1879,31 +1805,18 @@ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020)
+@@ -1879,31 +1732,18 @@ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020)
  }
  EXPORT_SYMBOL(sceHdmiSetHdrConfig);
  
 -/* The converter resets RGB range signaling to full on each modeset. */
 -void sceHdmiSetRgbRange(bool limited)
--{
++void sceHdmiDeviceSetVideoMute(int mute)
+ {
 -	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
 -		setRgbRangeFlava3(limited);
 -}
 -EXPORT_SYMBOL(sceHdmiSetRgbRange);
 -
 -int sceHdmiDeviceSetVideoMute(int mute)
-+void sceHdmiDeviceSetVideoMute(int mute)
- {
+-{
 -	int ret;
 -
 +	/* VRR: while the chip switches to follow mode, the follow block unmutes when done */
@@ -5033,7 +4982,7 @@ index 4ade01ba6..8284b1d10 100755
  }
  EXPORT_SYMBOL(sceHdmiDeviceSetVideoMute);
  
-@@ -1980,223 +1893,186 @@ u32 getHdmiDpAudioN(u32 default_n)
+@@ -1980,223 +1820,186 @@ u32 getHdmiDpAudioN(u32 default_n)
  }
  EXPORT_SYMBOL(getHdmiDpAudioN);
  
@@ -5088,15 +5037,15 @@ index 4ade01ba6..8284b1d10 100755
 +		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1481, 0,
 +		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
 +};
- 
--/* Include 4:2:2 capability from every CTA block. */
--bool isHdmiSink422(const struct drm_display_info *info)
++
 +static const struct drm_display_mode ps5_1440p120 = {
 +	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 497750,
 +		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1525, 0,
 +		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
 +};
-+
+ 
+-/* Include 4:2:2 capability from every CTA block. */
+-bool isHdmiSink422(const struct drm_display_info *info)
 +static bool ps5_has_mode(struct drm_connector *connector, const struct drm_display_mode *want)
  {
 -	return info->color_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) ||
@@ -5405,7 +5354,7 @@ index 4ade01ba6..8284b1d10 100755
  
  bool isHdmiHdrSupported(void)
  {
-@@ -2204,12 +2080,6 @@ bool isHdmiHdrSupported(void)
+@@ -2204,12 +2007,6 @@ bool isHdmiHdrSupported(void)
  }
  EXPORT_SYMBOL(isHdmiHdrSupported);
  
@@ -5418,7 +5367,7 @@ index 4ade01ba6..8284b1d10 100755
  static DEFINE_MUTEX(hdmi_edid_lock);
  static const struct drm_edid *real_edid;
  static struct drm_connector *hdmi_connector;
-@@ -2232,13 +2102,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
+@@ -2232,13 +2029,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
  const struct drm_edid *ps5_hdmi_get_edid(struct drm_connector *connector)
  {
  	guard(mutex)(&hdmi_edid_lock);
@@ -5440,7 +5389,7 @@ index 4ade01ba6..8284b1d10 100755
  
  static void fix_edid(u8 *edid)
  {
-@@ -2265,15 +2140,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
+@@ -2265,15 +2067,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
  }
  EXPORT_SYMBOL(hdmi_set_hotplug_handler);
  
@@ -5457,37 +5406,21 @@ index 4ade01ba6..8284b1d10 100755
  static DEFINE_MUTEX(cec_lock);
  static void (*cec_handler)(void *data, const struct icc_msg *msg);
  static void *cec_data;
-@@ -2288,129 +2155,286 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
+@@ -2288,129 +2082,250 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
  }
  EXPORT_SYMBOL(hdmi_set_cec_handler);
  
 -/* Log the notification header and a bounded payload. */
 -static void hdmi_log_notification(const struct icc_msg *msg)
--{
--	unsigned int len = 4 + (msg->data[2] | msg->data[3] << 8);
 +/*
 + * A display re-announcing (waking, input switch) wipes the bridge output, and a compositor keeping
 + * the mode never sets it up again: force an inactive/active commit pair, or blank/unblank fbcon
 + * when nobody is DRM master, unless the picture comes up first.
 + */
-+static bool rearm = true;
-+module_param(rearm, bool, 0644);
-+MODULE_PARM_DESC(rearm, "Re-arm the HDMI output after the sink re-announces itself");
-+static unsigned int rearm_settle_ms = 300;
-+module_param(rearm_settle_ms, uint, 0644);
-+MODULE_PARM_DESC(rearm_settle_ms, "Quiet time after the last EDID announce before re-arming");
-+/*
-+ * The console re-arm holds console_lock for seconds and blocks a session switch's VT change:
-+ * skip it while a mode was set up within rearm_quiet_ms.
-+ */
-+static unsigned int rearm_quiet_ms = 5000;
-+module_param(rearm_quiet_ms, uint, 0644);
-+MODULE_PARM_DESC(rearm_quiet_ms, "Console re-arm only if the last video setup is this long ago (session switches)");
-+static unsigned int rearm_max = 4;
-+module_param(rearm_max, uint, 0644);
-+MODULE_PARM_DESC(rearm_max, "Max automatic re-arms per rearm_window_s (0 = unlimited)");
-+static unsigned int rearm_window_s = 120;
-+module_param(rearm_window_s, uint, 0644);
++#define REARM_SETTLE_MS	300	/* quiet time after the last EDID announce */
++#define REARM_QUIET_MS	5000	/* no console re-arm this soon after a mode setup: it blocks a session switch */
++#define REARM_MAX	4	/* re-arms per REARM_WINDOW_S */
++#define REARM_WINDOW_S	120
 +
 +/* exported by drm, declared in drm's private drm_internal.h */
 +bool drm_master_internal_acquire(struct drm_device *dev);
@@ -5497,14 +5430,17 @@ index 4ade01ba6..8284b1d10 100755
 +static struct drm_device *rearm_dev;
 +static ktime_t rearm_announce, rearm_hist[16];
 +static unsigned int rearm_count;
-+static bool rearm_manual;
 +static void rearm_work_fn(struct work_struct *work);
 +static DECLARE_DELAYED_WORK(rearm_work, rearm_work_fn);
 +
 +static struct fb_info *rearm_fbcon_screen(struct drm_device *dev)
-+{
+ {
+-	unsigned int len = 4 + (msg->data[2] | msg->data[3] << 8);
 +	struct fb_info *info;
-+
+ 
+-	len = min_t(unsigned int, len, msg->length - sizeof(*msg));
+-	if (msg->data[1] != 0x02)
+-		pr_debug("notification %*ph\n", min(len, 48U), msg->data);
 +	if (!dev->fb_helper || !dev->fb_helper->info)
 +		return NULL;
 +	info = dev->fb_helper->info;
@@ -5512,54 +5448,16 @@ index 4ade01ba6..8284b1d10 100755
 +		return NULL;
 +	drm_master_internal_release(dev);
 +	return info;
-+}
-+
-+static int rearm_commit_active(struct drm_device *dev, struct drm_modeset_acquire_ctx *ctx,
-+			       struct drm_crtc *crtc, bool active)
-+{
-+	struct drm_atomic_commit *state;
-+	struct drm_crtc_state *cs;
-+	int ret;
- 
--	len = min_t(unsigned int, len, msg->length - sizeof(*msg));
--	if (msg->data[1] != 0x02)
--		pr_debug("notification %*ph\n", min(len, 48U), msg->data);
-+	state = drm_atomic_commit_alloc(dev);
-+	if (!state)
-+		return -ENOMEM;
-+	state->acquire_ctx = ctx;
-+	cs = drm_atomic_get_crtc_state(state, crtc);
-+	if (IS_ERR(cs)) {
-+		ret = PTR_ERR(cs);
-+		goto out;
-+	}
-+	cs->active = active;
-+	ret = drm_atomic_add_affected_connectors(state, crtc);
-+	if (!ret)
-+		ret = drm_atomic_commit(state);
-+out:
-+	drm_atomic_commit_put(state);
-+	return ret;
  }
  
 -void hdmi_notification_handler(struct icc_msg *msg)
-+static int rearm_output(struct drm_device *dev)
++static int rearm_commit_active(struct drm_device *dev, struct drm_modeset_acquire_ctx *ctx,
++			       struct drm_crtc *crtc, bool active)
  {
 -	if (msg->length < sizeof(*msg) + 4 || msg->length > ICC_MSG_MAX_SIZE) {
 -		pr_warn_ratelimited("short or oversized HDMI notification\n");
 -		return;
-+	struct drm_modeset_acquire_ctx ctx;
-+	struct drm_connector_list_iter it;
-+	struct drm_connector *conn;
-+	struct drm_crtc *crtc;
-+	struct fb_info *info;
-+	int ret;
-+
-+	info = rearm_fbcon_screen(dev);
-+	if (info && ktime_ms_delta(ktime_get(), READ_ONCE(last_video_setup)) < rearm_quiet_ms) {
-+		pr_info("re-arm: console just got the display (session switch?), skipped\n");
-+		return 0;
- 	}
+-	}
 -	hdmi_log_notification(msg);
 -	if (msg->data[1] == 0x01) {
 -		mutex_lock(&frl_state_lock);
@@ -5572,6 +5470,49 @@ index 4ade01ba6..8284b1d10 100755
 -		mutex_unlock(&frl_state_lock);
 -		last_edid_size = 0;
 -		WRITE_ONCE(hdcp_abort_until, jiffies);
++	struct drm_atomic_commit *state;
++	struct drm_crtc_state *cs;
++	int ret;
++
++	state = drm_atomic_commit_alloc(dev);
++	if (!state)
++		return -ENOMEM;
++	state->acquire_ctx = ctx;
++	cs = drm_atomic_get_crtc_state(state, crtc);
++	if (IS_ERR(cs)) {
++		ret = PTR_ERR(cs);
++		goto out;
+ 	}
++	cs->active = active;
++	ret = drm_atomic_add_affected_connectors(state, crtc);
++	if (!ret)
++		ret = drm_atomic_commit(state);
++out:
++	drm_atomic_commit_put(state);
++	return ret;
++}
+ 
+-	/* Event 4: HDCP failed after the start and the IC muted the video. */
+-	if (msg->data[1] == 0x04 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 &&
+-	    time_before(jiffies, READ_ONCE(hdcp_abort_until))) {
+-		int ret = stopHdcpHw();
++static int rearm_output(struct drm_device *dev)
++{
++	struct drm_modeset_acquire_ctx ctx;
++	struct drm_connector_list_iter it;
++	struct drm_connector *conn;
++	struct drm_crtc *crtc;
++	struct fb_info *info;
++	int ret;
+ 
+-		sceHdmiDeviceSetVideoMute(0);
+-		sceHdmiSetAudioMute(0);
+-		pr_info("HDCP failed (event 4): stopped HDCP (%d) and unmuted\n", ret);
++	info = rearm_fbcon_screen(dev);
++	if (info && ktime_ms_delta(ktime_get(), READ_ONCE(last_video_setup)) < REARM_QUIET_MS) {
++		pr_info("re-arm: console just got the display (session switch?), skipped\n");
++		return 0;
++	}
 +	if (info) {
 +		pr_info("re-arm: blanking fb%d (no DRM master)\n", info->node);
 +		console_lock();
@@ -5581,46 +5522,6 @@ index 4ade01ba6..8284b1d10 100755
 +		console_unlock();
 +		return ret;
  	}
- 
--	/* Event 4: HDCP failed after the start and the IC muted the video. */
--	if (msg->data[1] == 0x04 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 &&
--	    time_before(jiffies, READ_ONCE(hdcp_abort_until))) {
--		int ret = stopHdcpHw();
--
--		sceHdmiDeviceSetVideoMute(0);
--		sceHdmiSetAudioMute(0);
--		pr_info("HDCP failed (event 4): stopped HDCP (%d) and unmuted\n", ret);
-+	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
-+	crtc = NULL;
-+	drm_connector_list_iter_begin(dev, &it);
-+	drm_for_each_connector_iter(conn, &it) {
-+		if (conn->state && conn->state->crtc && conn->state->crtc->state &&
-+		    conn->state->crtc->state->active) {
-+			crtc = conn->state->crtc;
-+			pr_info("re-arm: cycling %s on %s\n", crtc->name, conn->name);
-+			break;
-+		}
-+	}
-+	drm_connector_list_iter_end(&it);
-+	if (!crtc) {
-+		pr_info("re-arm: no active output\n");
-+		goto out;
- 	}
-+	ret = rearm_commit_active(dev, &ctx, crtc, false);
-+	if (ret == -EDEADLK)
-+		goto out;
-+	if (ret)
-+		pr_err("re-arm: inactive commit failed: %d\n", ret);
-+	/* always try to bring it back, even if the off commit failed */
-+	ret = rearm_commit_active(dev, &ctx, crtc, true);
-+	if (ret && ret != -EDEADLK) {
-+		pr_err("re-arm: active commit failed: %d, retrying\n", ret);
-+		ret = rearm_commit_active(dev, &ctx, crtc, true);
-+	}
-+out:
-+	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
-+	return ret;
-+}
  
 -	if (msg->data[1] == 0x02) {
 -		u16 size = get_unaligned_le16(msg->data + 2);
@@ -5702,53 +5603,64 @@ index 4ade01ba6..8284b1d10 100755
 -			sceHdmiDeviceSetVideoMute(0);
 -		} else {
 -			hdmi_request_hotplug();
++	DRM_MODESET_LOCK_ALL_BEGIN(dev, ctx, 0, ret);
++	crtc = NULL;
++	drm_connector_list_iter_begin(dev, &it);
++	drm_for_each_connector_iter(conn, &it) {
++		if (conn->state && conn->state->crtc && conn->state->crtc->state &&
++		    conn->state->crtc->state->active) {
++			crtc = conn->state->crtc;
++			pr_info("re-arm: cycling %s on %s\n", crtc->name, conn->name);
++			break;
+ 		}
+ 	}
++	drm_connector_list_iter_end(&it);
++	if (!crtc) {
++		pr_info("re-arm: no active output\n");
++		goto out;
++	}
++	ret = rearm_commit_active(dev, &ctx, crtc, false);
++	if (ret == -EDEADLK)
++		goto out;
++	if (ret)
++		pr_err("re-arm: inactive commit failed: %d\n", ret);
++	/* always try to bring it back, even if the off commit failed */
++	ret = rearm_commit_active(dev, &ctx, crtc, true);
++	if (ret && ret != -EDEADLK) {
++		pr_err("re-arm: active commit failed: %d, retrying\n", ret);
++		ret = rearm_commit_active(dev, &ctx, crtc, true);
++	}
++out:
++	DRM_MODESET_LOCK_ALL_END(dev, ctx, ret);
++	return ret;
++}
++
 +static void rearm_work_fn(struct work_struct *work)
 +{
 +	ktime_t now = ktime_get();
 +	unsigned int i, recent = 0;
-+	bool manual;
 +	int ret;
 +
 +	mutex_lock(&rearm_dev_lock);
-+	manual = rearm_manual;
-+	rearm_manual = false;
 +	if (!rearm_dev)
 +		goto unlock;
-+	if (!manual) {
-+		for (i = 0; i < ARRAY_SIZE(rearm_hist); i++)
-+			if (rearm_hist[i] &&
-+			    ktime_ms_delta(now, rearm_hist[i]) < rearm_window_s * 1000LL)
-+				recent++;
-+		if (rearm_max && recent >= rearm_max) {
-+			pr_warn("re-arm: %u in the last %us, skipping\n", recent, rearm_window_s);
-+			goto unlock;
- 		}
-+		rearm_hist[rearm_count % ARRAY_SIZE(rearm_hist)] = now;
- 	}
++	for (i = 0; i < ARRAY_SIZE(rearm_hist); i++)
++		if (rearm_hist[i] && ktime_ms_delta(now, rearm_hist[i]) < REARM_WINDOW_S * 1000LL)
++			recent++;
++	if (recent >= REARM_MAX) {
++		pr_warn("re-arm: %u in the last %us, skipping\n", recent, REARM_WINDOW_S);
++		goto unlock;
++	}
++	rearm_hist[rearm_count % ARRAY_SIZE(rearm_hist)] = now;
 +	rearm_count++;
-+	if (manual)
-+		pr_info("re-arm #%u (manual)\n", rearm_count);
-+	else
-+		pr_info("re-arm #%u, %lld ms after EDID announce\n", rearm_count,
-+			ktime_ms_delta(now, rearm_announce));
++	pr_info("re-arm #%u, %lld ms after EDID announce\n", rearm_count,
++		ktime_ms_delta(now, rearm_announce));
 +	ret = rearm_output(rearm_dev);
 +	if (ret)
 +		pr_err("re-arm failed: %d\n", ret);
 +unlock:
 +	mutex_unlock(&rearm_dev_lock);
 +}
-+
-+static int rearm_trigger_set(const char *val, const struct kernel_param *kp)
-+{
-+	mutex_lock(&rearm_dev_lock);
-+	rearm_manual = true;
-+	mutex_unlock(&rearm_dev_lock);
-+	mod_delayed_work(system_dfl_wq, &rearm_work, 0);
-+	return 0;
-+}
-+static const struct kernel_param_ops rearm_trigger_ops = { .set = rearm_trigger_set };
-+module_param_cb(rearm_trigger, &rearm_trigger_ops, NULL, 0200);
-+MODULE_PARM_DESC(rearm_trigger, "Write anything to re-arm the HDMI output now");
 +
 +void ps5_hdmi_register_drm(struct drm_device *dev)
 +{
@@ -5836,12 +5748,12 @@ index 4ade01ba6..8284b1d10 100755
 +				mutex_unlock(&hotplug_lock);
 +			}
 +			if (other) {
-+				if (cancel_delayed_work(&rearm_work) || rearm)
-+					pr_info("different display, re-arm skipped\n");
-+			} else if (rearm) {
++				cancel_delayed_work(&rearm_work);
++				pr_info("different display, re-arm skipped\n");
++			} else {
 +				rearm_announce = ktime_get();
 +				mod_delayed_work(system_dfl_wq, &rearm_work,
-+						 msecs_to_jiffies(rearm_settle_ms));
++						 msecs_to_jiffies(REARM_SETTLE_MS));
 +			}
 +		} else if (msg->data[1] == 0x03 ||
 +			   (msg->data[1] == 0x04 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)) {
@@ -5908,7 +5820,7 @@ index 1c1b17708..5d3d016f1 100644
  }
  
 diff --git a/include/linux/ps5.h b/include/linux/ps5.h
-index ef41e56df..c68c00980 100755
+index ef41e56df..1b5e88574 100755
 --- a/include/linux/ps5.h
 +++ b/include/linux/ps5.h
 @@ -3,19 +3,24 @@
@@ -6066,13 +5978,12 @@ index ef41e56df..c68c00980 100755
  
  int icc_nvs_write(u32 partition, u16 offset, u16 length, const void *data);
  int icc_nvs_read(u32 partition, u16 offset, u16 length, void *data);
-@@ -193,6 +109,13 @@ struct ps5_usbc_state {
+@@ -193,6 +109,12 @@ struct ps5_usbc_state {
  	u8 hpd;
  };
  
 +bool ps5_hdmi_vrr_possible(void);
 +bool ps5_hdmi_ic_is_flava3(void);
-+bool ps5_hdmi_vrr_measure(void);
 +int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src);
 +void sceHdmiSetVrrMode(bool on);
 +bool sceHdmiGetVrrMode(void);
@@ -6080,7 +5991,7 @@ index ef41e56df..c68c00980 100755
  bool ps5_usbc_dp_matches_link(unsigned int aux_index, unsigned int hpd_index,
  			      bool bios_usbc);
  bool ps5_usbc_dp_enabled(void);
-@@ -237,23 +160,26 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
+@@ -237,23 +159,26 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
  
  void mp1_set_pm1_addr(u64 addr);
  int mp1_set_sleep_entry(void);

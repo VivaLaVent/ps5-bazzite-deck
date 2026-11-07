@@ -23,7 +23,7 @@ for p in "$LOOP"p*; do
 done
 [ -n "$ESP" ] && [ -n "$BOOT" ] || { echo "no EFI or /boot partition in $IMG" >&2; exit 1; }
 
-fatlabel "$ESP" boot   # the name ps5-bazzite-deck's docs use; nothing depends on it
+fatlabel "$ESP" boot   # LABEL=boot: ps5-kexec, ps5-m2-install and /dev/ps5-boot find it by it
 mount "$ESP" "$M/esp"
 "$HERE/system_files/usr/bin/ps5-bootc-sync" --boot "$M/boot" --esp "$M/esp"
 echo 0x180000000 > "$M/esp/vram.txt"

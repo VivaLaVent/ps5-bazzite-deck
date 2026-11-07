@@ -26,8 +26,10 @@ ps5-linux-image does for its Bazzite target, with these differences:
 
 - nothing ships in `/usr/local` (it lives in `/var` on bootc, and bootc never updates `/var`):
   scripts go to `/usr/bin`;
-- Bazzite's own services stay on, including Steam's update button and the Game Mode autologin, except
-  `bazzite-hardware-setup`, `bootloader-update` and greenboot, which assume an x86 PC with GRUB;
+- Bazzite's own services stay on, including the Game Mode autologin, except `bazzite-hardware-setup`,
+  `bootloader-update` and greenboot, which assume an x86 PC with GRUB. Steam's update check always finds nothing (its
+  updater needs SELinux, which the PS5 kernel doesn't run) and Bazzite's rebase helper is off (it rebases to images
+  without the PS5 kernel): updates are `sudo bootc upgrade`;
 - the kernel swap and initramfs follow Bazzite's own build scripts (same packages removed, same
   dracut options), so the image looks to bootc and rpm-ostree like any Bazzite image;
 - `ps5-stage-gpu-firmware` (from the kernel package) is off: it writes to `/usr`, which is

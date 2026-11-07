@@ -25,9 +25,8 @@ echo "==> 2. builder fixes"
 # 2a. mount patches + extra patches into the kernel build container (both kernel docker runs)
 sed -i 's#-v "$KERNEL_SRC":/src \\#-v "$KERNEL_SRC":/src -v "'"$REPO"'/work/ps5-linux-patches":/ps5-linux-patches:ro -v "'"$REPO"'/extra-patches":/extra-patches:ro \\#' build_image.sh
 [ "$(grep -c 'extra-patches:ro' build_image.sh)" = 2 ] || { echo "mount edit failed"; exit 1; }
-# 2b. Wi-Fi driver: apply kernel72, rtnl and kernel73 patches after the kernel71 one
+# 2b. Wi-Fi driver patches after kernel71, in upstream install.sh's order (each line lands above the previous)
 B=docker/kernel-builder/build.sh
-# order as upstream install.sh: 71, 72, rtnl, then our 73 compat, then the HE + TX follow-ups
 sed -i '/ps5-iw620-kernel71-compat.patch"$/a git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-tx-priority.patch"' "$B"
 sed -i '/ps5-iw620-kernel71-compat.patch"$/a git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-tx-min128.patch"' "$B"
 sed -i '/ps5-iw620-kernel71-compat.patch"$/a git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-he.patch"' "$B"
@@ -37,8 +36,7 @@ sed -i '/ps5-iw620-kernel71-compat.patch"$/a git -C "$NXP_MW" apply "$PS5_MW/ps5
 # keep objtool processing for the out-of-tree driver (mwifiex); removes the return-thunk warning at boot
 sed -i 's#make -C "$NXP_MW" CONFIG_OBJTOOL= KERNELDIR=/src#make -C "$NXP_MW" PWD="$NXP_MW" KERNELDIR=/src#' "$B"
 grep -q kernel73 "$B" && grep -q "ps5-iw620-he.patch" "$B" && ! grep -q "CONFIG_OBJTOOL=" "$B" || { echo "wifi patch edit failed"; exit 1; }
-# 2c. Game Mode: bpf LSM on the kernel command line (belt and braces, config has it too)
-# video=DP-1:1920x1080@60 is rejected by the kernel on every connector probe ("User-defined mode not supported"); drop it
+# 2c. video=DP-1:1920x1080@60 is rejected by the kernel on every connector probe ("User-defined mode not supported"); drop it
 sed -i 's/ video=DP-1:1920x1080@60//' boot/cmdline.txt
 grep -q 'video=' boot/cmdline.txt && { echo 'cmdline edit failed'; exit 1; }
 # 2d. kernel 7.3 compat patch for the IW620 Wi-Fi driver (from this repo)

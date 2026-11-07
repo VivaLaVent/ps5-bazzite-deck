@@ -12,13 +12,9 @@ A new release's kernel becomes the kernel of `:beta` as soon as it is built (`pi
 
 Who tests what before a pre-release is promoted: [testing.md](testing.md).
 
-## Testing a kernel change quickly
+## Upstreaming
 
-`bash tools/quick-kernel.sh <label>` rebuilds bzImage and the amdgpu and btusb modules in the tree `build.sh` made, and copies them with an installer to a Legacy console (bootc's `/usr` is read-only). `tools/upstream-pr.sh` turns a patch into a pull request against rmux's branch.
-
-## Parked kernel variant
-
-`patches-next/rmux-display/` is rmux's display rework adapted (v2.4.2's kernel): `PATCHES=patches-next/rmux-display bash build.sh`. Its README says what's left before it can replace the display stack in `patches/`.
+`tools/upstream-pr.sh` turns a patch into a pull request against rmux's branch.
 
 ## X.Y releases rebase
 

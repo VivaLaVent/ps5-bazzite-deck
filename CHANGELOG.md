@@ -2,8 +2,17 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.7] – 2026-11-07
+> Stable. Everything since v2.5: the v2.5.1 and v2.6.1 to v2.6.3 pre-releases, plus the changes below.
+- **HDMI modes without switches** (`patches/ps5-hdmi-modes.patch`, replaces `ps5-hdmi-100hz.patch`): 1080p100, 1440p100 and 4K100 over FRL always offered where the display takes them, 1440p100/120 on VERDE as well, and on FLAVA3 every other progressive EDID timing up to 600 MHz through the bridge's manual timing setup (from rmux's tree); standard CTA formats outside the bridge's own set stay excluded. VERDE writes its AVI InfoFrame for every mode, with the mode's VIC (1080p120 and the new rates kept the previous mode's)
+- **Debug switches and dead code out of the display driver:** `hdmi.icc_trace`, `hdmi.vrr_measure` (and amdgpu's frame-interval logger), `hdmi.rearm`, `hdmi.rearm_trigger` and the re-arm tuning values (now constants), five unused HDCP/sequence functions; `update.sh` drops them from a Legacy `cmdline.txt`
+- **No OS updates through Steam:** Bazzite's `os-update` reports none (it ran `uupd` through `runcon`, which needs SELinux); updates are `sudo bootc upgrade`. Steam's channel switch stays (`os-branch-select` without `runcon` when SELinux is off). `bazzite-rollback-helper` refuses (it rebases to ublue-os images)
+- **Steam's own videos as overrides** (`ps5-user-defaults`): Steam's files from `steamui/movies` under the override names, so the startup video plays when Game Mode starts, not only on wake
+- **Loader patch 0003:** also looks for the boot files in `/data/PS5/Linux/` after the USB drives. `ps5-m2-install --boot` moves `/boot` onto the M.2 (test for starting without a USB drive, `docs/testing.md`)
+- **Removed:** `ps5-gamescope-recovery` (the first start is Desktop Mode), `vrr-report`, `tools/quick-kernel.sh` (Legacy only), the parked `patches-next/rmux-display`. Shorter comments throughout; `ps5-perf` reads the fan default once; the kexec shim is only edited when it is installed
+
 ## [v2.6.3] – 2026-11-06
-> Stable. Everything since v2.5: the v2.5.1, v2.6.1 and v2.6.2 pre-releases, plus the fix below.
+> Pre-release. The fix below.
 - **bootc updates fail to stage** ("Failed to start ostree-finalize-staged.service") on installs from the v2.5.1, v2.6.1 and v2.6.2 disk images too, not only on v2.5: something still requires greenboot's rollback trigger, and it was masked. The image now ships that trigger as a unit that does nothing, as the v2.5.1 notes' fix does, instead of masking it; `ps5-report` flags a console whose trigger is still masked
 
 ## [v2.6.2] – 2026-11-06

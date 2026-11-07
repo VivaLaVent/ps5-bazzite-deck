@@ -103,8 +103,8 @@ jobs:
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
           bash loader/build.sh "$TAG"
-          gh release upload "$TAG" loader/output/bazzite-bootc-loader-$TAG.elf \
-            loader/output/bazzite-bootc-loader-$TAG.elf.sha256 --clobber
+          gh release upload "$TAG" "loader/output/bazzite-bootc-loader-$TAG.elf" \
+            "loader/output/bazzite-bootc-loader-$TAG.elf.sha256" --clobber
           python3 tools/release_notes.py "$TAG"
 
   image:

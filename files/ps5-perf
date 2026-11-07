@@ -33,7 +33,6 @@ case "$1" in
         [ "$CPU_BOOST" = 1 ] && boost_set 1
         mkdir -p "$(dirname "$ORIG")"; [ -f "$ORIG" ] || cat "$FAN" > "$ORIG" 2>/dev/null
         if [ -w "$FAN" ] && [ -n "$FAN_TARGET" ] && [ "$FAN_TARGET" -ge 40 ] 2>/dev/null && [ "$FAN_TARGET" -le 90 ]; then
-            mkdir -p "$(dirname "$ORIG")"; [ -f "$ORIG" ] || cat "$FAN" > "$ORIG" 2>/dev/null
             echo "$FAN_TARGET" > "$FAN" && echo "ps5-perf: cpu boost $CPU_BOOST, fan target $FAN_TARGET °C (console default $(cat "$ORIG" 2>/dev/null) °C)"
         fi ;;
     on)  sudo mkdir -p "$(dirname "$CONF")"; sudo sed -i '/^ENABLED=/d' "$CONF" 2>/dev/null; echo "ENABLED=1" | sudo tee -a "$CONF" >/dev/null; sudo "$0" apply ;;

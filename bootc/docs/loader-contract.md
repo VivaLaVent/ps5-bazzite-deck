@@ -2,7 +2,8 @@
 
 bazzite-bootc-loader ([soniciso1's ps5-linux-loader](https://github.com/soniciso1/ps5-linux-loader) + `loader/patches`) doesn't know about bootc. It looks for
 fixed file names on the USB drive's FAT partition (the EFI partition of this image, labelled `boot`), in
-`/mnt/usb0/` to `/mnt/usb3/` and their `PS5/Linux/` subfolders. Everything below is written by
+`/mnt/usb0/` to `/mnt/usb3/` and their `PS5/Linux/` subfolders, then in `/data/PS5/Linux/` on the console's
+own storage. Everything below is written by
 `ps5-bootc-sync`, at every start and at every shutdown (after ostree has finished a staged update).
 Each release records the loader it was tested with: `loader=` in `/usr/share/ps5-bazzite-bootc/VERSION`
 and in the release notes.

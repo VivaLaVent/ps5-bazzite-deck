@@ -1,7 +1,0 @@
-# rmux's display rework (shitshow) instead of the v2.5 display stack: PATCHES=patches-next/rmux-display bash build.sh
-ps5-s2idle.patch
-ps5-display.patch              # VRR, re-arm, session switch, EDID keep, SCDC, sleep mute on rmux's display code
-ps5-hdmi-sdr-metadata.patch    # FRL planner: SDR metadata is no HDR request; 4K60 keeps TMDS when FRL can't carry it
-ps5-hdmi-1440p.patch           # 1440p60/120 in the mode list
-ps5-gpu.patch
-ps5-fan.patch

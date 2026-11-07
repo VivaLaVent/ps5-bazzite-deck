@@ -3,8 +3,7 @@ name: Discord release notification
 # channel (1563882680314237008), each through that channel's webhook (repository secrets).
 on:
   release:
-    # "published" fires for new releases and pre-releases; "released" also when a pre-release
-    # is turned into a full release. A new full release fires both: it's posted once, on "released".
+    # a full release fires "published" and "released": posted once, on "released"
     types: [published, released]
   workflow_dispatch:
     inputs:
@@ -46,16 +45,14 @@ jobs:
           fi
           [ -n "$HOOK" ] || { echo "no webhook secret for this kind of release, skipping"; exit 0; }
 
-          # tools/release.sh creates the release with a placeholder and fills in the notes a
-          # moment later (tools/release_notes.py): wait for the real notes, up to 5 minutes
-          for i in $(seq 1 20); do
+          # the release starts with a placeholder: wait up to 5 minutes for the notes
+          for _ in $(seq 1 20); do
             case "$BODY" in *"Release notes follow"*|"") ;; *) break ;; esac
             sleep 15
             BODY=$(gh api "repos/$REPO/releases/tags/$TAG" --jq .body 2>/dev/null || printf '%s' "$BODY")
           done
 
-          # "What's new" (up to the next section), whole lines, at most 3500 characters (Discord's
-          # embed limit is 4096 characters; cutting by bytes could split one), then a link to the rest
+          # "What's new" in whole lines, at most 3500 characters (embed limit 4096), then a link
           DESC=$(printf '%s\n' "$BODY" | python3 -c '
           import sys
           out = []; n = 0

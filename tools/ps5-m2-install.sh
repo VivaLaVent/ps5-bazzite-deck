@@ -3,6 +3,7 @@
 # (and on bootc /boot), which the loader always starts from. The M.2 must be prepared with m2_init first.
 #   sudo ps5-m2-install          copy the system to the M.2 (erases the M.2's Linux partition)
 #   sudo ps5-m2-install --back   start from the USB system again (the M.2 copy stays)
+#   sudo ps5-m2-install --boot   bootc on the M.2: /boot moves onto the M.2 too (test for starting without a USB drive)
 set -euo pipefail
 NVME=${NVME:-/dev/nvme0n1p1}
 SRC=/mnt/ps5-m2-src DST=/mnt/ps5-m2-dst
@@ -63,6 +64,31 @@ if [ "${1-}" = --back ]; then
     cmdline_set_root "$E/cmdline.txt" "root=$usb"
     boot_files_point_at "root=$usb"; sync
     echo "Back to the USB system ($usb) from the next start: power off and start with the loader."
+    exit 0
+fi
+
+if [ "${1-}" = --boot ]; then
+    [ "$MODE" = bootc ] || { echo "STOP: --boot is for bootc installs"; exit 1; }
+    [ "$(readlink -f "$ROOTDEV")" = "$(readlink -f "$NVME")" ] || { echo "STOP: the system doesn't run from $NVME; run sudo ps5-m2-install first"; exit 1; }
+    BOOTDEV=$(findmnt -no SOURCE /boot)
+    [ "$(findmnt -no MAJ:MIN /boot)" != "$(findmnt -no MAJ:MIN /sysroot)" ] || { echo "STOP: /boot is already on $NVME"; exit 1; }
+    mkdir -p "$DST"
+    # without what is mounted on top: the M.2's own, empty /boot folder
+    mount --bind /sysroot "$DST"
+    mount -o remount,bind,rw "$DST"
+    [ -d "$DST/boot" ] && [ -z "$(ls -A "$DST/boot")" ] || { echo "STOP: /boot on $NVME isn't an empty folder"; exit 1; }
+    cp -ax /boot/. "$DST/boot/"
+    mkdir -p "$DST/boot/efi"
+    [ -L "$DST/boot/loader" ] || { echo "STOP: the copy of /boot has no loader link"; exit 1; }
+    # ostree bind-mounts the M.2's /boot once fstab no longer names the USB one; the boot partition becomes optional
+    for f in "$DST"/ostree/deploy/*/deploy/*/etc/fstab; do
+        awk '$2 != "/boot"' "$f" > "$f.new"; cat "$f.new" > "$f"; rm -f "$f.new"
+        grep -q '[[:space:]]/boot/efi[[:space:]]' "$f" ||
+            echo "/dev/ps5-boot /boot/efi vfat umask=0077,shortname=winnt,nofail,x-systemd.device-timeout=5s 0 0" >> "$f"
+    done
+    sync
+    echo "Done: /boot is on the M.2 from the next start ($BOOTDEV is no longer used)."
+    echo "Power off and start with the loader; the USB drive still holds the boot partition the loader reads."
     exit 0
 fi
 

@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # Warm reboot into Linux: load, unload or execute the boot partition kernel (kexec_file_load, no kexec-tools).
-import ctypes, os, subprocess, sys
+import ctypes, glob, os, subprocess, sys
 
 SYS_kexec_file_load = 320          # x86_64
 KEXEC_FILE_UNLOAD = 0x1
@@ -25,7 +25,7 @@ def load():
     # IW620: the Linux-only Bluetooth address and a warm reboot don't go together (the chip comes back
     # hung, Bluetooth and Wi-Fi gone). With the address on, restart normally.
     if not os.path.exists("/etc/ps5-bazzite-deck/bt-address-off") and any(
-            open(f).read().strip() == "1286" for f in __import__("glob").glob("/sys/bus/usb/devices/*/idVendor")):
+            open(f).read().strip() == "1286" for f in glob.glob("/sys/bus/usb/devices/*/idVendor")):
         print("IW620 with the Linux-only Bluetooth address on: normal restart instead of a warm one")
         return 0
     d, mounted = boot_dir()

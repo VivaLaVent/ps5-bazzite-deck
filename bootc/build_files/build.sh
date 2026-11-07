@@ -1,20 +1,17 @@
 #!/usr/bin/bash
-# Turns bazzite-deck into the PS5 image. Nothing may be left in /var, /usr/local
-# or /boot: bootc doesn't update those after install.
+# bazzite-deck into the PS5 image; nothing may stay in /var, /usr/local or /boot (bootc doesn't update them)
 set -euxo pipefail
 
 CTX=/ctx
 
-# --- kernel
-# kmod-libs is libkmod, not a kernel module package
+# --- kernel (kmod-libs is libkmod, not a module package)
 mapfile -t old < <(rpm -qa --qf '%{NAME}\n' |
     grep -E '^kernel(-core|-modules(-core|-extra)?|-devel(-matched)?|-uki-virt)?$|^kmod-' |
     grep -vx kmod-libs || true)
 [ ${#old[@]} -eq 0 ] || rpm -e --nodeps --noscripts "${old[@]}"
 rm -rf /usr/lib/modules/*
 
-# /usr/local links to /var/usrlocal, which doesn't exist until install.
-# --noscripts: the RPM's %post builds an initrd and copies it to /boot/efi.
+# /usr/local links to /var/usrlocal; the RPM's %post would build an initrd into /boot/efi
 mkdir -p /var/usrlocal/bin /var/usrlocal/sbin
 rpm -i --nodeps --noscripts --nosignature --replacefiles "$CTX"/kernel/linux-ps5-*.rpm
 KVER=$(ls /usr/lib/modules)
@@ -36,10 +33,7 @@ rm -f /etc/systemd/system/multi-user.target.wants/ps5-stage-gpu-firmware.service
 
 depmod -a "$KVER"
 
-# --- firmware
-# The amdgpu patches write into the Oberon firmware buffer, which is read-only
-# when loaded from .xz (ps5-linux-image@ed54e99). unxz would skip the symlinked
-# and hard-linked files, so decompress to new files.
+# --- firmware: amdgpu writes into the Oberon buffer, read-only when loaded from .xz; unxz skips links
 cd /usr/lib/firmware/amdgpu
 for f in cyan_skillfish*.xz; do
     xz -dc "$f" > "${f%.xz}"
@@ -47,9 +41,7 @@ done
 rm -f cyan_skillfish*.xz
 cd /
 
-# --- PS5 files: the same list the Legacy update bundle installs (tools/make-update-bundle.sh),
-# with /usr/local moved to /usr. ps5-iw620-modprobe.conf is generated there; here it's
-# system_files/usr/lib/modprobe.d/ps5.conf.
+# --- PS5 files: the Legacy bundle's list, /usr/local moved to /usr (the modprobe conf is in system_files)
 sed -n "/^cat > \"\$OUT\/FILES\" << 'L'/,/^L\$/p" "$CTX/deck/tools/make-update-bundle.sh" | sed '1d;$d' |
 while read -r src dst mode; do
     [ "$src" = ps5-iw620-modprobe.conf ] && continue
@@ -66,8 +58,10 @@ for d in lib64 lib; do
         { echo "/usr/$d/libvulkan_radeon.so doesn't load against this image"; exit 1; }
 done
 
-[ -e /usr/sbin/kexec ] || install -Dm755 "$CTX/deck/files/kexec-shim" /usr/bin/kexec
-sed -i 's#/usr/local/s\?bin/#/usr/bin/#g' /usr/bin/kexec 2>/dev/null || true
+if [ ! -e /usr/sbin/kexec ]; then
+    install -Dm755 "$CTX/deck/files/kexec-shim" /usr/bin/kexec
+    sed -i 's#/usr/local/s\?bin/#/usr/bin/#g' /usr/bin/kexec
+fi
 bash "$CTX/deck/tools/bt-mainconf.sh" /etc/bluetooth/main.conf
 
 cp -a "$CTX/system_files/." /
@@ -78,7 +72,7 @@ systemctl enable \
     ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
     ps5-bt-revive.service ps5-perf.service ps5-stage-viola-fw.service ps5-console-defaults.service \
     ps5-wifi-repair.service ps5-wifi-powersave.timer \
-    ps5-gamescope-recovery.service ps5-bootc-channel.service ps5-session-defaults.service \
+    ps5-bootc-channel.service ps5-session-defaults.service \
     sshd.service
 systemctl --global enable ps5-user-defaults.service
 mkdir -p /etc/systemd/system/bluetooth.target.wants
@@ -86,18 +80,13 @@ ln -sf /etc/systemd/system/ps5-bt-addr.service /etc/systemd/system/bluetooth.tar
 ln -sf /etc/systemd/system/ps5-bt-connectable.service /etc/systemd/system/bluetooth.target.wants/
 for n in 2 3 4 5 6; do systemctl enable "getty@tty$n.service"; done
 
-# Our user doesn't come from Bazzite's installer, so Plasma's wizard would take
-# over the autologin.
-systemctl mask plasma-setup.service
-# x86 hardware detection; sets kargs that don't apply to the PS5
-systemctl mask bazzite-hardware-setup.service
-# no GRUB here, so no greenboot rollbacks. Unhook greenboot before masking it: ostree-finalize-staged requires
-# its rollback trigger, and a required unit that is masked makes every bootc update fail to stage.
+# Plasma's wizard would take over the autologin; Bazzite's hardware setup sets x86 kargs
+systemctl mask plasma-setup.service bazzite-hardware-setup.service
+# no GRUB, so no greenboot; ostree-finalize-staged requires the rollback trigger, which must not be masked
 systemctl disable greenboot-healthcheck.service greenboot-set-rollback-trigger.service greenboot-success.target 2>/dev/null || true
 rm -f /etc/systemd/system/*.requires/greenboot-* /etc/systemd/system/*.wants/greenboot-* \
       /usr/lib/systemd/system/*.requires/greenboot-* /usr/lib/systemd/system/*.wants/greenboot-*
 systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target
-# whatever still requires the rollback trigger gets a unit that does nothing, not a masked one (as the v2.5.1 fix)
 printf '[Unit]\nDescription=No greenboot rollbacks on the PS5\n\n[Service]\nType=oneshot\nExecStart=/usr/bin/true\nRemainAfterExit=yes\n' \
     > /etc/systemd/system/greenboot-set-rollback-trigger.service
 
@@ -131,8 +120,7 @@ radv=$(cat "$CTX/radv/VERSION")
 EOF
 echo "$IMAGE_VERSION (bootc, ps5-bazzite-deck $DECK)" > /etc/ps5-bazzite-deck-version   # for ps5-report
 
-# The PS5 kernel has no EROFS, so composefs can't mount the root ("No such device").
-# Without it ostree bind-mounts the deployment, as before composefs.
+# no EROFS in the PS5 kernel, so no composefs: ostree bind-mounts the deployment
 C=/usr/lib/ostree/prepare-root.conf
 if grep -q '^\[composefs\]' "$C" 2>/dev/null; then
     sed -i '/^\[composefs\]/,/^\[/ s/^enabled *=.*/enabled = no/' "$C"
@@ -141,8 +129,7 @@ else
 fi
 cat "$C"
 
-# --- identity: "deck" in image-name keeps Bazzite's deck setup (Steam bootstrap and -steamdeck, Return shortcut,
-# default desktop session); Steam's own branding instead of Bazzite's
+# --- identity: "deck" in image-name keeps Bazzite's deck setup; Steam's own branding
 I=/usr/share/ublue-os/image-info.json
 if [ -f "$I" ]; then
     jq '."image-name"="ps5-bazzite-deck" | ."image-vendor"="vivalavent" | ."image-tag"="stable"
@@ -154,12 +141,13 @@ sed -i -e 's|^NAME=.*|NAME="PS5 Bazzite Deck"|' -e "s|^PRETTY_NAME=.*|PRETTY_NAM
     -e 's|^SUPPORT_URL=.*|SUPPORT_URL="https://discord.gg/ps5linux"|' \
     -e 's|^BUG_REPORT_URL=.*|BUG_REPORT_URL="https://github.com/VivaLaVent/ps5-bazzite-deck/issues"|' /usr/lib/os-release
 [ ! -f /usr/bin/bazzite-steam-brand ] || printf '#!/bin/sh\nexit 0\n' > /usr/bin/bazzite-steam-brand
-# Steam's OS update runs uupd through runcon, which fails without SELinux (not active on the PS5 kernel)
+# Bazzite's rebase helper moves to ublue-os images, which have no PS5 kernel
+[ ! -f /usr/bin/bazzite-rollback-helper ] || printf '#!/bin/sh\necho "Not on the PS5: use sudo bootc rollback, or Steam\x27s OS Update Channel"\nexit 1\n' > /usr/bin/bazzite-rollback-helper
+# no OS updates from Steam (updates are sudo bootc upgrade): its check always finds none
 O=/usr/libexec/ogc/os-update
-[ ! -f "$O" ] || sed -i 's|runcon system_u:unconfined_r:unconfined_t:s0 |env |' "$O"
+[ ! -f "$O" ] || { sed -i '/^if ! command -v uupd/i exit 7' "$O"; grep -qx 'exit 7' "$O"; }
 
-# --- initramfs, last: amdgpu loads from it, so it needs the firmware and options above.
-# Same as Bazzite's build-initramfs.sh.
+# --- initramfs last (amdgpu loads from it), as Bazzite's build-initramfs.sh
 mkdir -p /var/roothome   # /root links here; dracut fails without it
 cp /usr/lib/os-release /tmp/os-release
 sed -Ei '/^((OSTREE_)?(IMAGE_)?VERSION|PRETTY_NAME|BUILD_ID|BOOTLOADER_NAME|IMAGE_ID)=/d' /usr/lib/os-release

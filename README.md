@@ -1,7 +1,7 @@
 # PS5 Bazzite Deck
 
 Turn your PS5 into a Steam console: [Bazzite](https://bazzite.gg) in Steam Deck mode, adapted for the PlayStation 5.
-It boots straight into **Steam Gaming Mode**, with a full KDE desktop one click away, runs from a USB drive or the M.2
+It starts in the KDE desktop with **Steam Gaming Mode** one click away (Steam can make Game Mode the default), runs from a USB drive or the M.2
 slot, and leaves the PS5 itself untouched: restart or power off and the PS5 starts its own system again.
 
 ## Not affiliated with Bazzite
@@ -25,9 +25,9 @@ version is in the [changelog](CHANGELOG.md).
 ## Built with bootc
 
 PS5 Bazzite Deck is a bootc image: the whole system is one image, built and checked by GitHub Actions, the way Bazzite
-itself is made. Updates come from Steam's update button (or `sudo bootc upgrade`), download in the background and take
-over at the next start; `sudo bootc rollback` goes back to the version before. Steam's OS Update Channel offers **Stable**
-(the stable release's kernel) and **Beta** (the newest pre-release's). It starts with bazzite-bootc-loader from
+itself is made. Updates come with `sudo bootc upgrade` in a terminal, download in the background and take over at the
+next start; `sudo bootc rollback` goes back to the version before. Steam's OS Update Channel switches between **Stable**
+(the stable release's kernel) and **Beta** (the newest pre-release's); Steam's own update check finds nothing on the PS5. It starts with bazzite-bootc-loader from
 the release. More: [bootc/README.md](bootc/README.md).
 
 Installs from before v2.5 run the older **Legacy** form and update in place with the command in each release's notes.

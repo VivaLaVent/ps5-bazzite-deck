@@ -1,8 +1,8 @@
 # PS5 Bazzite (bootc)
 
 [PS5 Bazzite Deck](https://github.com/VivaLaVent/ps5-bazzite-deck), built the way Bazzite itself is built. Same
-**Steam Gaming Mode**, same KDE desktop, same PS5 fixes, but the system is a bootc image: it **updates from Steam's
-update button** like any Bazzite Deck, and a bad update is **undone with one command**. Runs from a USB drive and leaves
+**Steam Gaming Mode**, same KDE desktop, same PS5 fixes, but the system is a bootc image: it **updates with one command**
+like any Bazzite image, and a bad update is **undone with one command**. Runs from a USB drive and leaves
 the PS5 itself untouched: restart or power off and the PS5 starts its own system again.
 
 This is how PS5 Bazzite Deck is built and installed from v2.5 on. Consoles still on the older Legacy install keep
@@ -28,7 +28,7 @@ you swap back.
 3. Plug it into a **rear** USB-A port of the PS5.
 4. In the PS5 settings: keep USB power on in rest mode, and switch HDMI Device Link off.
 5. Run the jailbreak and bazzite-bootc-loader, and wait until the light stops blinking orange before pressing power.
-6. The first start takes a few minutes. You land in Steam Gaming Mode. Login for the desktop and `sudo`: **ps5** / **ps5**.
+6. The first start takes a few minutes. You land in the KDE desktop; Steam Gaming Mode is on its desktop, and Steam can make it the default. Login for the desktop and `sudo`: **ps5** / **ps5**.
 
 ## Update channels
 
@@ -36,7 +36,8 @@ you swap back.
 
 ## Updating
 
-In Steam: **Settings → System**, check for updates and apply. Or in a terminal: `sudo bootc upgrade`.
+In a terminal: `sudo bootc upgrade`. Steam's own update check finds nothing on the PS5: its updater doesn't work
+with the PS5 kernel. Switching Steam's OS Update Channel installs that channel's image.
 
 After an update, restart: the PS5 starts its own system first (a warm reboot is skipped once), then run the loader as
 usual and you're on the new version. Your games, settings and files are kept.

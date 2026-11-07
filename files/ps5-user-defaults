@@ -1,6 +1,6 @@
 #!/bin/bash
-# Once per user: Desktop Mode as Steam's default login mode, and Steam's own startup and suspend videos instead of
-# Bazzite's (custom videos stay).
+# Once per user: Desktop Mode as Steam's default login mode, and Steam's own startup and suspend videos in place of
+# Bazzite's, as overrides: Steam plays an override when Game Mode starts (custom videos stay).
 set -u
 S=${XDG_STATE_HOME:-$HOME/.local/state}/ps5-bazzite-deck
 mkdir -p "$S"
@@ -10,7 +10,8 @@ if [ ! -e "$S/desktop-default" ] && command -v steamosctl >/dev/null; then
         sleep 2
     done
 fi
-if [ ! -e "$S/steam-videos" ]; then
+M=$HOME/.local/share/Steam/steamui/movies
+if [ ! -e "$S/steam-videos-own" ] && [ -f "$M/deck_startup.webm" ]; then
     V=$HOME/.local/share/Steam/config/uioverrides/movies
     mkdir -p "$V"
     touch "$V/bazzite_novideo"
@@ -20,5 +21,12 @@ if [ ! -e "$S/steam-videos" ]; then
             cmp -s "$f" "$b" && { rm -f "$f"; break; }
         done
     done
-    touch "$S/steam-videos"
+    for n in bigpicture_startup deck_startup oled_startup steam_os_startup; do
+        [ -e "$V/$n.webm" ] || cp "$M/$n.webm" "$V/" 2>/dev/null || cp "$M/deck_startup.webm" "$V/$n.webm"
+    done
+    for n in deck-suspend-animation deck-suspend-animation-from-throbber oled-suspend-animation \
+             oled-suspend-animation-from-throbber steam_os_suspend steam_os_suspend_from_throbber; do
+        [ -e "$V/$n.webm" ] || [ ! -f "$M/$n.webm" ] || cp "$M/$n.webm" "$V/"
+    done
+    touch "$S/steam-videos-own"
 fi

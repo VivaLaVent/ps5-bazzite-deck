@@ -51,12 +51,12 @@ sudo systemctl disable ps5-first-start.service 2>/dev/null || true
 sudo rm -f /etc/systemd/system/ps5-first-start.service /etc/systemd/system/multi-user.target.wants/ps5-first-start.service /usr/local/sbin/ps5-first-start
 # the old opt-in flag
 sudo rm -f /etc/ps5-bazzite-deck/bt-address
-# Bazzite's ostree-only services fail at every boot here
 # Wi-Fi config name and reboot override of the withdrawn test versions
-sudo rm -f /etc/NetworkManager/conf.d/99-ps5-wifi.conf /usr/local/share/ps5-bazzite-deck/reboot.target
+sudo rm -f /etc/NetworkManager/conf.d/99-ps5-wifi.conf /usr/local/share/ps5-bazzite-deck/reboot.target /usr/local/bin/vrr-report
+# Bazzite's ostree-only services fail at every boot here
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
-# a leftover hdmi.rearm=0 keeps TVs dark after mode changes
-sudo sed -i 's/ *hdmi\.rearm=0//' "$EFI/cmdline.txt"
+# switches the kernel no longer has (hdmi.rearm=0 also kept TVs dark after mode changes)
+sudo sed -i -E 's/ *hdmi\.(rearm|rearm_[a-z_]+|icc_trace|vrr_measure|modes_100hz)=[^ ]*//g' "$EFI/cmdline.txt"
 for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-connectable ps5-bt-revive ps5-wifi-repair ps5-perf ps5-stage-viola-fw ps5-console-defaults ps5-session-defaults; do
   [ -f "/etc/systemd/system/$u.service" ] && sudo systemctl enable "$u.service" 2>/dev/null || true
 done
