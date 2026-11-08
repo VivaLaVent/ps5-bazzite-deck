@@ -27,7 +27,7 @@ release through Steam's Beta channel (or `sudo bootc upgrade`) and one Legacy in
 | Display | Desktop and Game Mode at the display's best mode; 4K120 over FRL where offered; VRR in a game; 100 Hz modes on 100 Hz displays; VERDE 1440p100/120; on FLAVA3 a non-standard EDID mode (e.g. 1080p144, ultrawide) |
 | GPU | A D3D12 game (Dragon's Dogma 2), a D3D9 game, a Vulkan game for 30 minutes each; `active_cu_number` 36, or 60 on a Pro from the second start; on a Pro, FSR4 INT8 through OptiScaler, with and without `RADV_VIOLA_ML=0` |
 | Memory | `vram.txt` 6 GB in the log (`VRAM: 6144M`); a browser and a game together without OOM |
-| Fan | Idle, game, sleep and shutdown without ramps; `target_temp` 80; PS5 Hardware Control curve applies and survives a restart |
+| Fan | Idle, game, sleep and shutdown without ramps; `target_temp` is the console's own; PS5 Hardware Control curve applies and survives a restart; the PS5 OS fan behaves as before after a Linux session |
 | Input | DualSense pairs once and reconnects after switching between the PS5 OS and Linux; sleep and wake |
 | Network | Wi-Fi connects and survives sleep; Ethernet; a warm reboot (`ps5-warm-reboot on`) keeps Wi-Fi and Bluetooth |
 | Session | Starts in Desktop Mode; Steam's setting switches the default to Game Mode; Switch to Desktop and back; Steam's own startup video when Game Mode starts; Steam's update check finds nothing |

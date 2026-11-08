@@ -2,6 +2,13 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.7.2] – unreleased
+> Pre-release. The fan on the console's own settings, on top of v2.7.1.
+- **Fan: Sony's own table and target by default** (`patches/ps5-fan-firmware.patch`): firmware control no longer uploads the driver's quiet servo table or sets an 80 °C target, so the fan behaves as on the PS5 OS. The quiet table is uploaded only for the kernel modes (full, manual, curve: PS5 Hardware Control), and Sony's table goes back when returning to firmware control, for sleep and at shutdown. Up to v2.7.1 the PS5 OS could start with Linux's table and target still in place, and the chip near 80 °C made the fan spin up at shutdown
+- **`target_temp`** takes 0 for Sony's own target; `ps5-perf fan <40-90|default>` sets `FAN_TARGET` and applies it. `ps5-perf` no longer keeps its own copy of the "console default" (on installs since v2.6.1 it had saved our 80 °C)
+- **VRR range from the HDMI Forum SCDB** too (`patches/ps5-display.patch`), the block newer displays use instead of the VSDB; only the VSDB was read
+- **`ps5-report`** names the GPU of every console (base PS5s with `1002:13db` showed none); `ps5-perf status` no longer prints a fan speed, which the driver doesn't report
+
 ## [v2.7.1] – 2026-11-08
 > Pre-release. Test fixes on top of v2.7.
 - **1440p off-centre** (FLAVA3, under test): the display's own 1440p timings up to 340 MHz no longer go through the manual timing setup, as in rmux's tree; up to there 1440p uses the bridge's own timing (2720 total). Faster ones such as 1440p144 keep the manual setup

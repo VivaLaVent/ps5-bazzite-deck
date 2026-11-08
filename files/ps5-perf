@@ -1,9 +1,8 @@
 #!/bin/sh
 # Settings in /etc/ps5-bazzite-deck/perf.conf: CPU_BOOST=1, FAN_TARGET= (°C; empty = the console's own),
-# WIFI_POWERSAVE=0.   ps5-perf status | on | off | apply | wifi
+# WIFI_POWERSAVE=0.   ps5-perf status | on | off | apply | wifi | fan <40-90|default>
 CONF=/etc/ps5-bazzite-deck/perf.conf
 FAN=/sys/bus/platform/devices/ps5-fan/target_temp
-ORIG=/var/lib/ps5-bazzite-deck/fan-target.orig
 [ -f "$CONF" ] && . "$CONF"
 CPU_BOOST=${CPU_BOOST:-1}; FAN_TARGET=${FAN_TARGET:-}; ENABLED=${ENABLED:-1}; WIFI_POWERSAVE=${WIFI_POWERSAVE:-0}
 # Also run by the NetworkManager dispatcher and a timer: Steam's developer toggle turns power saving back on.
@@ -31,18 +30,20 @@ case "$1" in
         wifi_off
         [ "$ENABLED" = 1 ] || exit 0
         [ "$CPU_BOOST" = 1 ] && boost_set 1
-        mkdir -p "$(dirname "$ORIG")"; [ -f "$ORIG" ] || cat "$FAN" > "$ORIG" 2>/dev/null
         if [ -w "$FAN" ] && [ -n "$FAN_TARGET" ] && [ "$FAN_TARGET" -ge 40 ] 2>/dev/null && [ "$FAN_TARGET" -le 90 ]; then
-            echo "$FAN_TARGET" > "$FAN" && echo "ps5-perf: cpu boost $CPU_BOOST, fan target $FAN_TARGET °C (console default $(cat "$ORIG" 2>/dev/null) °C)"
+            echo "$FAN_TARGET" > "$FAN" && echo "ps5-perf: cpu boost $CPU_BOOST, fan target $FAN_TARGET °C"
         fi ;;
+    fan) case "$2" in default) T=;; 4[0-9]|[5-8][0-9]|90) T=$2;; *) echo "usage: ps5-perf fan <40-90|default>"; exit 1;; esac
+         sudo mkdir -p "$(dirname "$CONF")"; sudo sed -i '/^FAN_TARGET=/d' "$CONF" 2>/dev/null; echo "FAN_TARGET=$T" | sudo tee -a "$CONF" >/dev/null
+         echo "${T:-0}" | sudo tee "$FAN" >/dev/null && echo "fan target: ${T:-the console's own}${T:+ °C}" ;;
     on)  sudo mkdir -p "$(dirname "$CONF")"; sudo sed -i '/^ENABLED=/d' "$CONF" 2>/dev/null; echo "ENABLED=1" | sudo tee -a "$CONF" >/dev/null; sudo "$0" apply ;;
     off) sudo mkdir -p "$(dirname "$CONF")"; sudo sed -i '/^ENABLED=/d' "$CONF" 2>/dev/null; echo "ENABLED=0" | sudo tee -a "$CONF" >/dev/null
-         [ -f "$ORIG" ] && sudo sh -c "cat $ORIG > $FAN" && echo "fan target back to the console's $(cat "$ORIG") °C"; echo "ps5-perf off (CPU boost stays as the kernel set it until the next boot)" ;;
+         [ -n "$FAN_TARGET" ] && sudo sh -c "echo 0 > $FAN" 2>/dev/null && echo "fan target back to the console's own"; echo "ps5-perf off (CPU boost stays as the kernel set it until the next boot)" ;;
     *)   echo "ps5-perf: $([ "$ENABLED" = 1 ] && echo on || echo off) (set in $CONF)"
          if lspci -n 2>/dev/null | grep -qiE '1002:13d[ac]'; then echo "  CPU clock: left to the console firmware (PS5 Pro)"; else
          echo "  cpu boost: $(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || cat /sys/devices/system/cpu/cpufreq/policy0/boost 2>/dev/null || echo n/a), max clock $(( $(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null || echo 0) / 1000 )) MHz, governor $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null)"; fi
          H=$(for h in /sys/class/hwmon/hwmon*; do [ "$(cat $h/name 2>/dev/null)" = ps5_fan ] && echo $h && break; done)
          M=$(cat "$H/pwm1_enable" 2>/dev/null)
          case "$M" in 0) MODE="full speed";; 1) MODE="manual";; 2) MODE="kernel curve";; 3) MODE="console firmware (default)";; *) MODE="";; esac
-         echo "  fan target: $(cat "$FAN" 2>/dev/null || echo n/a) °C (console default $(cat "$ORIG" 2>/dev/null || echo unknown))${MODE:+, fan control: $MODE}$([ -n "$H" ] && echo ", fan $(cat $H/fan1_input 2>/dev/null || echo n/a) rpm")" ;;
+         echo "  fan target: $(cat "$FAN" 2>/dev/null || echo n/a) °C ($([ -n "$FAN_TARGET" ] && [ "$ENABLED" = 1 ] && echo "FAN_TARGET in perf.conf" || echo "the console's own"))${MODE:+, fan control: $MODE}" ;;
 esac

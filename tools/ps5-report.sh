@@ -16,7 +16,7 @@ if has "$PCI" '1002:13d[ac]'; then MODEL="PS5 Pro"
 elif has "$USB" '0e8d:3603' || has "$PCI" '14c3:'; then MODEL="PS5 Slim"
 elif has "$USB" '1286:2059' || has "$PCI" '1b4b:2b56'; then MODEL="PS5 (original)"
 else MODEL="PS5 (unknown model)"; fi
-GPU=$(grep -o -i -m1 '1002:13d[ac]\|1002:13fe\|1002:13f9' <<< "$PCI")
+GPU=$(grep -o -i -m1 '1002:13d[a-c]\|1002:13f[9a-e]\|1002:143f' <<< "$PCI")
 HDMI=$(k | grep -o -m1 'HDMI IC Type \[[A-Z0-9]*\]' | tr -d '[]' | awk '{print $4}')
 if has "$USB" '1286:2059' || has "$PCI" '1b4b:2b56'; then
   WIRELESS="NXP IW620 (Wi-Fi 1b4b:2b56, Bluetooth 1286:2059)"

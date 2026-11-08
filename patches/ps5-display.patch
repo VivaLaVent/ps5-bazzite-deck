@@ -3172,7 +3172,7 @@ index a2b12d65a..000000000
 -	return !rate || (rate <= 4 && permitted & BIT(rate));
 -}
 diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
-index 4ade01ba6..e3faaa11c 100755
+index 4ade01ba6..5442d9c8d 100755
 --- a/drivers/ps5/hdmi.c
 +++ b/drivers/ps5/hdmi.c
 @@ -3,51 +3,31 @@
@@ -4308,7 +4308,7 @@ index 4ade01ba6..e3faaa11c 100755
  	i2c_begin_block();
  	i2c_write(0x7021, 0xff);
  	i2c_write(0x700a, 0x02);
-@@ -1329,53 +1167,280 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+@@ -1329,53 +1167,281 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
  	i2c_end_block();
  	i2c_delay(700);
  	i2c_write(0x7a8b, 0x00);
@@ -4372,7 +4372,7 @@ index 4ade01ba6..e3faaa11c 100755
 +EXPORT_SYMBOL(ps5_hdmi_ic_is_flava3);
 +
 +
-+/* the TV's VRR range: HDMI Forum VSDB (VRRmin/VRRmax), else the AMD FreeSync VSDB */
++/* the TV's VRR range: HDMI Forum VSDB or SCDB (VRRmin/VRRmax), else the AMD FreeSync VSDB */
 +int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src)
 +{
 +	int amd_min = 0, amd_max = 0, hf_min = 0, hf_max = 0;
@@ -4404,12 +4404,13 @@ index 4ade01ba6..e3faaa11c 100755
 +			int tag = b[i] >> 5, l = b[i] & 0x1f;
 +			const u8 *p = &b[i + 1];
 +
-+			if (tag != 3 || l < 3 || i + 1 + l > d)
++			if ((tag != 3 && tag != 7) || l < 3 || i + 1 + l > d)
 +				continue;
-+			if (p[0] == 0x1a && p[1] == 0x00 && p[2] == 0x00 && l >= 7) {
++			if (tag == 3 && p[0] == 0x1a && p[1] == 0x00 && p[2] == 0x00 && l >= 7) {
 +				amd_min = p[5];
 +				amd_max = p[6];
-+			} else if (p[0] == 0xd8 && p[1] == 0x5d && p[2] == 0xc4 && l >= 10) {
++			} else if (((tag == 3 && p[0] == 0xd8 && p[1] == 0x5d && p[2] == 0xc4) ||
++				    (tag == 7 && p[0] == 0x79)) && l >= 10) {
 +				hf_min = p[8] & 0x3f;
 +				hf_max = ((p[8] & 0xc0) << 2) | p[9];
 +			}
@@ -4627,7 +4628,7 @@ index 4ade01ba6..e3faaa11c 100755
  }
  
  static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt2020)
-@@ -1383,7 +1448,6 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
+@@ -1383,7 +1449,6 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
  	struct hdmi_drm_infoframe sdr;
  	u8 data[HDMI_INFOFRAME_SIZE(DRM)];
  	bool hdr = frame != NULL;
@@ -4635,7 +4636,7 @@ index 4ade01ba6..e3faaa11c 100755
  
  	/* Sinks keep the last InfoFrame, send EOTF 0 when leaving HDR. */
  	if (!frame && hdr_enabled) {
-@@ -1410,26 +1474,11 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
+@@ -1410,26 +1475,11 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
  		i2c_write(0x7204, 0x40);
  		i2c_waitclear(0x7204, 0x40);
  	}
@@ -4663,7 +4664,7 @@ index 4ade01ba6..e3faaa11c 100755
  static void setHdmiAudioConfigBasic(int channels)
  {
  	i2c_init(2);
-@@ -1559,6 +1608,10 @@ static void setTmdsConfigVerde(void)
+@@ -1559,6 +1609,10 @@ static void setTmdsConfigVerde(void)
  	i2c_exec();
  }
  
@@ -4674,7 +4675,7 @@ index 4ade01ba6..e3faaa11c 100755
  static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
  {
  	u8 vic = drm_match_cea_mode(mode);
-@@ -1566,11 +1619,11 @@ static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
+@@ -1566,11 +1620,11 @@ static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
  	i2c_init(0);
  	i2c_begin_block();
  	if (vic == 16) {
@@ -4689,7 +4690,7 @@ index 4ade01ba6..e3faaa11c 100755
  	}
  	i2c_write_data(0x31d0, (u8[]){0x01, 0x19, 0x5f, 0x53, 0x43, 0x45, 0x49, 0x00, 0x00, 0x00, 0x00, 0x50, 0x53, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08}, 28);
  	i2c_end_block();
-@@ -1638,236 +1691,34 @@ static void sceHdmiSetAudioConfigVerde(int channels)
+@@ -1638,236 +1692,34 @@ static void sceHdmiSetAudioConfigVerde(int channels)
  	setAudioConfigForVerde(channels);
  }
  
@@ -4943,7 +4944,7 @@ index 4ade01ba6..e3faaa11c 100755
  }
  EXPORT_SYMBOL(sceHdmiSetVideoConfig);
  
-@@ -1879,31 +1730,18 @@ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020)
+@@ -1879,31 +1731,18 @@ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020)
  }
  EXPORT_SYMBOL(sceHdmiSetHdrConfig);
  
@@ -4980,7 +4981,7 @@ index 4ade01ba6..e3faaa11c 100755
  }
  EXPORT_SYMBOL(sceHdmiDeviceSetVideoMute);
  
-@@ -1980,223 +1818,186 @@ u32 getHdmiDpAudioN(u32 default_n)
+@@ -1980,223 +1819,186 @@ u32 getHdmiDpAudioN(u32 default_n)
  }
  EXPORT_SYMBOL(getHdmiDpAudioN);
  
@@ -5352,7 +5353,7 @@ index 4ade01ba6..e3faaa11c 100755
  
  bool isHdmiHdrSupported(void)
  {
-@@ -2204,12 +2005,6 @@ bool isHdmiHdrSupported(void)
+@@ -2204,12 +2006,6 @@ bool isHdmiHdrSupported(void)
  }
  EXPORT_SYMBOL(isHdmiHdrSupported);
  
@@ -5365,7 +5366,7 @@ index 4ade01ba6..e3faaa11c 100755
  static DEFINE_MUTEX(hdmi_edid_lock);
  static const struct drm_edid *real_edid;
  static struct drm_connector *hdmi_connector;
-@@ -2232,13 +2027,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
+@@ -2232,13 +2028,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
  const struct drm_edid *ps5_hdmi_get_edid(struct drm_connector *connector)
  {
  	guard(mutex)(&hdmi_edid_lock);
@@ -5387,7 +5388,7 @@ index 4ade01ba6..e3faaa11c 100755
  
  static void fix_edid(u8 *edid)
  {
-@@ -2265,15 +2065,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
+@@ -2265,15 +2066,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
  }
  EXPORT_SYMBOL(hdmi_set_hotplug_handler);
  
@@ -5404,7 +5405,7 @@ index 4ade01ba6..e3faaa11c 100755
  static DEFINE_MUTEX(cec_lock);
  static void (*cec_handler)(void *data, const struct icc_msg *msg);
  static void *cec_data;
-@@ -2288,129 +2080,250 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
+@@ -2288,129 +2081,250 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
  }
  EXPORT_SYMBOL(hdmi_set_cec_handler);
  

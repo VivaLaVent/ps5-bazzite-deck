@@ -4,6 +4,6 @@ ps5-display.patch          # display stack of v1.8.9/v2.1: FLAVA3 and Verde, 4K1
 ps5-hdmi-modes.patch       # 100 Hz and VERDE 1440p120 modes, FLAVA3 manual timings
 ps5-gpu.patch              # thermal GPU governor
 ps5-fan.patch              # no fan spike at shutdown
-ps5-fan-firmware.patch     # firmware fan control with an 80 C target by default, kernel curve opt-in
+ps5-fan-firmware.patch     # firmware fan control on Sony's table and target by default, kernel curve opt-in
 ps5-pro.patch              # PS5 Pro: Bluetooth and CPU clock as in v2.1.x
 ps5-mt7921-no-iso.patch    # MediaTek Bluetooth: no ISO setup (#71)
