@@ -50,24 +50,55 @@ VUSE=$(k | grep -o -m1 'VRAM: [0-9]*M' | grep -o '[0-9]*')
 VTXT=$(for d in /efi /boot/efi; do [ -f "$d/vram.txt" ] && { tr -d '[:space:]' < "$d/vram.txt"; break; }; done)
 VSET=; [[ ${VTXT#0x} =~ ^[0-9a-fA-F]{1,12}$ ]] && VSET=$(( 16#${VTXT#0x} / 1048576 ))
 
+C=; [ -t 1 ] && C=1
 {
+OSN=$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-?}")
+K=; R=; [ -n "$C" ] && K=$'\e[94m' R=$'\e[0m'
+kv() { printf '%s%s %-10s%s %s' "$K" "$1" "$2" "$R" "$3"; }
 INFO=(
-  "$(whoami)@$(hostname)"
-  "-----------------"
-  "Console    $MODEL${GPU:+ (GPU $GPU)}"
-  "HDMI chip  ${HDMI:-unknown (not logged this boot)}"
-  "Wireless   $WIRELESS"
-  "Install    $INSTALL"
-  "Kernel     $(uname -r)"
-  "VRAM       ${VUSE:-?} MB in use${VSET:+, vram.txt ${VSET} MB}$( [ -n "$VSET" ] && [ -n "$VUSE" ] && [ "$VSET" != "$VUSE" ] && echo " (applies at the next start with the loader)")"
-  "Display    ${DNAME:-?} on ${CON:-nothing connected}${MODE:+, $MODE}${VRR:+, VRR $VRR}"
-  "Bluetooth  $BT"
-  "Wi-Fi      ${WIFI:-no Wi-Fi device}"
-  "System on  ${ROOT:-?}"
-  "Boot       $( [ "$WARM" -gt 0 ] && echo "warm reboot" || echo "cold start"), up $(uptime -p | sed 's/^up //')"
+  "${K}$(whoami)${R:+$'\e[97m'}@${R:+$'\e[95m'}$(hostname)$R"
+  ""
+  "$(kv 󱋩 Install "$INSTALL")"
+  "$(kv 󰣛 OS "$OSN")"
+  "$(kv  Kernel "$(uname -r)")"
+  "$(kv 󰅐 Boot "$( [ "$WARM" -gt 0 ] && echo "warm reboot" || echo "cold start"), up $(uptime -p | sed 's/^up //')")"
+  ""
+  "$(kv 󰐔 Console "$MODEL${GPU:+ (GPU $GPU)}")"
+  "$(kv 󰡁 'HDMI chip' "${HDMI:-unknown (not logged this boot)}")"
+  "$(kv 󰍹 Display "${DNAME:-?} on ${CON:-nothing connected}${MODE:+, $MODE}${VRR:+, VRR $VRR}")"
+  "$(kv 󰍛 VRAM "${VUSE:-?} MB in use${VSET:+, vram.txt ${VSET} MB}$( [ -n "$VSET" ] && [ -n "$VUSE" ] && [ "$VSET" != "$VUSE" ] && echo " (applies at the next start with the loader)")")"
+  "$(kv 󰋊 'System on' "${ROOT:-?}")"
+  ""
+  "$(kv 󰘚 Wireless "$WIRELESS")"
+  "$(kv 󰖩 Wi-Fi "${WIFI:-no Wi-Fi device}")"
+  "$(kv 󰂯 Bluetooth "$BT")"
+  ""
+  "$( [ -n "$C" ] && { printf '  '; for c in 30 31 32 33 34 35 36 37; do printf '\e[%sm● ' "$c"; done; printf '\e[0m'; })"
 )
-LOGO=(' ____  ____  ____ ' '|  _ \/ ___|| ___| ' '| |_) \___ \|___ \ ' '|  __/ ___) |___) |' '|_|   |____/|____/ ')
-for i in "${!INFO[@]}"; do printf '%-20s  %s\n' "${LOGO[$i]:-}" "${INFO[$i]}"; done
+LOGO=(
+  '%%%%%                %%%%%'
+  ' %%%%%%%          %%%%%%% '
+  '   %%%%%%%|####|%%%%%%%   '
+  '     %%%%%|####|%%%%%     '
+  '     %%%%%|####|%%%%%     '
+  '     %%%%%|####|%%%%%     '
+  '     %%%%%|####|%%%%%     '
+  '     %%%%%|####|%%%%%     '
+  '     %%%%%|####|%%%%%     '
+  '     %%%%%|####|%%%%%     '
+  '     %%%%%|####|%%%%%     '
+  '      %%%%|####|%%%%      '
+  '      %%%%|####|%%%%      '
+  '       %%%|####|%%%       '
+  '          |####|          '
+  '        ==========        '
+  '                          '
+)
+for i in "${!LOGO[@]}"; do
+  l=${LOGO[$i]}
+  [ -n "$C" ] && l=$(sed -E $'s/%+/\e[97m&/g; s/#+/\e[90m&/g; s/\\|/\e[94m|/g; s/=+/\e[37m&/g' <<< "$l")$'\e[0m'
+  printf '  %s   %s\n' "$l" "${INFO[$i]:-}"
+done
 echo
 echo "SUMMARY: $INSTALL | $MODEL | HDMI ${HDMI:-?} | ${WIRELESS%% (*} | ${DNAME:-?} ${MODE:-} | VRAM ${VUSE:-?}M | $(uname -r) | ${ROOT:-?}"
 
@@ -124,5 +155,7 @@ echo "  cmdline: $(cat /proc/cmdline)"
 echo "  session: $(pgrep -a gamescope | head -1 | cut -c1-80)$(pgrep -a startplasma | head -1 | cut -c1-60)"
 echo "  boot: $(systemd-analyze 2>/dev/null | head -1)"
 systemctl --failed --no-legend 2>/dev/null | head -8 | sed 's/^/  failed: /'
-} < /dev/null 2>&1 | tee "$OUT"   # btmgmt and friends read stdin: they would eat pasted lines
+} < /dev/null 2>&1 | tee "$OUT.tmp"   # btmgmt and friends read stdin: they would eat pasted lines
+sed -E 's/\x1b\[[0-9;]*m//g' "$OUT.tmp" | perl -CSD -pe 's/[\x{E000}-\x{F8FF}\x{F0000}-\x{FFFFD}] //g' > "$OUT" 2>/dev/null || cp "$OUT.tmp" "$OUT"
+rm -f "$OUT.tmp"
 echo; echo "saved to $OUT (paste the SUMMARY line in the tester list, the whole file in bug reports)"
