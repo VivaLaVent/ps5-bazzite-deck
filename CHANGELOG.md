@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.7.3] – unreleased
+## [v2.7.3] – 2026-11-08
 > Pre-release. Async compute on the base PS5 and Slim, on top of v2.7.2.
 - **Async compute on the base PS5 and Slim** (`bootc/mesa/patches/0005-radv-ps5-compute-queue.patch`, bootc): RADV exposes the GPU's compute queue, as on the Pro. Its corruption is fixed by the async threadgroup workaround already in Borchev's patch, which DryhoppedIPA found for the BC-250 (+20 to 25% in Cyberpunk 2077 there). `AMD_PS5_COMPUTE_QUEUE=0 %command%` hides it again. His kernel patches change only ROCm's (KFD) compute contexts, which games don't use, and aren't needed
 - **Display patch:** comment-only and whitespace changes to rmuxnet's code removed (`usbc_dp.c`, `ps5-cec.c`, `drm_edid.c`, amdgpu)
