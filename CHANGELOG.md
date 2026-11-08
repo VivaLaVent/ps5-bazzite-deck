@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.7.2] – unreleased
+## [v2.7.2] – 2026-11-08
 > Pre-release. The fan on the console's own settings, on top of v2.7.1.
 - **Fan: Sony's own table and target by default** (`patches/ps5-fan-firmware.patch`): firmware control no longer uploads the driver's quiet servo table or sets an 80 °C target, so the fan behaves as on the PS5 OS. The quiet table is uploaded only for the kernel modes (full, manual, curve: PS5 Hardware Control), and Sony's table goes back when returning to firmware control, for sleep and at shutdown. Up to v2.7.1 the PS5 OS could start with Linux's table and target still in place, and the chip near 80 °C made the fan spin up at shutdown
 - **`target_temp`** takes 0 for Sony's own target; `ps5-perf fan <40-90|default>` sets `FAN_TARGET` and applies it. `ps5-perf` no longer keeps its own copy of the "console default" (on installs since v2.6.1 it had saved our 80 °C)
