@@ -2,6 +2,12 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.7.1] – unreleased
+> Pre-release. Test fixes on top of v2.7.
+- **1440p off-centre** (FLAVA3, under test): the display's own 1440p timings up to 340 MHz no longer go through the manual timing setup, as in rmux's tree; up to there 1440p uses the bridge's own timing (2720 total). Faster ones such as 1440p144 keep the manual setup
+- **VRR on FreeSync-only displays** (FLAVA3): the AMD FreeSync range is used when the display announces no HDMI VRR range, with the same 48 Hz floor and follow mode as HDMI VRR (a FreeSync Premium monitor had VRR on v1.8.4)
+- **IW620 Wi-Fi and Bluetooth on the first start after an update:** `firmware_class.path=/etc/firmware` on the kernel command line (bootc), so the first load of the Wi-Fi driver already finds the firmware `ps5-stage-firmware` keeps there
+
 ## [v2.7] – 2026-11-07
 > Stable. Everything since v2.5: the v2.5.1 and v2.6.1 to v2.6.3 pre-releases, plus the changes below.
 - **HDMI modes without switches** (`patches/ps5-hdmi-modes.patch`, replaces `ps5-hdmi-100hz.patch`): 1080p100, 1440p100 and 4K100 over FRL always offered where the display takes them, 1440p100/120 on VERDE as well, and on FLAVA3 every other progressive EDID timing up to 600 MHz through the bridge's manual timing setup (from rmux's tree); standard CTA formats outside the bridge's own set stay excluded. VERDE writes its AVI InfoFrame for every mode, with the mode's VIC (1080p120 and the new rates kept the previous mode's)

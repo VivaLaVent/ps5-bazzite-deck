@@ -25,7 +25,7 @@ index 4c8e63a58..93a4ca8d8 100644
  			if (!best || drm_mode_vrefresh(mode) > drm_mode_vrefresh(best))
  				best = mode;
 diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
-index 399305253..3ed33b037 100755
+index e3faaa11c..0c5ad0a58 100755
 --- a/drivers/ps5/hdmi.c
 +++ b/drivers/ps5/hdmi.c
 @@ -828,7 +828,7 @@ MODULE_PARM_DESC(frl_4k120, "Offer 3840x2160 at 120 Hz over HDMI 2.1 FRL on FLAV
@@ -112,7 +112,7 @@ index 399305253..3ed33b037 100755
  }
  
  
-@@ -1610,23 +1651,18 @@ static void setTmdsConfigVerde(void)
+@@ -1608,23 +1649,18 @@ static void setTmdsConfigVerde(void)
  	i2c_exec();
  }
  
@@ -143,7 +143,7 @@ index 399305253..3ed33b037 100755
  	i2c_write_data(0x31d0, (u8[]){0x01, 0x19, 0x5f, 0x53, 0x43, 0x45, 0x49, 0x00, 0x00, 0x00, 0x00, 0x50, 0x53, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08}, 28);
  	i2c_end_block();
  	i2c_begin_block();
-@@ -1820,45 +1856,39 @@ u32 getHdmiDpAudioN(u32 default_n)
+@@ -1818,45 +1854,42 @@ u32 getHdmiDpAudioN(u32 default_n)
  }
  EXPORT_SYMBOL(getHdmiDpAudioN);
  
@@ -192,6 +192,9 @@ index 399305253..3ed33b037 100755
 -	}
 -
 -	return false;
++	/* other 1440p timings only above 340 MHz, as in rmux's tree; below, the bridge's own (2720 total) */
++	if (mode->hdisplay == 2560 && mode->vdisplay == 1440 && !hdmi_mode_is_hi_rate(mode))
++		return false;
 +	/* manual: no standard (CTA) format, sync pulses the registers can hold, scrambling the sink takes */
 +	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && !vic &&
 +	       mode->hsync_end > mode->hsync_start && mode->htotal - mode->hsync_start >= 2 &&
@@ -206,7 +209,7 @@ index 399305253..3ed33b037 100755
   * within the sink's limits even when its EDID doesn't list them; 1080p60 preferred for a first start.
   */
  static const struct drm_display_mode ps5_1440p60 = {
-@@ -1867,6 +1897,19 @@ static const struct drm_display_mode ps5_1440p60 = {
+@@ -1865,6 +1898,19 @@ static const struct drm_display_mode ps5_1440p60 = {
  		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
  };
  
@@ -226,7 +229,7 @@ index 399305253..3ed33b037 100755
  static const struct drm_display_mode ps5_1440p120 = {
  	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 497750,
  		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1525, 0,
-@@ -1903,6 +1946,7 @@ int ps5_hdmi_add_modes(struct drm_connector *connector)
+@@ -1901,6 +1947,7 @@ int ps5_hdmi_add_modes(struct drm_connector *connector)
  	int tmds = info->max_tmds_clock ? info->max_tmds_clock : 340000;
  	int max_hz = info->monitor_range.max_vfreq;
  	bool has_1440 = false, has_2160 = false;
@@ -234,7 +237,7 @@ index 399305253..3ed33b037 100755
  	struct drm_display_mode *m;
  	int added = 0;
  
-@@ -1913,6 +1957,8 @@ int ps5_hdmi_add_modes(struct drm_connector *connector)
+@@ -1911,6 +1958,8 @@ int ps5_hdmi_add_modes(struct drm_connector *connector)
  		max_hz = max(max_hz, drm_mode_vrefresh(m));
  		if (m->vdisplay >= 1440 && m->hdisplay >= 2560)
  			has_1440 = true;
@@ -243,7 +246,7 @@ index 399305253..3ed33b037 100755
  		if (m->vdisplay >= 2160 && m->hdisplay >= 3840)
  			has_2160 = true;
  		m->type &= ~DRM_MODE_TYPE_PREFERRED;
-@@ -1925,9 +1971,16 @@ int ps5_hdmi_add_modes(struct drm_connector *connector)
+@@ -1923,9 +1972,16 @@ int ps5_hdmi_add_modes(struct drm_connector *connector)
  		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 97));
  	if (has_1440 && tmds >= 241500)
  		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p60));
