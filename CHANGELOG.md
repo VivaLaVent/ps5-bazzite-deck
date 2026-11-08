@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.7.1] – unreleased
+## [v2.7.1] – 2026-11-08
 > Pre-release. Test fixes on top of v2.7.
 - **1440p off-centre** (FLAVA3, under test): the display's own 1440p timings up to 340 MHz no longer go through the manual timing setup, as in rmux's tree; up to there 1440p uses the bridge's own timing (2720 total). Faster ones such as 1440p144 keep the manual setup
 - **VRR on FreeSync-only displays** (FLAVA3): the AMD FreeSync range is used when the display announces no HDMI VRR range, with the same 48 Hz floor and follow mode as HDMI VRR (a FreeSync Premium monitor had VRR on v1.8.4)
