@@ -76,11 +76,21 @@ if [ "${1-}" = --boot ]; then
     # without what is mounted on top: the M.2's own, empty /boot folder
     mount --bind /sysroot "$DST"
     mount -o remount,bind,rw "$DST"
-    [ -d "$DST/boot" ] && [ -z "$(ls -A "$DST/boot")" ] || { echo "STOP: /boot on $NVME isn't an empty folder"; exit 1; }
+    [ -d "$DST/boot" ] || { echo "STOP: $NVME has no /boot folder"; exit 1; }
+    # an earlier run's copy is replaced; anything else stops
+    if [ -n "$(ls -A "$DST/boot")" ]; then
+        [ -L "$DST/boot/loader" ] || { echo "STOP: /boot on $NVME isn't an empty folder"; exit 1; }
+        find "$DST/boot" -mindepth 1 -delete
+    fi
     cp -ax /boot/. "$DST/boot/"
     mkdir -p "$DST/boot/efi"
     [ -L "$DST/boot/loader" ] || { echo "STOP: the copy of /boot has no loader link"; exit 1; }
-    # ostree bind-mounts the M.2's /boot once fstab no longer names the USB one; the boot partition becomes optional
+    # ostree bind-mounts the M.2's /boot once nothing mounts the USB one; the boot partition becomes optional.
+    # bootc-image-builder's mount units in /etc name both USB partitions by UUID and override fstab.
+    for u in "$DST"/ostree/deploy/*/deploy/*/etc/systemd/system; do
+        rm -f "$u"/boot.mount "$u"/boot-efi.mount "$u"/*.wants/boot.mount
+        find "$u" -path '*.wants/boot-efi.mount' -lname '/etc/*' -delete
+    done
     for f in "$DST"/ostree/deploy/*/deploy/*/etc/fstab; do
         awk '$2 != "/boot"' "$f" > "$f.new"; cat "$f.new" > "$f"; rm -f "$f.new"
         grep -q '[[:space:]]/boot/efi[[:space:]]' "$f" ||
