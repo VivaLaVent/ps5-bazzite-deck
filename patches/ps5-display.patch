@@ -6,7 +6,7 @@ sleep mute, RGB range, Verde game content), CEC, USB-C DisplayPort, and amdgpu's
 changes. rmux's FRL planner, recovery and ALLM go out with it; everything outside the display stays his.
 ---
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-index d83f0e486..4c8e63a58 100644
+index d83f0e486..b59eaac23 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 @@ -88,10 +88,9 @@
@@ -202,15 +202,7 @@ index d83f0e486..4c8e63a58 100644
  static void dm_ps5_hotplug_handler(void *data)
  {
  	struct amdgpu_display_manager *dm = data;
-@@ -1393,7 +1475,6 @@ static void dm_ps5_hotplug_handler(void *data)
- 		delay = min_t(unsigned int,
- 			      PS5_HOTPLUG_BACKOFF_MS << min(failures - PS5_HOTPLUG_RETRIES, 4U),
- 			      PS5_HOTPLUG_BACKOFF_MAX_MS);
--
- 	queue_delayed_work(system_dfl_wq, &dm->ps5_hotplug_work, msecs_to_jiffies(delay));
- }
- #endif
-@@ -1418,6 +1499,12 @@ static void dm_ps5_hotplug_handler(void *data)
+@@ -1418,6 +1500,12 @@ static void dm_ps5_hotplug_handler(void *data)
   * - Vblank support
   * - Debug FS entries, if enabled
   */
@@ -223,7 +215,7 @@ index d83f0e486..4c8e63a58 100644
  static int dm_hw_init(struct amdgpu_ip_block *ip_block)
  {
  	struct amdgpu_device *adev = ip_block->adev;
-@@ -1435,10 +1522,10 @@ static int dm_hw_init(struct amdgpu_ip_block *ip_block)
+@@ -1435,10 +1523,10 @@ static int dm_hw_init(struct amdgpu_ip_block *ip_block)
  	/* HDMI uses controller notifications; USB-C uses its physical HPD. */
  	INIT_DELAYED_WORK(&adev->dm.ps5_hotplug_work, dm_ps5_hotplug_work_func);
  	INIT_DELAYED_WORK(&adev->dm.ps5_hdmi_resetup_work, dm_ps5_hdmi_resetup_work_func);
@@ -236,7 +228,7 @@ index d83f0e486..4c8e63a58 100644
  	amdgpu_dm_ps5_usbc_init(&adev->dm);
  #endif
  	amdgpu_dm_hpd_init(adev);
-@@ -1474,9 +1561,9 @@ static int dm_hw_fini(struct amdgpu_ip_block *ip_block)
+@@ -1474,9 +1562,9 @@ static int dm_hw_fini(struct amdgpu_ip_block *ip_block)
  	hdmi_set_hotplug_handler(NULL, NULL);
  	cancel_delayed_work_sync(&adev->dm.ps5_hotplug_work);
  	cancel_delayed_work_sync(&adev->dm.ps5_hdmi_resetup_work);
@@ -247,7 +239,7 @@ index d83f0e486..4c8e63a58 100644
  	amdgpu_dm_ps5_usbc_stop(&adev->dm);
  #endif
  	amdgpu_dm_hpd_fini(adev);
-@@ -4194,6 +4281,12 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_commit *state,
+@@ -4194,6 +4282,12 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_commit *state,
  			if (acrtc_state->freesync_vrr_info_changed)
  				bundle->stream_update.vrr_infopacket =
  					&acrtc_state->stream->vrr_infopacket;
@@ -260,7 +252,7 @@ index d83f0e486..4c8e63a58 100644
  		}
  	}
  
-@@ -5061,43 +5154,29 @@ static void amdgpu_dm_update_hdcp(struct drm_atomic_commit *state)
+@@ -5061,43 +5155,29 @@ static void amdgpu_dm_update_hdcp(struct drm_atomic_commit *state)
  }
  
  #ifdef CONFIG_X86_PS5
@@ -322,7 +314,7 @@ index d83f0e486..4c8e63a58 100644
  
  	for (i = 0; i < stream->audio_info.mode_count; i++) {
  		if (stream->audio_info.modes[i].channel_count > channels)
-@@ -5108,55 +5187,12 @@ static int dm_ps5_hdmi_enable(struct dc_stream_state *stream,
+@@ -5108,55 +5188,12 @@ static int dm_ps5_hdmi_enable(struct dc_stream_state *stream,
  	if (channels == 0)
  		channels = 2;
  
@@ -382,7 +374,7 @@ index d83f0e486..4c8e63a58 100644
  }
  #endif
  
-@@ -5262,6 +5298,121 @@ STATIC_IFN_KUNIT void dm_enable_per_frame_crtc_master_sync(struct dc_state *cont
+@@ -5262,6 +5299,121 @@ STATIC_IFN_KUNIT void dm_enable_per_frame_crtc_master_sync(struct dc_state *cont
  }
  EXPORT_IF_KUNIT(dm_enable_per_frame_crtc_master_sync);
  
@@ -504,7 +496,7 @@ index d83f0e486..4c8e63a58 100644
  /**
   * amdgpu_dm_atomic_commit_tail() - AMDgpu DM's commit tail implementation.
   * @state: The atomic state to commit
-@@ -5304,23 +5455,22 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5304,23 +5456,22 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		    (old_crtc_state->active &&
  		    (!new_crtc_state->active ||
  		     drm_atomic_crtc_needs_modeset(new_crtc_state)))) {
@@ -541,7 +533,7 @@ index d83f0e486..4c8e63a58 100644
  			}
  		}
  	}
-@@ -5341,45 +5491,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5341,45 +5492,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		if (new_crtc_state->active &&
  		    (!old_crtc_state->active ||
  		     drm_atomic_crtc_needs_modeset(new_crtc_state))) {
@@ -602,7 +594,7 @@ index d83f0e486..4c8e63a58 100644
  		}
  	}
  #endif
-@@ -5411,15 +5540,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5411,15 +5541,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
  		dm_old_crtc_state = to_dm_crtc_state(old_crtc_state);
  
@@ -618,7 +610,7 @@ index d83f0e486..4c8e63a58 100644
  		scaling_changed = is_scaling_state_different(dm_new_con_state,
  							     dm_old_con_state);
  
-@@ -5451,12 +5571,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5451,12 +5572,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  				= amdgpu_dm_get_output_color_space(&dm_new_crtc_state->stream->timing, new_con_state);
  
  			stream_update.output_color_space = &dm_new_crtc_state->stream->output_color_space;
@@ -631,7 +623,7 @@ index d83f0e486..4c8e63a58 100644
  		}
  
  		if (abm_changed) {
-@@ -5594,6 +5708,18 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5594,6 +5709,18 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  
  		if (dm_new_crtc_state->stream)
  			amdgpu_dm_commit_planes(state, dev, dm, crtc, wait_for_vblank);
@@ -650,7 +642,7 @@ index d83f0e486..4c8e63a58 100644
  	}
  
  	/* Enable writeback */
-@@ -5799,30 +5925,6 @@ static int dm_update_crtc_state(struct amdgpu_display_manager *dm,
+@@ -5799,30 +5926,6 @@ static int dm_update_crtc_state(struct amdgpu_display_manager *dm,
  			goto fail;
  		}
  
@@ -791,7 +783,7 @@ index ab32cc453..07d3e8812 100644
 +
  #endif /* __AMDGPU_DM_H__ */
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
-index ade604fd8..e51ad09db 100644
+index ade604fd8..49b915cfa 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
 @@ -42,9 +42,6 @@
@@ -827,17 +819,7 @@ index ade604fd8..e51ad09db 100644
  	return color_space;
  }
  EXPORT_IF_KUNIT(amdgpu_dm_get_output_color_space);
-@@ -891,7 +872,9 @@ STATIC_IFN_KUNIT bool adjust_colour_depth_from_display_info(
- }
- EXPORT_IF_KUNIT(adjust_colour_depth_from_display_info);
- 
-+
- #ifdef CONFIG_X86_PS5
-+/* PR #57: the HDMI bridge's connector (not the USB-C DisplayPort one) */
- bool dm_ps5_is_hdmi_connector(struct drm_connector *connector)
- {
- 	struct dc_link *link;
-@@ -904,117 +887,39 @@ bool dm_ps5_is_hdmi_connector(struct drm_connector *connector)
+@@ -904,117 +885,39 @@ bool dm_ps5_is_hdmi_connector(struct drm_connector *connector)
  	return link && link->ep_type == DISPLAY_ENDPOINT_PHY && !link->ps5_usbc;
  }
  
@@ -967,7 +949,7 @@ index ade604fd8..e51ad09db 100644
  #endif
  
  STATIC_IFN_KUNIT void fill_stream_properties_from_drm_display_mode(
-@@ -1129,20 +1034,10 @@ STATIC_IFN_KUNIT void fill_stream_properties_from_drm_display_mode(
+@@ -1129,20 +1032,10 @@ STATIC_IFN_KUNIT void fill_stream_properties_from_drm_display_mode(
  
  #ifdef CONFIG_X86_PS5
  	dm_ps5_set_hdr_timing(timing_out, mode_in, connector_state);
@@ -992,7 +974,7 @@ index ade604fd8..e51ad09db 100644
  #endif
  
  	stream->output_color_space = amdgpu_dm_get_output_color_space(timing_out, connector_state);
-@@ -1721,6 +1616,28 @@ create_stream_for_sink(struct drm_connector *connector,
+@@ -1721,6 +1614,28 @@ create_stream_for_sink(struct drm_connector *connector,
  	if (recalculate_timing)
  		drm_mode_set_crtcinfo(&saved_mode, 0);
  
@@ -1021,7 +1003,7 @@ index ade604fd8..e51ad09db 100644
  	/*
  	 * If scaling is enabled and refresh rate didn't change
  	 * we copy the vic and polarities of the old timings
-@@ -2135,12 +2052,8 @@ void amdgpu_dm_connector_funcs_reset(struct drm_connector *connector)
+@@ -2135,12 +2050,8 @@ void amdgpu_dm_connector_funcs_reset(struct drm_connector *connector)
  	if (!state)
  		return;
  
@@ -1035,7 +1017,7 @@ index ade604fd8..e51ad09db 100644
  
  	kfree(old_state);
  
-@@ -2176,11 +2089,6 @@ amdgpu_dm_connector_atomic_duplicate_state(struct drm_connector *connector)
+@@ -2176,11 +2087,6 @@ amdgpu_dm_connector_atomic_duplicate_state(struct drm_connector *connector)
  		return NULL;
  
  	__drm_atomic_helper_connector_duplicate_state(connector, &new_state->base);
@@ -1047,7 +1029,7 @@ index ade604fd8..e51ad09db 100644
  
  	new_state->freesync_capable = state->freesync_capable;
  	new_state->abm_level = state->abm_level;
-@@ -2194,15 +2102,6 @@ amdgpu_dm_connector_atomic_duplicate_state(struct drm_connector *connector)
+@@ -2194,15 +2100,6 @@ amdgpu_dm_connector_atomic_duplicate_state(struct drm_connector *connector)
  }
  EXPORT_IF_KUNIT(amdgpu_dm_connector_atomic_duplicate_state);
  
@@ -1063,7 +1045,7 @@ index ade604fd8..e51ad09db 100644
  STATIC_IFN_KUNIT int
  amdgpu_dm_connector_late_register(struct drm_connector *connector)
  {
-@@ -2279,7 +2178,7 @@ static const struct drm_connector_funcs amdgpu_dm_connector_funcs = {
+@@ -2279,7 +2176,7 @@ static const struct drm_connector_funcs amdgpu_dm_connector_funcs = {
  	.fill_modes = drm_helper_probe_single_connector_modes,
  	.destroy = amdgpu_dm_connector_destroy,
  	.atomic_duplicate_state = amdgpu_dm_connector_atomic_duplicate_state,
@@ -1072,7 +1054,7 @@ index ade604fd8..e51ad09db 100644
  	.atomic_set_property = amdgpu_dm_connector_atomic_set_property,
  	.atomic_get_property = amdgpu_dm_connector_atomic_get_property,
  	.late_register = amdgpu_dm_connector_late_register,
-@@ -2633,25 +2532,6 @@ amdgpu_dm_create_validate_stream_for_sink(struct drm_connector *connector,
+@@ -2633,25 +2530,6 @@ amdgpu_dm_create_validate_stream_for_sink(struct drm_connector *connector,
  				return NULL;
  			}
  
@@ -1098,7 +1080,7 @@ index ade604fd8..e51ad09db 100644
  			dc_result = dc_validate_stream(adev->dm.dc, stream);
  
  			if (dc_result == DC_OK &&
-@@ -2702,9 +2582,13 @@ enum drm_mode_status amdgpu_dm_connector_mode_valid(struct drm_connector *connec
+@@ -2702,9 +2580,13 @@ enum drm_mode_status amdgpu_dm_connector_mode_valid(struct drm_connector *connec
  	struct amdgpu_dm_connector *aconnector = to_amdgpu_dm_connector(connector);
  
  #ifdef CONFIG_X86_PS5
@@ -1115,7 +1097,7 @@ index ade604fd8..e51ad09db 100644
  		return MODE_ERROR;
  #endif
  
-@@ -2837,30 +2721,6 @@ amdgpu_dm_connector_atomic_check(struct drm_connector *conn,
+@@ -2837,30 +2719,6 @@ amdgpu_dm_connector_atomic_check(struct drm_connector *conn,
  	if (!crtc)
  		return 0;
  
@@ -1146,7 +1128,7 @@ index ade604fd8..e51ad09db 100644
  	if (new_con_state->privacy_screen_sw_state != old_con_state->privacy_screen_sw_state) {
  		new_crtc_state = drm_atomic_get_crtc_state(state, crtc);
  		if (IS_ERR(new_crtc_state))
-@@ -2882,11 +2742,7 @@ amdgpu_dm_connector_atomic_check(struct drm_connector *conn,
+@@ -2882,11 +2740,7 @@ amdgpu_dm_connector_atomic_check(struct drm_connector *conn,
  		if (IS_ERR(new_crtc_state))
  			return PTR_ERR(new_crtc_state);
  
@@ -1159,7 +1141,7 @@ index ade604fd8..e51ad09db 100644
  	}
  
  	if (!drm_connector_atomic_hdr_metadata_equal(old_con_state, new_con_state)) {
-@@ -2916,17 +2772,6 @@ amdgpu_dm_connector_atomic_check(struct drm_connector *conn,
+@@ -2916,17 +2770,6 @@ amdgpu_dm_connector_atomic_check(struct drm_connector *conn,
  			!new_con_state->hdr_output_metadata;
  	}
  
@@ -1177,7 +1159,7 @@ index ade604fd8..e51ad09db 100644
  	return 0;
  }
  
-@@ -3359,50 +3204,6 @@ STATIC_IFN_KUNIT void amdgpu_dm_connector_add_freesync_modes(struct drm_connecto
+@@ -3359,50 +3202,6 @@ STATIC_IFN_KUNIT void amdgpu_dm_connector_add_freesync_modes(struct drm_connecto
  }
  EXPORT_IF_KUNIT(amdgpu_dm_connector_add_freesync_modes);
  
@@ -1228,7 +1210,7 @@ index ade604fd8..e51ad09db 100644
  static int amdgpu_dm_connector_get_modes(struct drm_connector *connector)
  {
  	struct amdgpu_dm_connector *amdgpu_dm_connector =
-@@ -3434,13 +3235,13 @@ static int amdgpu_dm_connector_get_modes(struct drm_connector *connector)
+@@ -3434,13 +3233,13 @@ static int amdgpu_dm_connector_get_modes(struct drm_connector *connector)
  		}
  	} else {
  		amdgpu_dm_connector_ddc_get_modes(connector, drm_edid);
@@ -1246,7 +1228,7 @@ index ade604fd8..e51ad09db 100644
  	}
  	amdgpu_dm_fbc_init(connector);
  
-@@ -3569,9 +3370,12 @@ void amdgpu_dm_connector_init_helper(struct amdgpu_display_manager *dm,
+@@ -3569,9 +3368,12 @@ void amdgpu_dm_connector_init_helper(struct amdgpu_display_manager *dm,
  		break;
  	}
  
@@ -1259,7 +1241,7 @@ index ade604fd8..e51ad09db 100644
  
  	if (connector_type == DRM_MODE_CONNECTOR_HDMIA
  		|| (connector_type == DRM_MODE_CONNECTOR_DisplayPort && !aconnector->mst_root))
-@@ -3587,22 +3391,24 @@ void amdgpu_dm_connector_init_helper(struct amdgpu_display_manager *dm,
+@@ -3587,22 +3389,24 @@ void amdgpu_dm_connector_init_helper(struct amdgpu_display_manager *dm,
  				adev->mode_info.underscan_vborder_property,
  				0);
  
@@ -1290,7 +1272,7 @@ index ade604fd8..e51ad09db 100644
  
  	if (connector_type == DRM_MODE_CONNECTOR_HDMIA) {
  		if (!drm_mode_create_hdmi_colorspace_property(&aconnector->base, supported_colorspaces))
-@@ -3938,7 +3744,8 @@ void dm_ps5_hdmi_resetup_work_func(struct work_struct *work)
+@@ -3938,7 +3742,8 @@ void dm_ps5_hdmi_resetup_work_func(struct work_struct *work)
  
  	drm_connector_list_iter_begin(dev, &iter);
  	drm_for_each_connector_iter(connector, &iter) {
@@ -1300,7 +1282,7 @@ index ade604fd8..e51ad09db 100644
  		    !connector->state || !connector->encoder)
  			continue;
  
-@@ -4300,6 +4107,53 @@ void amdgpu_dm_update_freesync_caps(struct drm_connector *connector,
+@@ -4300,6 +4105,53 @@ void amdgpu_dm_update_freesync_caps(struct drm_connector *connector,
  		}
  	}
  
@@ -1455,18 +1437,9 @@ index 7e484adb4..8ec16faed 100644
  	acrtc->dm_irq_params.vrr_params = vrr_params;
  	new_crtc_state->vrr_infopacket = vrr_infopacket;
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c
-index 279775c14..134acf549 100644
+index 279775c14..ab1e84a1d 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_irq.c
-@@ -979,7 +979,7 @@ void amdgpu_dm_hpd_init(struct amdgpu_device *adev)
- 	/* First, clear all hpd and hpdrx interrupts */
- 	for (i = DC_IRQ_SOURCE_HPD1; i <= DC_IRQ_SOURCE_HPD6RX; i++) {
- #ifdef CONFIG_X86_PS5
--		/* DCN201 implements two HPD blocks; touch only the selected USB-C route. */
-+		/* DCN201 implements two HPD blocks; touch only the selected USB-C route (PR #57). */
- 		if (!adev->dm.ps5_usbc_connector ||
- 		    (i != adev->dm.ps5_usbc_connector->dc_link->irq_source_hpd &&
- 		     i != adev->dm.ps5_usbc_connector->dc_link->irq_source_hpd_rx))
 @@ -1508,6 +1508,24 @@ void dm_ps5_hotplug_work_func(struct work_struct *work)
  	drm_connector_list_iter_end(&iter);
  
@@ -1492,14 +1465,6 @@ index 279775c14..134acf549 100644
  	if (failures == PS5_HOTPLUG_RETRIES)
  		drm_warn(dev, "PS5: DP link training keeps failing after HDMI hotplug, backing off\n");
  	else if (!failures && dm->ps5_hotplug_failures >= PS5_HOTPLUG_RETRIES)
-@@ -1766,7 +1784,6 @@ STATIC_IFN_KUNIT void handle_hpd_irq(void *param)
- 		return;
- 	}
- #endif
--
- 	handle_hpd_irq_helper(aconnector, DETECT_REASON_HPD);
- 
- }
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/ps5-hdmi-fallback.inc b/drivers/gpu/drm/amd/display/amdgpu_dm/ps5-hdmi-fallback.inc
 deleted file mode 100644
 index 6c6e4f7af..000000000
@@ -2064,32 +2029,6 @@ index e5c8ef06c..d68402636 100644
  	state->max_bpc = info->bpc ? info->bpc : 8;
  	if (connector->max_bpc_property)
  		state->max_bpc = min(state->max_bpc, state->max_requested_bpc);
-diff --git a/drivers/gpu/drm/drm_edid.c b/drivers/gpu/drm/drm_edid.c
-index 0d44a89d8..58979f3d9 100644
---- a/drivers/gpu/drm/drm_edid.c
-+++ b/drivers/gpu/drm/drm_edid.c
-@@ -47,10 +47,6 @@
- #include <drm/drm_encoder.h>
- #include <drm/drm_print.h>
- 
--#ifdef CONFIG_X86_PS5
--#include <linux/ps5.h>
--#endif
--
- #include "drm_crtc_internal.h"
- #include "drm_displayid_internal.h"
- #include "drm_internal.h"
-@@ -2246,6 +2242,10 @@ static void connector_bad_edid(struct drm_connector *connector,
- 		edid_block_dump(KERN_DEBUG, edid + i, i);
- }
- 
-+#ifdef CONFIG_X86_PS5
-+#include <linux/ps5.h>
-+#endif
-+
- /* Get override or firmware EDID */
- static const struct drm_edid *drm_edid_override_get(struct drm_connector *connector)
- {
 diff --git a/drivers/ps5/frl-detect.inc b/drivers/ps5/frl-detect.inc
 deleted file mode 100644
 index e7f1b56d4..000000000
@@ -5766,58 +5705,6 @@ index 4ade01ba6..5442d9c8d 100755
  	mutex_lock(&cec_lock);
  	if (cec_handler)
  		cec_handler(cec_data, msg);
-diff --git a/drivers/ps5/ps5-cec.c b/drivers/ps5/ps5-cec.c
-index 79d4f8e51..127c6f251 100755
---- a/drivers/ps5/ps5-cec.c
-+++ b/drivers/ps5/ps5-cec.c
-@@ -918,4 +918,4 @@ module_init(ps5_cec_init);
- 
- MODULE_LICENSE("GPL");
- MODULE_DESCRIPTION("PS5 HDMI CEC driver");
--MODULE_ALIAS("platform:ps5-cec");
-+MODULE_ALIAS("platform:ps5-cec");
-\ No newline at end of file
-diff --git a/drivers/ps5/usbc_dp.c b/drivers/ps5/usbc_dp.c
-index 1c1b17708..5d3d016f1 100644
---- a/drivers/ps5/usbc_dp.c
-+++ b/drivers/ps5/usbc_dp.c
-@@ -22,12 +22,15 @@
- /* Prepare the FAT port before attachment can negotiate DP and assert HPD.
-  * AMDGPU calls this policy only after selecting a unique USB-C/HDMI route;
-  * real HPD and DRM detection/modesetting still control the video stream.
-- * Off by default: reprogramming the controller re-attaches the port, which
-- * resets any USB device on it, such as a boot drive. enable=1 opts in.
-+ * enable=0 keeps the port controller policy untouched for diagnostics.
-+ */
-+/*
-+ * Off by default: programming the port can reset a device there, such as a boot drive.
-+ * USB-C displays and PSVR2: usbc_dp.enable=1.
-  */
- static bool enable;
- module_param(enable, bool, 0444);
--MODULE_PARM_DESC(enable, "Prepare FAT USB-C DP policy: supported-device RAM table and NORMAL mode (default: off; enabling it resets any USB device on the port)");
-+MODULE_PARM_DESC(enable, "Prepare FAT USB-C DP policy (Sony/Genesys RAM allowlist and NORMAL mode) for USB-C displays/PSVR2 (default: off; it can reset a device on the front USB-C port)");
- 
- static unsigned int dp_lanes = 4;
- module_param(dp_lanes, uint, 0444);
-@@ -125,7 +128,7 @@ static int checked_query(u8 service, u16 command, u8 first, u8 second,
- 
- static int usbc_set_supported_devices(void)
- {
--	/* ICC 0x19 replaces the RAM table, so retain both original firmware entries.
-+	/* ICC 0x19 replaces the RAM table, so retain both firmware Sony rows.
- 	 * Wire records are LE16 VID, LE16 PID min/max, LE32 flags (10 bytes).
- 	 * flags bit 0 = PDOnly, bit 1 = Caesar. Genesys identifies the tested
- 	 * USB-C/DP cable candidate; its exact PD PID has not been captured.
-@@ -146,7 +149,7 @@ static int usbc_set_supported_devices(void)
- 				 USBC_SET_SUPPORTED_DEVICES, devices,
- 				 sizeof(devices), 0, NULL);
- 	if (!ret)
--		pr_info("USB-C controller accepted supported-device RAM policy\n");
-+		pr_info("USB-C controller accepted Sony + Genesys supported-device RAM policy\n");
- 	return ret;
- }
- 
 diff --git a/include/linux/ps5.h b/include/linux/ps5.h
 index ef41e56df..1b5e88574 100755
 --- a/include/linux/ps5.h

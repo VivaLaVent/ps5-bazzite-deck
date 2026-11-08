@@ -1,0 +1,27 @@
+radv: compute queue on the base PS5 and Slim too
+
+The async compute threadgroup workaround from 0004 is what fixes GFX1013's compute queue (DryhoppedIPA,
+bc250-gfx1013-fix). AMD_PS5_COMPUTE_QUEUE=0 hides it again.
+---
+diff --git a/src/amd/common/ac_gpu_info.c b/src/amd/common/ac_gpu_info.c
+index 39637cc..a35bd96 100644
+--- a/src/amd/common/ac_gpu_info.c
++++ b/src/amd/common/ac_gpu_info.c
+@@ -484,13 +484,13 @@ ac_fill_hw_ip_info(struct radeon_info *info, const struct drm_amdgpu_info_device
+        */
+       info->ip[ip_type].num_queues = 1;
+    } else if (ip_info->available_rings) {
+-      /* GFX1013 is known to have broken compute queue. On Viola (13DA/13DC) it works:
+-       * AMD_VIOLA_COMPUTE_QUEUE=0 disables it there.
++      /* GFX1013's compute queue works with the async threadgroup workaround below:
++       * AMD_VIOLA_COMPUTE_QUEUE=0 (Pro) or AMD_PS5_COMPUTE_QUEUE=0 hides it.
+        */
+       if (ip_type == AMD_IP_COMPUTE && device_info->family == FAMILY_NV &&
+           ASICREV_IS(device_info->external_rev, GFX1013) &&
+-          !(ac_is_viola_pci_id(device_info->device_id) &&
+-            debug_get_bool_option("AMD_VIOLA_COMPUTE_QUEUE", true)))
++          !debug_get_bool_option(ac_is_viola_pci_id(device_info->device_id) ?
++                                 "AMD_VIOLA_COMPUTE_QUEUE" : "AMD_PS5_COMPUTE_QUEUE", true))
+          return false;
+ 
+       info->ip[ip_type].num_queues = util_bitcount(ip_info->available_rings);
