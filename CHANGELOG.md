@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.8.1] – unreleased
+## [v2.8.1] – 2026-11-09
 > Pre-release. An 80 °C fan target and the Slim's Bluetooth address, on top of v2.8.
 - **Fan: 80 °C SoC target in firmware mode** (`patches/ps5-fan.patch`, `ps5_fan.target=`, 0 = Sony's): Sony's table stays; the target goes to the controller's current settings after every table upload and at resume, and Sony's goes back for sleep and shutdown without a table upload. Sony's 91 °C kept the SoC around 90 °C in games and for some at idle in Game Mode, above the GPU governor's limit (85 °C, Pro 80 °C) on `Tctl`. The same as v2.7.3 with `ps5-perf fan 80`, without the 90 °C emergency that made the fan cycle there. `ps5-perf status` shows `ps5_fan.target`
 - **MediaTek Bluetooth (most Slims): Linux-only address off by default** (`ps5-bt-addr`, `ps5-bt-address`, `ps5-report`): on several units it broke connections (paired, then "Connection terminated by local host"; turning it off fixed them). `ps5-bt-address on` now also writes `/etc/ps5-bazzite-deck/bt-address-on`, which switches it on there. IW620 and the Pro unchanged
