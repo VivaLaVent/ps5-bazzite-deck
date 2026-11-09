@@ -1,26 +1,236 @@
-PS5 fan on 7.3.1 + rmux shitshow
+PS5 fan: the console's firmware control by default, kernel curve opt-in
 
-- No parameter re-upload at cleanup: it spun the fan up to full speed just before shutdown or reboot
+- pwm1_enable 3 = the console's firmware control on Sony's servo table (the default); 0, 1 and 2 (full,
+  manual, curve) run on the quiet table, and returning to 3, sleep and shutdown put Sony's back;
+  ps5_fan.curve=1 starts on the curve
+- no kernel emergency in firmware mode: the console handles its own temperature, as on the PS5 OS
+- a quiet table left by older kernels on consoles without a table in autoservo_param.h gets the
+  controller values all retail tables share
 ---
 diff --git a/drivers/ps5/fan.c b/drivers/ps5/fan.c
-index d5a077532..ba07eef9a 100644
+index d5a077532..1ce8178f5 100644
 --- a/drivers/ps5/fan.c
 +++ b/drivers/ps5/fan.c
-@@ -855,15 +855,14 @@ ATTRIBUTE_GROUPS(ps5_curve);
- static void ps5_fan_hwmon_cleanup(void *arg)
- {
- 	struct ps5_fan_data *data = arg;
--	int ret;
+@@ -307,10 +307,19 @@ static inline unsigned int ps5_duty_to_pwm(unsigned int duty)
+ }
  
- 	mutex_lock(&data->lock);
- 	data->suspended = true;
+ #define PS5_SERVO_SIZE 0x6ae
++#define PS5_SERVO_BLOCK 0x160
++#define PS5_SERVO_RECORD 0x20
+ #define PS5_CONTROL_INTERVAL msecs_to_jiffies(500)
+ #define PS5_PWM_FULL 0
+ #define PS5_PWM_MANUAL 1
+ #define PS5_PWM_AUTO 2
++#define PS5_PWM_FIRMWARE 3
++
++#undef MODULE_PARAM_PREFIX
++#define MODULE_PARAM_PREFIX "ps5_fan."
++static bool curve;
++module_param(curve, bool, 0444);
++MODULE_PARM_DESC(curve, "Start on the fan curve instead of the console's firmware control");
+ 
+ struct ps5_fan_data {
+ 	struct device *dev;
+@@ -328,6 +337,7 @@ struct ps5_fan_data {
+ 	unsigned int manual_pwm;
+ 	unsigned int requested_pwm;
+ 	int wire_mode;
++	bool quiet_table;
+ 	bool running;
+ 	bool filtered_valid;
+ 	bool fault;
+@@ -460,6 +470,58 @@ static void ps5_fan_prepare_backup(struct ps5_fan_data *data)
+ 	put_unaligned_le16(0, data->backup + 0x583);
+ }
+ 
++/* the controller values all retail tables in autoservo_param.h share */
++static const struct ps5_servo_override ps5_fan_retail_servo[] = {
++	{ 0, 91 * 256 },
++	{ 4, 5893 },
++	{ 8, 37 },
++	{ 12, 0x0fffffff },
++	{ 16, 0x0fffffff },
++	{ 20, 0x0fffffff },
++	{ 24, 0x0fffffff },
++	{ 28, 0x0fffffff },
++	{ 32, 0x0fffffff },
++	{ 36, 0x0fffffff },
++	{ 40, 24040 },
++	{ 56, 100 * 256 },
++	{ 60, 0 },
++	{ 64, 0 },
++	{ 68, 0 },
++};
++
++static bool ps5_fan_quiet_left(const u8 *table)
++{
++	int block, field;
++
++	for (block = 0; block < 4; block++) {
++		const u8 *record = table + block * PS5_SERVO_BLOCK + PS5_SERVO_RECORD;
++
++		for (field = 0; field < ARRAY_SIZE(ps5_fan_quiet_servo); field++)
++			if (get_unaligned_le32(record + ps5_fan_quiet_servo[field].offset) !=
++			    ps5_fan_quiet_servo[field].value)
++				return false;
++	}
++	return true;
++}
++
++static void ps5_fan_restore_retail(u8 *table)
++{
++	int block, zone, field;
++
++	for (block = 0; block < 4; block++) {
++		u8 *head = table + block * PS5_SERVO_BLOCK;
++		u8 *record = head + PS5_SERVO_RECORD;
++
++		for (zone = 1; zone < 4; zone++)
++			put_unaligned_le16(get_unaligned_le16(head + 2), head + zone * 4 + 2);
++		for (field = 0; field < ARRAY_SIZE(ps5_fan_retail_servo); field++)
++			put_unaligned_le32(ps5_fan_retail_servo[field].value,
++					   record + ps5_fan_retail_servo[field].offset);
++	}
++	put_unaligned_le32(86 * 256, table + 3 * PS5_SERVO_BLOCK + PS5_SERVO_RECORD);
++	put_unaligned_le16(0x67, table + 0x583);
++}
++
+ static bool ps5_fan_on_viola(void)
+ {
+ 	struct pci_dev *pdev = NULL;
+@@ -541,11 +603,43 @@ static void ps5_fan_fallback(struct ps5_fan_data *data)
+ 				    ret);
+ }
+ 
++static int ps5_fan_table(struct ps5_fan_data *data, bool quiet)
++{
++	int ret;
++
++	if (data->quiet_table == quiet)
++		return 0;
++	ret = icc_fan_update_param(quiet ? data->backup : data->original);
++	if (!ret)
++		data->quiet_table = quiet;
++	return ret;
++}
++
++static int ps5_fan_handback(struct ps5_fan_data *data)
++{
++	int ret;
++
++	data->wire_mode = -1;
++	ret = ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO);
++	return ps5_fan_table(data, false) ?: ret;
++}
++
+ static int ps5_fan_update_locked(struct ps5_fan_data *data)
+ {
+ 	unsigned int pwm;
+ 	int ret;
+ 
++	if (data->enable == PS5_PWM_FIRMWARE) {
++		ret = ps5_fan_table(data, false) ?: ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO);
++		if (ret)
++			goto failed;
++		data->emergency = false;
++		data->fault = false;
++		return 0;
++	}
++	ret = ps5_fan_table(data, true);
++	if (ret)
++		goto failed;
+ 	data->temp_error[0] = ps5_fan_read_temp(0, &data->temp[0]);
+ 	ret = data->temp_error[0];
+ 	if (ret && data->enable == PS5_PWM_FULL) {
+@@ -678,7 +772,7 @@ static int ps5_fan_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
+ 		goto out;
+ 	}
+ 	if (attr == hwmon_pwm_enable) {
+-		if (value < 0 || value > PS5_PWM_AUTO) {
++		if (value < 0 || value > PS5_PWM_FIRMWARE) {
+ 			ret = -EINVAL;
+ 			goto out;
+ 		}
+@@ -880,7 +974,7 @@ static int ps5_fan_hwmon_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	data->dev = &pdev->dev;
+ 	data->curve = ps5_fan_default_curve();
+-	data->enable = PS5_PWM_AUTO;
++	data->enable = curve ? PS5_PWM_AUTO : PS5_PWM_FIRMWARE;
+ 	data->wire_mode = -1;
+ 	mutex_init(&data->lock);
+ 	INIT_DELAYED_WORK(&data->work, ps5_fan_control_work);
+@@ -893,18 +987,21 @@ static int ps5_fan_hwmon_probe(struct platform_device *pdev)
+ 	ret = ps5_fan_snapshot(data);
+ 	if (ret)
+ 		return ret;
++	if (ps5_fan_quiet_left(data->original)) {
++		dev_warn(&pdev->dev, "quiet servo table from an older kernel, retail values restored\n");
++		ps5_fan_restore_retail(data->original);
++	}
+ 	duty = get_unaligned_le16(data->original + 2);
+ 	data->default_curve = ps5_fan_board_curve(ps5_duty_to_pwm(duty));
+ 	data->curve = data->default_curve;
+ 	dev_info(&pdev->dev, "servo duty 0x%04x pwm %u\n", duty,
+ 		 ps5_duty_to_pwm(duty));
+ 	ps5_fan_prepare_backup(data);
+-	ret = icc_fan_update_param(data->backup);
+-	dev_info(&pdev->dev, "quiet servo table upload: %d\n", ret);
+-	if (ret) {
+-		icc_fan_update_param(data->original);
++	/* also resets a target an older kernel left */
++	ret = icc_fan_update_param(data->original);
++	dev_info(&pdev->dev, "servo table upload: %d\n", ret);
++	if (ret)
+ 		return ret;
+-	}
+ 	ret = devm_add_action_or_reset(&pdev->dev, ps5_fan_hwmon_cleanup, data);
+ 	if (ret)
+ 		return ret;
+@@ -925,7 +1022,9 @@ static int ps5_fan_hwmon_probe(struct platform_device *pdev)
+ 	if (IS_ERR(hwmon))
+ 		return PTR_ERR(hwmon);
+ 	schedule_delayed_work(&data->work, PS5_CONTROL_INTERVAL);
+-	dev_info(&pdev->dev, "quiet fan curve enabled; configure through %s\n",
++	dev_info(&pdev->dev, "%s, Sony's target %u C; pwm1_enable 3 firmware, 2 curve: %s\n",
++		 curve ? "fan curve" : "firmware fan control",
++		 get_unaligned_le32(data->original + PS5_SERVO_RECORD) >> PS5_TARGETTEMP_SHIFT,
+ 		 dev_name(hwmon));
+ 	return 0;
+ }
+@@ -940,8 +1039,7 @@ static int ps5_fan_hwmon_suspend(struct device *dev)
  	mutex_unlock(&data->lock);
  	cancel_delayed_work_sync(&data->work);
--	ret = icc_fan_update_param(data->original);
-+	/* no parameter re-upload here: it spins the fan up before AUTO takes over (burst at shutdown) */
+ 	mutex_lock(&data->lock);
+-	data->wire_mode = -1;
+-	ret = ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO);
++	ret = ps5_fan_handback(data);
+ 	mutex_unlock(&data->lock);
+ 	if (ret) {
+ 		mutex_lock(&data->lock);
+@@ -958,14 +1056,10 @@ static int ps5_fan_hwmon_resume(struct device *dev)
+ 	int ret;
+ 
+ 	mutex_lock(&data->lock);
+-	ret = icc_fan_update_param(data->backup);
  	data->wire_mode = -1;
--	if (ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO) || ret)
-+	if (ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO))
- 		dev_err(data->dev,
- 			"original fan state could not be fully restored\n");
- }
+ 	data->filtered_valid = false;
+ 	data->suspended = false;
+-	if (!ret)
+-		ret = ps5_fan_update_locked(data);
+-	else
+-		ps5_fan_fallback(data);
++	ret = ps5_fan_update_locked(data);
+ 	mutex_unlock(&data->lock);
+ 	schedule_delayed_work(&data->work, PS5_CONTROL_INTERVAL);
+ 	return ret;
+@@ -989,8 +1083,7 @@ static void ps5_fan_hwmon_shutdown(struct platform_device *pdev)
+ 	mutex_unlock(&data->lock);
+ 	cancel_delayed_work_sync(&data->work);
+ 	mutex_lock(&data->lock);
+-	data->wire_mode = -1;
+-	if (ps5_fan_set_mode(data, PS5_FAN_MODE_AUTO))
++	if (ps5_fan_handback(data))
+ 		dev_warn(data->dev,
+ 			 "firmware auto handoff failed during shutdown\n");
+ 	mutex_unlock(&data->lock);

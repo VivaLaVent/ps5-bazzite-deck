@@ -1,0 +1,157 @@
+PS5 IW620 Bluetooth (1286:2059): repeated link key request, LL privacy (ps5-linux-patches #75)
+
+- the repeated Just Works link key request right after pairing gets the key the controller just reported
+  (ps5_iw620_linkkey=0 turns it off)
+- LL privacy and the extended LE features are hidden from the stack (ps5_iw620_le=0 turns it off)
+From ps5-linux/ps5-linux-patches c5f999d, unchanged.
+---
+diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
+index 0edb24fab..4c777c8f8 100644
+--- a/drivers/bluetooth/btusb.c
++++ b/drivers/bluetooth/btusb.c
+@@ -1141,6 +1141,12 @@ struct btusb_data {
+ 	const struct usb_device_id *match_id;
+ 
+ 	int (*recv_event)(struct hci_dev *hdev, struct sk_buff *skb);
++
++	/* PS5 IW620 link key re-request */
++	struct work_struct ps5_lk_work;
++	struct hci_cp_link_key_reply ps5_lk;
++	unsigned long ps5_lk_time;
++	bool ps5_lk_valid;
+ 	int (*recv_acl)(struct hci_dev *hdev, struct sk_buff *skb);
+ 	int (*recv_bulk)(struct btusb_data *data, void *buffer, int count);
+ 
+@@ -1376,6 +1382,107 @@ static int btusb_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
+ 	return data->recv_event(hdev, skb);
+ }
+ 
++/* PS5 IW620: extended LE connects never complete and LL privacy hides bonded devices. */
++static bool ps5_iw620_le = true;
++module_param(ps5_iw620_le, bool, 0444);
++MODULE_PARM_DESC(ps5_iw620_le,
++		 "PS5 IW620: use legacy LE and host address resolution (default: true)");
++
++/* PS5 IW620: the controller requests a new Just Works key again after pairing. */
++static bool ps5_iw620_linkkey = true;
++module_param(ps5_iw620_linkkey, bool, 0444);
++MODULE_PARM_DESC(ps5_iw620_linkkey,
++		 "PS5 IW620: answer the repeated link key request after pairing (default: true)");
++
++static int btusb_ps5_iw620_lk_sync(struct hci_dev *hdev, void *unused)
++{
++	struct btusb_data *data = hci_get_drvdata(hdev);
++	int err;
++
++	bt_dev_info(hdev, "PS5 IW620: repeated link key request for %pMR, using the new key",
++		    &data->ps5_lk.bdaddr);
++	err = __hci_cmd_sync_status(hdev, HCI_OP_LINK_KEY_REPLY,
++				    sizeof(data->ps5_lk), &data->ps5_lk,
++				    HCI_CMD_TIMEOUT);
++	memzero_explicit(data->ps5_lk.link_key, sizeof(data->ps5_lk.link_key));
++	return err;
++}
++
++static void btusb_ps5_iw620_lk_work(struct work_struct *work)
++{
++	struct btusb_data *data = container_of(work, struct btusb_data,
++					       ps5_lk_work);
++
++	if (hci_cmd_sync_submit(data->hdev, btusb_ps5_iw620_lk_sync, NULL, NULL))
++		bt_dev_err(data->hdev, "PS5 IW620: could not queue link key reply");
++}
++
++static int btusb_recv_event_ps5_iw620(struct hci_dev *hdev, struct sk_buff *skb)
++{
++	struct btusb_data *data = hci_get_drvdata(hdev);
++	struct hci_event_hdr *hdr = (void *)skb->data;
++	struct hci_ev_link_key_notify *nt;
++	struct hci_ev_link_key_req *rq;
++	struct hci_ev_cmd_complete *ev;
++	unsigned int plen;
++	u8 *rp;
++
++	if (skb->len < sizeof(*hdr))
++		goto out;
++	plen = skb->len - sizeof(*hdr);
++
++	switch (hdr->evt) {
++	case HCI_EV_CMD_COMPLETE:
++		if (!ps5_iw620_le || plen < sizeof(*ev) + 1)
++			break;
++		ev = (void *)(skb->data + sizeof(*hdr));
++		rp = (u8 *)(ev + 1);
++		if (rp[0])
++			break;
++		switch (__le16_to_cpu(ev->opcode)) {
++		case HCI_OP_LE_READ_LOCAL_FEATURES:
++			if (plen >= sizeof(*ev) + 1 + 8) {
++				rp[1 + 0] &= ~HCI_LE_LL_PRIVACY;
++				rp[1 + 1] &= ~HCI_LE_EXT_ADV;
++			}
++			break;
++		case HCI_OP_READ_LOCAL_COMMANDS:
++			/* LE Set Extended Scan Parameters, LE Extended Create Connection */
++			if (plen >= sizeof(*ev) + 1 + 38)
++				rp[1 + 37] &= ~(0x20 | 0x80);
++			break;
++		}
++		break;
++	case HCI_EV_LINK_KEY_NOTIFY:
++		if (!ps5_iw620_linkkey || plen < sizeof(*nt))
++			break;
++		nt = (void *)(skb->data + sizeof(*hdr));
++		data->ps5_lk_valid = nt->key_type == HCI_LK_UNAUTH_COMBINATION_P192 ||
++				     nt->key_type == HCI_LK_UNAUTH_COMBINATION_P256;
++		if (data->ps5_lk_valid) {
++			bacpy(&data->ps5_lk.bdaddr, &nt->bdaddr);
++			memcpy(data->ps5_lk.link_key, nt->link_key, HCI_LINK_KEY_SIZE);
++			data->ps5_lk_time = jiffies;
++		}
++		break;
++	case HCI_EV_LINK_KEY_REQ:
++		if (!ps5_iw620_linkkey || !data->ps5_lk_valid || plen < sizeof(*rq))
++			break;
++		rq = (void *)(skb->data + sizeof(*hdr));
++		data->ps5_lk_valid = false;
++		if (bacmp(&rq->bdaddr, &data->ps5_lk.bdaddr) ||
++		    time_after(jiffies, data->ps5_lk_time + 2 * HZ)) {
++			memzero_explicit(data->ps5_lk.link_key, sizeof(data->ps5_lk.link_key));
++			break;
++		}
++		schedule_work(&data->ps5_lk_work);
++		kfree_skb(skb);
++		return 0;
++	}
++out:
++	return hci_recv_frame(hdev, skb);
++}
++
+ static int btusb_recv_intr(struct btusb_data *data, void *buffer, int count)
+ {
+ 	struct sk_buff *skb;
+@@ -4716,6 +4823,16 @@ static int btusb_probe(struct usb_interface *intf,
+ 		dev_info(&intf->dev, "PS5 btusb: legacy LE command family quirks set\n");
+ 	}
+ 
++	INIT_WORK(&data->ps5_lk_work, btusb_ps5_iw620_lk_work);
++	if ((ps5_iw620_le || ps5_iw620_linkkey) &&
++	    le16_to_cpu(data->udev->descriptor.idVendor) == 0x1286 &&
++	    le16_to_cpu(data->udev->descriptor.idProduct) == 0x2059) {
++		data->recv_event = btusb_recv_event_ps5_iw620;
++		dev_info(&intf->dev, "PS5 IW620:%s%s\n",
++			 ps5_iw620_le ? " legacy LE, host address resolution;" : "",
++			 ps5_iw620_linkkey ? " link key re-request" : "");
++	}
++
+ 	if (id->driver_info & BTUSB_BROKEN_EXT_SCAN)
+ 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
+ 
+@@ -4840,6 +4957,7 @@ static void btusb_disconnect(struct usb_interface *intf)
+ 	if (data->disconnect)
+ 		data->disconnect(hdev);
+ 
++	cancel_work_sync(&data->ps5_lk_work);
+ 	hci_unregister_dev(hdev);
+ 
+ 	if (data->oob_wake_irq) {

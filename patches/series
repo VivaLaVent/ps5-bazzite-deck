@@ -1,9 +1,10 @@
-# Applied in this order on Linux 7.3.1 + rmux's shitshow linux.patch (build.sh)
+# Applied in this order on Linux 7.3.3 + rmux's shitshow linux.patch (build.sh)
 ps5-s2idle.patch           # suspend-to-idle (Dasloh, PR #4)
 ps5-display.patch          # display stack of v1.8.9/v2.1: FLAVA3 and Verde, 4K120 over FRL, 1440p, VRR
 ps5-hdmi-modes.patch       # 100 Hz and VERDE 1440p120 modes, FLAVA3 manual timings
 ps5-gpu.patch              # thermal GPU governor
-ps5-fan.patch              # no fan spike at shutdown
-ps5-fan-firmware.patch     # firmware fan control on Sony's table and target by default, kernel curve opt-in
+ps5-fan.patch              # the console's firmware fan control by default, kernel curve opt-in
 ps5-pro.patch              # PS5 Pro: Bluetooth and CPU clock as in v2.1.x
 ps5-mt7921-no-iso.patch    # MediaTek Bluetooth: no ISO setup (#71)
+ps5-iw620-bt.patch         # IW620 Bluetooth: repeated link key request, LL privacy (#75)
+ps5-dc-triplebuffer.patch  # display: no stale triple-buffer flags in full updates (#72)

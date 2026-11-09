@@ -2,6 +2,16 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.8] – unreleased
+> Pre-release. The fan on rmux's driver with one lean patch, the firewall, and upstream fixes, on top of v2.7.3.
+- **Fan: one lean patch on rmux's driver** (`patches/ps5-fan.patch`, replaces `ps5-fan-firmware.patch`): firmware control by default and the curve opt-in as before; Sony's table goes back for sleep and shutdown. Firmware mode no longer forces the fan to full at 90 °C: with Sony's 91 °C target that cycled the fan between 85 and 92 °C (Slim report). A quiet table that kernels up to v2.7.1 left in the console (a 50 °C target, also on the PS5 OS: Pro report) gets the controller values all retail tables share, and Sony's table is uploaded at every start. `target_temp` and `ps5-perf fan` removed: Linux no longer writes a target to the console
+- **Firewall starts again:** `CONFIG_NF_CONNTRACK_NETBIOS_NS=m`, the helper of firewalld's samba-client service in Fedora's default zone
+- **Linux 7.3.3** (from 7.3.1): stable fixes; none of the changed files is touched by rmux's or our patches
+- **IW620 Wi-Fi** (ps5-linux-mwifiex, now pinned at dc97cf5 instead of following `main`): its own 7.3 compat patch replaces ours; firmware still running from an earlier kernel is reset at probe (Wi-Fi after a warm reboot); an association without a response fails at once; `ext_scan=2` finds hidden networks
+- **IW620 Bluetooth** (`patches/ps5-iw620-bt.patch`, ps5-linux-patches #75): the repeated link key request after pairing is answered; LL privacy hidden from the stack (host address resolution)
+- **Display** (`patches/ps5-dc-triplebuffer.patch`, ps5-linux-patches #72): triple-buffer flags cleared before full display updates
+- **Stable is the stable release:** `:stable` is built from the stable release's tag with Bazzite's base updates; only `:beta` is built from `main`. Until now both were built from `main`, so Stable consoles also got pre-release changes (v2.7.3's compute queue, v2.7.2's `ps5-perf`) on the stable kernel
+
 ## [v2.7.3] – 2026-11-08
 > Pre-release. Async compute on the base PS5 and Slim, on top of v2.7.2.
 - **Async compute on the base PS5 and Slim** (`bootc/mesa/patches/0005-radv-ps5-compute-queue.patch`, bootc): RADV exposes the GPU's compute queue, as on the Pro. Its corruption is fixed by the async threadgroup workaround already in Borchev's patch, which DryhoppedIPA found for the BC-250 (+20 to 25% in Cyberpunk 2077 there). `AMD_PS5_COMPUTE_QUEUE=0 %command%` hides it again. His kernel patches change only ROCm's (KFD) compute contexts, which games don't use, and aren't needed

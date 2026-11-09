@@ -1,6 +1,6 @@
 name: Build bootc image
-# Weekly and by hand: :stable (stable release's kernel) and :beta (newest pre-release's kernel) from main, kernels
-# pinned in pins.env. Releases call it with their own kernel and push :<tag>.
+# Weekly and by hand: :stable from the stable release's tag and :beta from main, kernels pinned in main's pins.env.
+# Releases call it with their own kernel and push :<tag>.
 on:
   schedule:
     - cron: "41 4 * * 1"
@@ -38,6 +38,13 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
+      - name: Stable from the stable release
+        if: inputs.tag == '' && matrix.channel == 'stable'
+        run: |
+          cp pins.env "$RUNNER_TEMP/pins.env"
+          . ./pins.env
+          git checkout -q "$KERNEL_TAG"
+          cp "$RUNNER_TEMP/pins.env" pins.env
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache

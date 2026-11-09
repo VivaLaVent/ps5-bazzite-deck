@@ -1,5 +1,5 @@
 [Unit]
-Description=PS5: CPU boost and fan target (ps5-perf)
+Description=PS5: CPU boost (ps5-perf)
 After=systemd-modules-load.service
 
 [Service]
