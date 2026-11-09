@@ -51,6 +51,7 @@ jobs:
       - name: bootc-image-builder
         run: |
           . ./pins.env
+          for i in 1 2 3; do sudo podman pull -q "$BIB_IMAGE" && break; [ $i = 3 ] && exit 1; sleep $((i * 30)); done
           mkdir out
           sudo podman run --rm --privileged --security-opt label=type:unconfined_t \
             -v "$PWD/bib/config.toml:/config.toml:ro" -v "$PWD/out:/output" \
