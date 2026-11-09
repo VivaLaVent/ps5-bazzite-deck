@@ -2,6 +2,12 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.8.1] – unreleased
+> Pre-release. An 80 °C fan target and the Slim's Bluetooth address, on top of v2.8.
+- **Fan: 80 °C SoC target in firmware mode** (`patches/ps5-fan.patch`, `ps5_fan.target=`, 0 = Sony's): Sony's table stays; the target goes to the controller's current settings after every table upload and at resume, and Sony's goes back for sleep and shutdown without a table upload. Sony's 91 °C kept the SoC around 90 °C in games and for some at idle in Game Mode, above the GPU governor's limit (85 °C, Pro 80 °C) on `Tctl`. The same as v2.7.3 with `ps5-perf fan 80`, without the 90 °C emergency that made the fan cycle there. `ps5-perf status` shows `ps5_fan.target`
+- **MediaTek Bluetooth (most Slims): Linux-only address off by default** (`ps5-bt-addr`, `ps5-bt-address`, `ps5-report`): on several units it broke connections (paired, then "Connection terminated by local host"; turning it off fixed them). `ps5-bt-address on` now also writes `/etc/ps5-bazzite-deck/bt-address-on`, which switches it on there. IW620 and the Pro unchanged
+- **Disk image:** bootc-image-builder is pulled with retries before the build (quay's CDN dropped the download during v2.8's)
+
 ## [v2.8] – 2026-11-09
 > Pre-release. The fan on rmux's driver with one lean patch, the firewall, and upstream fixes, on top of v2.7.3.
 - **Fan: one lean patch on rmux's driver** (`patches/ps5-fan.patch`, replaces `ps5-fan-firmware.patch`): firmware control by default and the curve opt-in as before; Sony's table goes back for sleep and shutdown. Firmware mode no longer forces the fan to full at 90 °C: with Sony's 91 °C target that cycled the fan between 85 and 92 °C (Slim report). A quiet table that kernels up to v2.7.1 left in the console (a 50 °C target, also on the PS5 OS: Pro report) gets the controller values all retail tables share, and Sony's table is uploaded at every start. `target_temp` and `ps5-perf fan` removed: Linux no longer writes a target to the console

@@ -37,6 +37,6 @@ case "$1" in
          echo "  cpu boost: $(cat /sys/devices/system/cpu/cpufreq/boost 2>/dev/null || cat /sys/devices/system/cpu/cpufreq/policy0/boost 2>/dev/null || echo n/a), max clock $(( $(cat /sys/devices/system/cpu/cpufreq/policy0/cpuinfo_max_freq 2>/dev/null || echo 0) / 1000 )) MHz, governor $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_governor 2>/dev/null)"; fi
          H=$(for h in /sys/class/hwmon/hwmon*; do [ "$(cat $h/name 2>/dev/null)" = ps5_fan ] && echo $h && break; done)
          M=$(cat "$H/pwm1_enable" 2>/dev/null)
-         case "$M" in 0) MODE="full speed";; 1) MODE="manual";; 2) MODE="kernel curve";; 3) MODE="console firmware (default)";; *) MODE="n/a";; esac
+         case "$M" in 0) MODE="full speed";; 1) MODE="manual";; 2) MODE="kernel curve";; 3) MODE="console firmware (default), ps5_fan.target=$(cat /sys/module/ps5_fan/parameters/target 2>/dev/null)";; *) MODE="n/a";; esac
          echo "  fan control: $MODE" ;;
 esac

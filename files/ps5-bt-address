@@ -1,13 +1,14 @@
 #!/bin/sh
 # Linux's own Bluetooth address, so a DualSense keeps one pairing for the PS5 system and one for Linux.
-# On IW620 it doesn't survive a warm reboot, so restarts there go through the PS5 system.
+# Off by default on the MediaTek chip of most Slims. On IW620 it doesn't survive a warm reboot, so restarts there go through the PS5 system.
 #   ps5-bt-address on | off | status
 OFF=/etc/ps5-bazzite-deck/bt-address-off
+ON=/etc/ps5-bazzite-deck/bt-address-on
 case "$1" in
-    on)  sudo rm -f "$OFF" && echo "Linux-only Bluetooth address on from the next boot: pair your controllers with Linux once more afterwards"
+    on)  sudo mkdir -p "${ON%/*}" && sudo rm -f "$OFF" && sudo touch "$ON" && echo "Linux-only Bluetooth address on from the next boot: pair your controllers with Linux once more afterwards"
          lsusb 2>/dev/null | grep -q 1286:2059 && echo "IW620: restarts go through the PS5 system while this is on (no warm reboots)." ;;
-    off) sudo mkdir -p /etc/ps5-bazzite-deck && sudo touch "$OFF" && echo "Linux-only Bluetooth address off from the next boot: the controller keeps one pairing, shared with the PS5 system" ;;
-    *)   if [ -e "$OFF" ]; then
+    off) sudo mkdir -p "${OFF%/*}" && sudo rm -f "$ON" && sudo touch "$OFF" && echo "Linux-only Bluetooth address off from the next boot: the controller keeps one pairing, shared with the PS5 system" ;;
+    *)   if [ -e "$OFF" ] || { [ ! -e "$ON" ] && lsusb 2>/dev/null | grep -q 0e8d:3603; }; then
              echo "Linux-only Bluetooth address: off (ps5-bt-address on to switch it on)"
          else
              echo "Linux-only Bluetooth address: on"

@@ -14,7 +14,8 @@ id="$(cat "$usb/idVendor" 2>/dev/null):$(cat "$usb/idProduct" 2>/dev/null)"
 
 kernel_addr() { btmgmt --index 0 info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }'; }
 
-if [ "$id" = "0e8d:3603" ] && [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
+# MediaTek (most Slims): off by default, the address breaks connections on some units
+if [ "$id" = "0e8d:3603" ] && [ ! -e /etc/ps5-bazzite-deck/bt-address-on ]; then
     echo "MediaTek: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on)"
     exit 0
 fi
