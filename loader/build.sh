@@ -19,7 +19,7 @@ curl -fsSL -o "$WORK/sdk.zip" "https://github.com/ps5-payload-dev/sdk/releases/d
 actual=$(sha256sum "$WORK/sdk.zip" | cut -d' ' -f1)
 [ "$actual" = "$SDK_SHA256" ] || { echo "STOP: SDK sha256 mismatch: $actual"; exit 1; }
 unzip -q "$WORK/sdk.zip" -d "$WORK/sdk"
-SDK_DIR=$(find "$WORK/sdk" -maxdepth 1 -mindepth 1 -type d | head -1)
+SDK_DIR=$(find "$WORK/sdk" -maxdepth 1 -mindepth 1 -type d | sed -n 1p)
 
 echo "--- $LOADER_REPO @ $LOADER_COMMIT"
 git clone -q https://github.com/"$LOADER_REPO" "$WORK/loader"

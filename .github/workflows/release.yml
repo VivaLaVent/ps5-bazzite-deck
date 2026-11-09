@@ -87,8 +87,7 @@ jobs:
           path: out/*.rpm
 
   loader:
-    needs: [meta, disk]
-    if: always() && needs.disk.result == 'success'
+    needs: meta
     runs-on: ubuntu-24.04
     permissions:
       contents: write

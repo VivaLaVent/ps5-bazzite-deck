@@ -188,15 +188,14 @@ def main():
     ap.add_argument("--cmdline", help="check the running deployment against this kernel command line")
     a = ap.parse_args()
 
-    if os.path.exists(os.path.join(a.esp or "/boot/efi", "path-override.txt")):
-        log("path-override.txt is present: a manual rollback is in progress, leaving the partition alone")
-        return 0
-
     esp, mounted = (a.esp, False) if a.esp else mount_esp()
     if not esp:
         log("boot partition (/dev/ps5-boot) not found")
         return 1
     try:
+        if os.path.exists(os.path.join(esp, "path-override.txt")):
+            log("path-override.txt is present: a manual rollback is in progress, leaving the partition alone")
+            return 0
         booted = open(a.cmdline).read() if a.cmdline and os.path.exists(a.cmdline) else None
         return sync(a.boot, esp, a.dry_run, booted)
     finally:

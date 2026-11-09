@@ -4,7 +4,6 @@ set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES=$(cd "${PATCHES:-$SRC/patches}" && pwd)
-RELEASE="${RELEASE:-$(git -C "$SRC" describe --tags --always 2>/dev/null || echo dev)}"
 
 REPO="${REPO:-$HOME/ps5-build-7.3}"
 OLD="${OLD:-$HOME/ps5-linux-image}"

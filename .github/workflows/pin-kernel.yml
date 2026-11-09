@@ -49,8 +49,7 @@ jobs:
           [ "$CHANNEL" = beta ] || pin ""
           if [ "$CHANNEL" = beta ] || newer "$TAG" "$BETA_KERNEL_TAG"; then pin BETA_; fi
           git config user.name "github-actions[bot]"; git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet bootc/pins.env; then echo "pins unchanged"; else
-            git commit -qm "pins: $CHANNEL kernel from $TAG" bootc/pins.env
-            git pull -q --rebase && git push -q
-          fi
+          if git diff --quiet bootc/pins.env; then echo "pins unchanged, no rebuild"; exit 0; fi
+          git commit -qm "pins: $CHANNEL kernel from $TAG" bootc/pins.env
+          git pull -q --rebase && git push -q
           gh workflow run bootc-build-image.yml --repo "$GITHUB_REPOSITORY" --ref main

@@ -28,6 +28,7 @@ echo "Building $V in CI: https://github.com/VivaLaVent/ps5-bazzite-deck/actions/
 [ "$STARTED" = 1 ] || exit 0
 R=VivaLaVent/ps5-bazzite-deck; ID=
 for _ in $(seq 1 30); do ID=$(gh run list --repo "$R" --workflow release.yml --branch "$V" --limit 5 --json databaseId,headSha -q ".[] | select(.headSha==\"$(git rev-parse HEAD)\") | .databaseId" | head -1); [ -n "$ID" ] && break; sleep 5; done
+[ -n "$ID" ] || { echo "STOP: no release run for $(git rev-parse --short HEAD) after 150 s; the runner keeps running"; exit 1; }
 echo "kernel building on this PC (run $ID); the runner stops when that job is done"
 until [ "$(gh run view "$ID" --repo "$R" --json jobs -q '.jobs[] | select(.name=="kernel") | .status' 2>/dev/null)" = completed ]; do sleep 30; done
 echo "kernel job: $(gh run view "$ID" --repo "$R" --json jobs -q '.jobs[] | select(.name=="kernel") | .conclusion')"

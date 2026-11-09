@@ -7,7 +7,7 @@ B=${B:-$HOME/ps5-build-7.3}
 NAME=ps5-bazzite-deck-$REL-update; OUT=$B/output/$NAME
 rm -rf "$OUT" "$OUT.tar.xz" "$OUT.tar.xz.sha256"; mkdir -p "$OUT/efi" "$OUT/modules" "$OUT/files"
 [ -f "${FROM_BUNDLE:-}" ] || { echo "STOP: FROM_BUNDLE=<kernel parts .tar.xz> is required"; exit 1; }
-T=$(mktemp -d); tar -C "$T" -xJf "$FROM_BUNDLE"; S=$(ls -d "$T"/*/ | head -1)
+T=$(mktemp -d); tar -C "$T" -xJf "$FROM_BUNDLE"; S=$(ls -d "$T"/*/ | sed -n 1p)
 cp -a "$S/efi/." "$OUT/efi/"; cp -a "$S/modules/." "$OUT/modules/"
 [ -f "$S/files/ps5-iw620-modprobe.conf" ] && cp "$S/files/ps5-iw620-modprobe.conf" "$OUT/files/"
 K=$(cat "$S/KERNEL"); rm -rf "$T"
