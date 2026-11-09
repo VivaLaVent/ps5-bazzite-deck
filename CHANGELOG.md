@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.8] – unreleased
+## [v2.8] – 2026-11-09
 > Pre-release. The fan on rmux's driver with one lean patch, the firewall, and upstream fixes, on top of v2.7.3.
 - **Fan: one lean patch on rmux's driver** (`patches/ps5-fan.patch`, replaces `ps5-fan-firmware.patch`): firmware control by default and the curve opt-in as before; Sony's table goes back for sleep and shutdown. Firmware mode no longer forces the fan to full at 90 °C: with Sony's 91 °C target that cycled the fan between 85 and 92 °C (Slim report). A quiet table that kernels up to v2.7.1 left in the console (a 50 °C target, also on the PS5 OS: Pro report) gets the controller values all retail tables share, and Sony's table is uploaded at every start. `target_temp` and `ps5-perf fan` removed: Linux no longer writes a target to the console
 - **Firewall starts again:** `CONFIG_NF_CONNTRACK_NETBIOS_NS=m`, the helper of firewalld's samba-client service in Fedora's default zone
