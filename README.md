@@ -27,7 +27,7 @@ version is in the [changelog](CHANGELOG.md).
 PS5 Bazzite Deck is a bootc image: the whole system is one image, built and checked by GitHub Actions, the way Bazzite
 itself is made. Updates come with `sudo bootc upgrade` in a terminal, download in the background and take over at the
 next start; `sudo bootc rollback` goes back to the version before. Steam's OS Update Channel switches between **Stable**
-(the stable release's kernel) and **Beta** (the newest pre-release's); Steam's own update check finds nothing on the PS5. It starts with bazzite-bootc-loader from
+(the release marked Latest) and **Beta** (the newest pre-release); Steam's own update check finds nothing on the PS5. It starts with bazzite-bootc-loader from
 the release. More: [bootc/README.md](bootc/README.md).
 
 Installs from before v2.5 run the older **Legacy** form and update in place with the command in each release's notes.

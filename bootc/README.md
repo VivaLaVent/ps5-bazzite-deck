@@ -32,7 +32,7 @@ you swap back.
 
 ## Update channels
 
-**Settings → System → OS Update Channel** in Steam offers **Stable** (`:stable`: the kernel of the stable release) and **Beta** (`:beta`: the kernel of the newest pre-release). Both are this image with Bazzite's weekly updates; any other channel Steam shows maps to Beta. The switch takes effect at the next start.
+**Settings → System → OS Update Channel** in Steam offers **Stable** (`:stable`: the release marked Latest) and **Beta** (`:beta`: the newest pre-release). Both get Bazzite's weekly updates; any other channel Steam shows maps to Beta. The switch takes effect at the next start.
 
 ## Updating
 

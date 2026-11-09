@@ -24,4 +24,4 @@ Every X.Y release (not X.Y.Z) starts from rmux's newest kernel branch and the ne
 2. Drop what upstream has, port what conflicts, move the pins (`build.sh`: branch, commit and `KERNEL_TAG`; `loader/pins.env`).
 3. Compile the changed files, then release as a pre-release for FLAVA3, Verde, Pro and original-PS5 testers.
 
-The kernel is named `<version>-viva` (for example `7.3.1-viva`).
+The kernel is named `<version>-viva` (for example `7.3.3-viva`).
