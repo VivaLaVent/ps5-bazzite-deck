@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.10] – 2026-11-<DD>
+## [v2.10] – 2026-11-10
 > Pre-release. Switches to test which display fixes are still needed; HDR no longer offered on VERDE; USB autosuspend off on bootc.
 - **Display test switches** (`patches/ps5-hdmi-switches.patch`): `hdmi.rearm`, `hdmi.edid_keep`, `hdmi.scdc_writes`, `hdmi.sleep_mute`, all on and changeable at runtime, each turns off one delta this display stack has over rmux's tree (off, `sleep_mute` re-initialises the video setup as his tree does). `ps5-report` shows them; `docs/testing.md` has the test per switch. The ones that make no difference go; the ones that do go upstream
 - **VERDE: no HDR offered** (same patch): neither the official tree nor rmux's has an HDR setup for VERDE, nor did v1.8.9, so the TV was never told and HDR content came out washed out (reported on a Slim with an LG C2, while the Pro was fine from the same drive). FLAVA3's HDR path is unchanged since v1.8.9. The HDR Static Metadata block is dropped from the EDID on VERDE, so neither Game Mode nor the desktop switches to HDR
