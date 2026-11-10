@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs ps5-bootc-sync against fake ostree boot entries: install, user edits, upgrades, rollback.
+# Runs ps5-bootc-sync against fake ostree boot entries: install, user edits, upgrades, rollback, --is-current.
 #   tests/ps5-bootc-sync.sh
 set -euo pipefail
 SYNC=$(cd "$(dirname "$0")/.." && pwd)/system_files/usr/bin/ps5-bootc-sync
@@ -53,5 +53,21 @@ grep -o 'ostree=[^ ]*' "$B/loader/entries/ostree-c.conf" > "$T/cmdline"
 check "quiet when booted from the default" \
     "$(python3 -I "$SYNC" --boot "$B" --esp "$E" --cmdline "$T/cmdline" | grep -c 'older deployment' || true)" 0
 
+# --is-current: what the warm-reboot unit asks before loading the boot partition's kernel
+cur() { python3 -I "$SYNC" --boot "$B" --esp "$E" --is-current && echo yes || echo no; }
+check "boot partition current after a sync" "$(cur)" yes
+sed -i 's/^version 1/version 3/' "$B/loader/entries/ostree-b.conf"   # bootc rollback: b is the default again
+check "not current after a rollback, until the sync has run" "$(cur)" no
+sync
+check "rollback boots b" "$(cat "$E/bzImage")" kernel-b
+check "current again after the sync" "$(cur)" yes
+sed -i 's/^version 3/version 1/' "$B/loader/entries/ostree-b.conf"; sync
+check "back on c" "$(cat "$E/bzImage")" kernel-c
+sed -i 's/^options \(.*\)$/options \1 quiet/' "$B/loader/entries/ostree-c.conf"   # rpm-ostree kargs
+check "not current after new kernel arguments" "$(cur)" no
+sync
+check "current once they are written" "$(cur)" yes
+
 touch "$E/path-override.txt"; deployment d 3; sync
 check "hands off during a manual rollback" "$(cat "$E/bzImage")" kernel-c
+check "not current during a manual rollback" "$(cur)" no

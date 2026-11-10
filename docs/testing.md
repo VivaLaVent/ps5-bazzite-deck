@@ -23,7 +23,7 @@ release through Steam's Beta channel (or `sudo bootc upgrade`) and one Legacy in
 | Area | Check |
 | --- | --- |
 | Install | Image extracted with 7-Zip, `.img` checksum matches, flashed with balenaEtcher, first start reaches the desktop |
-| Update | Beta channel or `bootc switch` reaches the release; `sudo bootc rollback` and a power off bring the previous one back |
+| Update | Beta channel or `bootc switch` reaches the release; `sudo bootc rollback` and a power off bring the previous one back; with `ps5-warm-reboot on`, a restart after the rollback goes through the PS5 system instead of straight back into Linux |
 | Display | Desktop and Game Mode at the display's best mode; 4K120 over FRL where offered; VRR in a game; 100 Hz modes on 100 Hz displays; VERDE 1440p100/120; on FLAVA3 a non-standard EDID mode (e.g. 1080p144, ultrawide) |
 | GPU | A D3D12 game (Dragon's Dogma 2), a D3D9 game, a Vulkan game for 30 minutes each; `active_cu_number` 36, or 60 on a Pro from the second start; on a Pro, FSR4 INT8 through OptiScaler, with and without `RADV_VIOLA_ML=0` |
 | Memory | `vram.txt` 6 GB in the log (`VRAM: 6144M`); a browser and a game together without OOM |
@@ -32,6 +32,13 @@ release through Steam's Beta channel (or `sudo bootc upgrade`) and one Legacy in
 | Network | Wi-Fi connects and survives sleep; a hidden network; Ethernet; `firewall-cmd --state` says `running`; a warm reboot (`ps5-warm-reboot on`) keeps Wi-Fi and Bluetooth |
 | Session | Starts in Desktop Mode; Steam's setting switches the default to Game Mode; Switch to Desktop and back; Steam's own startup video when Game Mode starts; Steam's update check finds nothing |
 | M.2 | `ps5-m2-install`, start from the M.2, `--back` |
+
+## PS5 pairings in Linux
+
+With a DualSense paired in the PS5 system and the loader of the release:
+- Slim (Linux-only address off by default): the controller connects in Linux without pairing, and in the PS5 system afterwards; `journalctl -b -u ps5-bt-import` reports the pairings.
+- Original PS5 and Pro with the Linux-only address on (default): the import is skipped, `ps5-bt-sync.json` is gone from the boot partition, existing Linux pairings work.
+- After `ps5-bt-address off` and a restart: as on the Slim.
 
 ## Starting without a USB drive (in progress)
 

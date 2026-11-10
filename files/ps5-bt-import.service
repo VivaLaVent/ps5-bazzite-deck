@@ -1,0 +1,13 @@
+[Unit]
+Description=Import the PS5 system's Bluetooth pairings
+After=local-fs.target boot-efi.mount systemd-modules-load.service
+Before=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ps5-bt-import
+TimeoutStartSec=60
+UMask=0077
+
+[Install]
+WantedBy=bluetooth.service

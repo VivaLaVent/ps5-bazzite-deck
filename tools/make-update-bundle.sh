@@ -2,6 +2,7 @@
 # Update bundle for existing installs:   FROM_BUNDLE=<kernel parts .tar.xz> bash tools/make-update-bundle.sh vX.Y
 set -euo pipefail
 SRC=$(cd "$(dirname "$0")/.." && pwd)
+bash "$SRC/tools/fetch-bt-sync.sh"   # files/ps5-bt-sync, upstream's pairing importer
 REL=${1:?usage: make-update-bundle.sh vX.Y}
 B=${B:-$HOME/ps5-build-7.3}
 NAME=ps5-bazzite-deck-$REL-update; OUT=$B/output/$NAME
@@ -33,6 +34,9 @@ ps5-hidp.conf /etc/modules-load.d/ps5-hidp.conf
 99-ps5-usb-power.rules /etc/udev/rules.d/99-ps5-usb-power.rules
 ps5-warm-reboot /usr/local/sbin/ps5-warm-reboot 755
 ps5-bt-address /usr/local/sbin/ps5-bt-address 755
+ps5-bt-sync /usr/local/sbin/ps5-bt-sync 755
+ps5-bt-import /usr/local/sbin/ps5-bt-import 755
+ps5-bt-import.service /etc/systemd/system/ps5-bt-import.service
 ps5-report.sh /usr/local/bin/ps5-report 755
 ps5-m2-install.sh /usr/local/bin/ps5-m2-install 755
 ps5-perf /usr/local/sbin/ps5-perf 755

@@ -104,7 +104,7 @@ echo "SUMMARY: $INSTALL | $MODEL | HDMI ${HDMI:-?} | ${WIRELESS%% (*} | ${DNAME:
 
 echo; echo "=== Bluetooth"
 btmgmt info 2>/dev/null | grep -m2 -e 'addr ' -e 'current settings' | sed 's/^\s*/  /'
-for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-revive; do
+for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-import ps5-bt-revive; do
   s=$(systemctl is-active "$u" 2>/dev/null); [ "$s" = inactive ] && s=$(systemctl show -p Result --value "$u" 2>/dev/null)
   echo "  $u: $s"; journalctl -b -u "$u" --no-pager -o cat 2>/dev/null | tail -3 | sed 's/^/    /'
 done

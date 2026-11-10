@@ -24,7 +24,7 @@ jobs:
       run:
         working-directory: bootc
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
 

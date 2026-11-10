@@ -34,7 +34,7 @@ jobs:
       run:
         working-directory: bootc
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
@@ -53,7 +53,7 @@ jobs:
         run: bash tests/ps5-bootc-sync.sh
       - name: Kernel RPM from this release's build
         if: inputs.kernel_artifact != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ${{ inputs.kernel_artifact }}
           path: bootc/kernel
@@ -75,6 +75,8 @@ jobs:
       - name: Build
         id: build
         run: |
+          # upstream's pairing importer into files/ (the Stable build's tag may predate it)
+          [ ! -f ../tools/fetch-bt-sync.sh ] || bash ../tools/fetch-bt-sync.sh
           . ../loader/pins.env
           LOADER="$LOADER_REPO@${LOADER_COMMIT:0:12}+$(cat ../loader/patches/*.patch | sha256sum | cut -c1-12)"
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE

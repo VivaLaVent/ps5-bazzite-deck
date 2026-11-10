@@ -30,6 +30,8 @@ for u in ps5-stage-firmware ps5-bt-quiet ps5-stage-gpu-firmware; do
 done
 # writes to /usr/lib/firmware, read-only here; ps5-stage-viola-fw does this instead
 rm -f /etc/systemd/system/multi-user.target.wants/ps5-stage-gpu-firmware.service
+# an RPM built from patches that carry upstream's pairing importer enables it as is; ps5-bt-import gates it here
+rm -f /etc/systemd/system/bluetooth.service.wants/ps5-bt-sync.service
 
 depmod -a "$KVER"
 
@@ -70,7 +72,7 @@ cp -a "$CTX/system_files/." /
 systemctl enable \
     boot-efi.mount ps5-bootc-sync.service ps5-grow-root.service \
     ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
-    ps5-bt-revive.service ps5-perf.service ps5-stage-viola-fw.service ps5-console-defaults.service \
+    ps5-bt-revive.service ps5-bt-import.service ps5-perf.service ps5-stage-viola-fw.service ps5-console-defaults.service \
     ps5-wifi-repair.service ps5-wifi-powersave.timer \
     ps5-bootc-channel.service ps5-session-defaults.service \
     sshd.service

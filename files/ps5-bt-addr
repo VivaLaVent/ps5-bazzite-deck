@@ -145,8 +145,7 @@ print(f"chip address is now {now}", file=sys.stderr)
 print(now)
 PY
 ) || exit 0
-sudo_mkdir_saved() { mkdir -p /etc/ps5-bazzite-deck; }
-sudo_mkdir_saved
+mkdir -p /etc/ps5-bazzite-deck
 echo "$chip" > "$SAVED" 2>/dev/null || true
 
 kern=$(kernel_addr)

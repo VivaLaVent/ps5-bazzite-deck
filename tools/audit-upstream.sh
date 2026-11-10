@@ -37,3 +37,11 @@ for p in "$SRC"/loader/patches/*.patch; do
   else git -C "$W/loader" am --abort >/dev/null 2>&1; r="**conflicts**"; fi
   echo "| ${p##*/} | $r |"
 done
+
+echo; echo "## Other pins"
+C=$(sed -n 's/^COMMIT=//p' "$SRC/tools/fetch-bt-sync.sh")
+git clone -q https://github.com/ps5-linux/ps5-linux-patches "$W/official"
+echo "- pairing importer (tools/fetch-bt-sync.sh): $(git -C "$W/official" rev-list --count "$C..HEAD" -- bluetooth 2>/dev/null || echo "?") new commits to bluetooth/ upstream"
+B=$(sed -n 's/^BUILDER_COMMIT=\([0-9a-f]*\).*/\1/p' "$SRC/build.sh")
+git clone -q https://github.com/ps5-linux/ps5-linux-image "$W/builder"
+echo "- image builder (build.sh): $(git -C "$W/builder" rev-list --count "$B..HEAD" -- docker build_image.sh boot 2>/dev/null || echo "?") new commits to the kernel build"

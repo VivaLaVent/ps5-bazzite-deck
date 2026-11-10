@@ -15,8 +15,9 @@ Options you add to `cmdline.txt` yourself are kept. The previous deployment stay
 partition under `ostree/`, and `ROLLBACK.txt` there explains how to start it from a PC if the
 new one doesn't come up.
 
-After `bootc upgrade`, a restart goes back to the PS5 system (no warm reboot), and the loader
-then starts the new version.
+After `bootc upgrade`, `bootc rollback` or new kernel arguments, a restart goes back to the PS5 system even with
+warm reboots on, and the loader then starts that version: the warm reboot unit only loads the boot partition's
+kernel while that partition holds the default deployment (`ps5-bootc-sync --is-current`).
 
 ## Differences from ps5-bazzite-deck
 
@@ -35,6 +36,9 @@ ps5-linux-image does for its Bazzite target, with these differences:
 - `ps5-stage-gpu-firmware` (from the kernel package) is off: it writes to `/usr`, which is
   read-only. `ps5-stage-viola-fw` does the same job on the boot partition;
 - no repo.etawen.dev: the kernel comes with the image.
+- the PS5 pairing importer (`ps5-bt-sync`) is upstream's file from ps5-linux-patches, fetched into `files/` at a pinned
+  commit and checksum by `tools/fetch-bt-sync.sh` before the build; `ps5-bt-import` runs it only while Linux uses the
+  PS5's own Bluetooth address. An importer unit a kernel package may enable itself is off.
 - RADV (`libvulkan_radeon.so`, 64- and 32-bit) is built in a first stage of the Containerfile from the Mesa version and
   patches in `mesa/` (Terra's patches as in Bazzite's package, plus Borchev's PS5 Pro patch) against the base image's own
   libraries, then installed over Bazzite's; the build fails if it doesn't load (`ldd -r`). When Bazzite moves to another
@@ -42,9 +46,11 @@ ps5-linux-image does for its Bazzite target, with these differences:
 
 ## Pinned inputs
 
-Two builds of the same commit should give the same system, so nothing is fetched as "latest": `pins.env` holds the
-bootc-image-builder digest, the kernel RPM's name and sha256, and the loader the image was last tested with. CI fails
-when the downloaded RPM doesn't match. `KERNEL_REPO`, `KERNEL_TAG`, `KERNEL_RPM` and `KERNEL_SHA256` follow the stable release: promoting a release
+Two builds of the same commit should give the same system, so nothing is fetched as "latest". `pins.env` holds the
+bootc-image-builder digest and the kernel RPMs' names and sha256 for Stable and Beta; `mesa/pins.env` the Mesa version
+and commit; `../loader/pins.env` the loader commit and payload SDK; `../build.sh` the image builder, rmux's patches,
+the kernel tag and the Wi-Fi driver; `../tools/fetch-bt-sync.sh` the pairing importer. CI fails when a download
+doesn't match its checksum. `KERNEL_REPO`, `KERNEL_TAG`, `KERNEL_RPM` and `KERNEL_SHA256` follow the stable release: promoting a release
 (`gh release edit vX.Y --prerelease=false --latest`) runs `pin-kernel.yml`, which pins its kernel RPM. Move the
 bootc-image-builder pin on purpose, in its own commit:
 

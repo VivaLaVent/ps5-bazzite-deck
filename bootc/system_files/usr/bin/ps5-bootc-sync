@@ -101,6 +101,19 @@ def ostree_arg(cmdline):
     return next((t for t in cmdline.split() if t.startswith("ostree=")), None)
 
 
+def is_current(boot, esp):
+    """Whether the root files on the boot partition are the default deployment's, options included."""
+    entries = read_entries(boot)
+    try:
+        state = json.load(open(os.path.join(esp, STATE)))
+    except (OSError, ValueError):
+        return False
+    return (bool(entries) and state.get("default") == entry_id(entries[0])
+            and state.get("options") == entries[0].get("options", "")
+            and os.path.exists(os.path.join(esp, "bzImage"))
+            and not os.path.exists(os.path.join(esp, "path-override.txt")))
+
+
 def sync(boot, esp, dry, booted=None):
     entries = read_entries(boot)
     if not entries:
@@ -186,6 +199,8 @@ def main():
     ap.add_argument("--esp", help="the FAT partition the PS5 loader reads (found by itself)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--cmdline", help="check the running deployment against this kernel command line")
+    ap.add_argument("--is-current", action="store_true",
+                    help="exit 0 when the boot partition already holds the default deployment; changes nothing")
     a = ap.parse_args()
 
     esp, mounted = (a.esp, False) if a.esp else mount_esp()
@@ -193,6 +208,8 @@ def main():
         log("boot partition (/dev/ps5-boot) not found")
         return 1
     try:
+        if a.is_current:
+            return 0 if is_current(a.boot, esp) else 1
         if os.path.exists(os.path.join(esp, "path-override.txt")):
             log("path-override.txt is present: a manual rollback is in progress, leaving the partition alone")
             return 0

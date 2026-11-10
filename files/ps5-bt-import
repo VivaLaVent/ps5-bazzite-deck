@@ -1,0 +1,15 @@
+#!/bin/sh
+# Controllers paired in the PS5 system connect in Linux without pairing: the loader exports the PS5's pairing keys
+# beside the initrd, and this hands them to BlueZ before Bluetooth starts. Not with the Linux-only Bluetooth
+# address on: the keys belong to the PS5's address, and importing them would replace working Linux pairings.
+B=
+for d in /boot/efi /efi; do [ -f "$d/ps5-bt-sync.json" ] && B=$d && break; done
+[ -n "$B" ] || { echo "no pairing export from the loader"; exit 0; }
+if /usr/local/sbin/ps5-bt-address is-on; then
+    rm -f "$B/ps5-bt-sync.json"
+    echo "Linux-only Bluetooth address is on: PS5 pairings not imported (ps5-bt-address off to share them)"
+    exit 0
+fi
+i=0; while [ ! -e /sys/class/bluetooth/hci0 ] && [ "$i" -lt 20 ]; do sleep 1; i=$((i + 1)); done
+printf '[sync]\nboot_directory = %s\n' "$B" > /run/ps5-bt-sync.conf
+exec /usr/local/sbin/ps5-bt-sync --config /run/ps5-bt-sync.conf

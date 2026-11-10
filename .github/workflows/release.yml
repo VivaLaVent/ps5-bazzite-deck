@@ -30,7 +30,7 @@ jobs:
     outputs:
       tag: ${{ steps.m.outputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - id: m
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,7 +53,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
       - name: Kernel RPM already on the release
@@ -81,7 +81,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.meta.outputs.tag }}
         run: gh release upload "$TAG" out/*.rpm --clobber
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: kernel-rpm
           path: out/*.rpm
@@ -92,7 +92,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.meta.outputs.tag }}
       - run: sudo apt-get install -yq clang-18 lld-18 build-essential binutils xxd
@@ -138,7 +138,7 @@ jobs:
       packages: read
     steps:
       # scripts from the commit that runs this, so a resume run ships fixes made after tagging
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # pulling the image unpacks every layer, the base image's own kernel included: more than the runner's free space
       - name: Free disk space
         run: |
@@ -187,7 +187,7 @@ jobs:
       contents: write
       actions: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Release notes with every file
         env:
           GH_TOKEN: ${{ github.token }}

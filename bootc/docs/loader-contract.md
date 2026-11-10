@@ -18,6 +18,7 @@ and in the release notes.
 | `path-override.txt` | loader | absent normally. Its presence means a manual rollback: `bzImage=ostree/<id>/vmlinuz` and `initrd.img=ostree/<id>/initramfs.img`, and `ps5-bootc-sync` leaves the partition alone |
 | `ROLLBACK.txt` | you | how to start the previous deployment from a PC |
 | `lib/` | Linux | Wi-Fi and PS5 Pro GPU firmware the loader dumps next to the `initrd.img` it loaded |
+| `ps5-bt-sync.json` | `ps5-bt-import` | written by the loader at every start next to the `initrd.img` it loaded: the PS5 system's active Bluetooth pairings, with their keys. Imported into BlueZ and deleted before Bluetooth starts; deleted without import while the Linux-only Bluetooth address is on |
 | `.ps5-bootc-sync.json` | `ps5-bootc-sync` | which deployment the root files belong to, and the options it wrote |
 
 Two limits of the loader matter here. The standard loader's `path-override.txt` redirects `bzImage` and

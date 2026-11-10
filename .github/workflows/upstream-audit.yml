@@ -12,5 +12,5 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: bash tools/audit-upstream.sh "$RUNNER_TEMP/audit" | tee -a "$GITHUB_STEP_SUMMARY"

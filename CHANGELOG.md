@@ -2,6 +2,16 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.9] – 2026-11-<DD>
+> Pre-release. Controllers paired in the PS5 system connect in Linux without pairing; compute through KFD; newer image builder.
+- **PS5 pairings in Linux** (`loader/patches/0004`, ps5-linux-loader #97 by Slip; `ps5-bt-import`, `tools/fetch-bt-sync.sh`): the loader writes the PS5 system's active Bluetooth pairings to `ps5-bt-sync.json` next to the initrd at every start, and upstream's importer (`bluetooth/ps5-bt-sync` from ps5-linux-patches, fetched at a pinned commit and checksum, not kept in this repository) merges them into BlueZ before Bluetooth starts. The export carries no adapter address, so `ps5-bt-import` runs the importer only while Linux uses the PS5's own address and deletes the handoff otherwise: with the Linux-only address on, the PS5's keys would replace working Linux pairings. `ps5-bt-address is-on` gives that state as an exit status. Not for boot files on the console's own storage (`ps5-m2-install --boot`), where Linux can't read the handoff
+- **Compute through KFD (ROCm/HIP, OpenCL)** (`patches/ps5-gfx1013-kfd-tlb.patch`, ps5-linux-patches #57 by Tertium and #77 by Sergey): the GFX1013 PASID TLB flush, which rmux's tree had dropped, with the fix that flushes every KFD VMID when the PS5 maps none; stale translations caused page faults and lost writes. Games (Vulkan) don't use KFD
+- **Image builder at `7ab490a`** (was `52db0a4`): it now applies the Wi-Fi driver's patches for this kernel, sets `ext_scan=2` and keeps objtool itself, so `build.sh` only pins the driver commit; its patches mount, unused by the builder all along, is gone. An importer unit a future kernel RPM may enable is switched off in the image (`ps5-bt-import` gates it)
+- **Warm reboots and `bootc rollback`** (`ps5-bootc-sync --is-current`, bootc drop-in of `ps5-kexec-prepare`): with warm reboots on, a restart after a rollback or after new kernel arguments came back on the deployment that was running, because the kernel was loaded from the boot partition before the sync rewrote it at shutdown. The unit now only loads it while the boot partition holds the default deployment; otherwise the restart goes through the PS5 system and the loader
+- `ps5-report` shows the pairing import; the weekly upstream audit reports new upstream commits for the importer and the builder
+- Workflows: `actions/checkout` v7, `upload-artifact` v7, `download-artifact` v8
+- `ps5-bt-addr`: `mkdir` without the one-use function
+
 ## [v2.8.1] – 2026-11-09
 > Pre-release. An 80 °C fan target and the Slim's Bluetooth address, on top of v2.8.
 - **Fan: 80 °C SoC target in firmware mode** (`patches/ps5-fan.patch`, `ps5_fan.target=`, 0 = Sony's): Sony's table stays; the target goes to the controller's current settings after every table upload and at resume, and Sony's goes back for sleep and shutdown without a table upload. Sony's 91 °C kept the SoC around 90 °C in games and for some at idle in Game Mode, above the GPU governor's limit (85 °C, Pro 80 °C) on `Tctl`. The same as v2.7.3 with `ps5-perf fan 80`, without the 90 °C emergency that made the fan cycle there. `ps5-perf status` shows `ps5_fan.target`

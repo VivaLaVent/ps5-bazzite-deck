@@ -7,7 +7,7 @@ PATCHES=$(cd "${PATCHES:-$SRC/patches}" && pwd)
 
 REPO="${REPO:-$HOME/ps5-build-7.3}"
 OLD="${OLD:-$HOME/ps5-linux-image}"
-BUILDER_COMMIT=52db0a4
+BUILDER_COMMIT=7ab490a
 PATCHES_BRANCH=shitshow
 KERNEL_TAG=v7.3.3
 MWIFIEX_COMMIT=dc97cf5
@@ -22,21 +22,11 @@ git checkout -q "$BUILDER_COMMIT"
 [ -d "$OLD/cache" ] && cp -r "$OLD/cache" cache && echo "    reusing download cache from $OLD/cache"
 
 echo "==> 2. builder fixes"
-# 2a. mount the patches into the kernel build container (both kernel docker runs)
-sed -i 's#-v "$KERNEL_SRC":/src \\#-v "$KERNEL_SRC":/src -v "'"$REPO"'/work/ps5-linux-patches":/ps5-linux-patches:ro \\#' build_image.sh
-[ "$(grep -c 'ps5-linux-patches:ro' build_image.sh)" = 2 ] || { echo "mount edit failed"; exit 1; }
-# 2b. Wi-Fi driver: ps5-linux-mwifiex at a fixed commit, its patches after kernel71 in its install.sh's order
-#     (each line lands above the previous); ext_scan=2 finds hidden networks
+# 2a. Wi-Fi driver: ps5-linux-mwifiex at a fixed commit; the builder applies its patches and sets ext_scan=2
 B=docker/kernel-builder/build.sh
 sed -i 's/MWIFIEX_REF:-main/MWIFIEX_REF:-'"$MWIFIEX_COMMIT"'/; s/^git -C "$PS5_MW" checkout "$MWIFIEX_REF" 2>\/dev\/null || true$/git -C "$PS5_MW" checkout -q "$MWIFIEX_REF"/' "$B"
-for p in fresh-fw tx-priority tx-min128 he rtnl-bounded-wait kernel73-compat kernel72-compat; do
-    sed -i '/ps5-iw620-kernel71-compat.patch"$/a git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-'"$p"'.patch"' "$B"
-done
-sed -i 's/ ext_scan=1 / ext_scan=2 /' "$B"
-# keep objtool processing for the out-of-tree driver (mwifiex); removes the return-thunk warning at boot
-sed -i 's#make -C "$NXP_MW" CONFIG_OBJTOOL= KERNELDIR=/src#make -C "$NXP_MW" PWD="$NXP_MW" KERNELDIR=/src#' "$B"
-grep -q "checkout -q \"\$MWIFIEX_REF\"" "$B" && grep -q "ps5-iw620-fresh-fw.patch" "$B" && grep -q " ext_scan=2 " "$B" && ! grep -q "CONFIG_OBJTOOL=" "$B" || { echo "wifi patch edit failed"; exit 1; }
-# 2c. video=DP-1:1920x1080@60 is rejected by the kernel on every connector probe ("User-defined mode not supported"); drop it
+grep -q "checkout -q \"\$MWIFIEX_REF\"" "$B" && grep -q "ps5-iw620-fresh-fw.patch" "$B" && grep -q " ext_scan=2 " "$B" && ! grep -q "CONFIG_OBJTOOL=" "$B" || { echo "wifi driver edit failed"; exit 1; }
+# 2b. video=DP-1:1920x1080@60 is rejected by the kernel on every connector probe ("User-defined mode not supported"); drop it
 sed -i 's/ video=DP-1:1920x1080@60//' boot/cmdline.txt
 grep -q 'video=' boot/cmdline.txt && { echo 'cmdline edit failed'; exit 1; }
 
