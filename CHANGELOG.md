@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.9] – 2026-11-<DD>
+## [v2.9] – 2026-11-10
 > Pre-release. Controllers paired in the PS5 system connect in Linux without pairing; compute through KFD; newer image builder.
 - **PS5 pairings in Linux** (`loader/patches/0004`, ps5-linux-loader #97 by Slip; `ps5-bt-import`, `tools/fetch-bt-sync.sh`): the loader writes the PS5 system's active Bluetooth pairings to `ps5-bt-sync.json` next to the initrd at every start, and upstream's importer (`bluetooth/ps5-bt-sync` from ps5-linux-patches, fetched at a pinned commit and checksum, not kept in this repository) merges them into BlueZ before Bluetooth starts. The export carries no adapter address, so `ps5-bt-import` runs the importer only while Linux uses the PS5's own address and deletes the handoff otherwise: with the Linux-only address on, the PS5's keys would replace working Linux pairings. `ps5-bt-address is-on` gives that state as an exit status. Not for boot files on the console's own storage (`ps5-m2-install --boot`), where Linux can't read the handoff
 - **Compute through KFD (ROCm/HIP, OpenCL)** (`patches/ps5-gfx1013-kfd-tlb.patch`, ps5-linux-patches #57 by Tertium and #77 by Sergey): the GFX1013 PASID TLB flush, which rmux's tree had dropped, with the fix that flushes every KFD VMID when the PS5 maps none; stale translations caused page faults and lost writes. Games (Vulkan) don't use KFD
