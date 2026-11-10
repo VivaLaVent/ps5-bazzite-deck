@@ -52,53 +52,73 @@ VSET=; [[ ${VTXT#0x} =~ ^[0-9a-fA-F]{1,12}$ ]] && VSET=$(( 16#${VTXT#0x} / 10485
 
 C=; [ -t 1 ] && C=1
 {
-OSN=$(. /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-?}")
-K=; R=; [ -n "$C" ] && K=$'\e[94m' R=$'\e[0m'
-kv() { printf '%s%s %-10s%s %s' "$K" "$1" "$2" "$R" "$3"; }
-INFO=(
-  "${K}$(whoami)${R:+$'\e[97m'}@${R:+$'\e[95m'}$(hostname)$R"
-  ""
-  "$(kv 󱋩 Install "$INSTALL")"
-  "$(kv 󰣛 OS "$OSN")"
-  "$(kv  Kernel "$(uname -r)")"
-  "$(kv 󰅐 Boot "$( [ "$WARM" -gt 0 ] && echo "warm reboot" || echo "cold start"), up $(uptime -p | sed 's/^up //')")"
-  ""
-  "$(kv 󰐔 Console "$MODEL${GPU:+ (GPU $GPU)}")"
-  "$(kv 󰡁 'HDMI chip' "${HDMI:-unknown (not logged this boot)}")"
-  "$(kv 󰍹 Display "${DNAME:-?} on ${CON:-nothing connected}${MODE:+, $MODE}${VRR:+, VRR $VRR}")"
-  "$(kv 󰍛 VRAM "${VUSE:-?} MB in use${VSET:+, vram.txt ${VSET} MB}$( [ -n "$VSET" ] && [ -n "$VUSE" ] && [ "$VSET" != "$VUSE" ] && echo " (applies at the next start with the loader)")")"
-  "$(kv 󰋊 'System on' "${ROOT:-?}")"
-  ""
-  "$(kv 󰘚 Wireless "$WIRELESS")"
-  "$(kv 󰖩 Wi-Fi "${WIFI:-no Wi-Fi device}")"
-  "$(kv 󰂯 Bluetooth "$BT")"
-  ""
-  "$( [ -n "$C" ] && { printf '  '; for c in 30 31 32 33 34 35 36 37; do printf '\e[%sm● ' "$c"; done; printf '\e[0m'; })"
+REL=$(sed -n 's/^deck=//p' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null); [ -n "$REL" ] || REL=$(sed 's/.*ps5-bazzite-deck //; s/)$//' /etc/ps5-bazzite-deck-version 2>/dev/null)
+FH=; for h in /sys/class/hwmon/hwmon*; do [ "$(cat "$h/name" 2>/dev/null)" = ps5_fan ] && FH=$h && break; done
+case "$(cat "$FH/pwm1_enable" 2>/dev/null)" in
+  3) T=$(cat /sys/module/ps5_fan/parameters/target 2>/dev/null); [ "$T" = 0 ] && T="Sony's"; FAN="firmware control${T:+, target $T °C}" ;;
+  2) FAN="kernel curve" ;; 1) FAN="manual" ;; 0) FAN="full speed" ;; *) FAN="?" ;;
+esac
+ST=$(cat "$FH/temp1_input" 2>/dev/null); [ -n "$ST" ] && FAN="$FAN, SoC $((ST / 1000)) °C"
+P=/sys/module/hdmi/parameters; SW=
+for f in rearm edid_keep scdc_writes sleep_mute; do [ "$(cat $P/$f 2>/dev/null)" = N ] && SW="$SW $f=off"; done
+FIELDS=(
+  "󱋩|Install|$INSTALL"  "󰏗|Release|${REL:-?}"  "|Kernel|$(uname -r)"
+  "󰅐|Boot|$( [ "$WARM" -gt 0 ] && echo "warm reboot" || echo "cold start"), up $(uptime -p | sed 's/^up //')"  "-"
+  "󰐔|Console|$MODEL${GPU:+ (GPU $GPU)}"  "󰡁|HDMI chip|${HDMI:-unknown (not logged this boot)}"
+  "󰍹|Display|${DNAME:-?} on ${CON:-nothing connected}${MODE:+, $MODE}${VRR:+, VRR $VRR}"
+  "󰍛|VRAM|${VUSE:-?} MB in use${VSET:+, vram.txt ${VSET} MB}$( [ -n "$VSET" ] && [ -n "$VUSE" ] && [ "$VSET" != "$VUSE" ] && echo " (applies at the next start with the loader)")"
+  "󰋊|System on|${ROOT:-?}"  "-"
+  "󰘚|Wireless|$WIRELESS"  "󰖩|Wi-Fi|${WIFI:-no Wi-Fi device}"  "󰂯|Bluetooth|$BT"  "󰈐|Fan|$FAN"
 )
-LOGO=(
-  '%%%%%                %%%%%'
-  ' %%%%%%%          %%%%%%% '
-  '   %%%%%%%|####|%%%%%%%   '
-  '     %%%%%|####|%%%%%     '
-  '     %%%%%|####|%%%%%     '
-  '     %%%%%|####|%%%%%     '
-  '     %%%%%|####|%%%%%     '
-  '     %%%%%|####|%%%%%     '
-  '     %%%%%|####|%%%%%     '
-  '     %%%%%|####|%%%%%     '
-  '     %%%%%|####|%%%%%     '
-  '      %%%%|####|%%%%      '
-  '      %%%%|####|%%%%      '
-  '       %%%|####|%%%       '
-  '          |####|          '
-  '        ==========        '
-  '                          '
-)
-for i in "${!LOGO[@]}"; do
-  l=${LOGO[$i]}
-  [ -n "$C" ] && l=$(sed -E $'s/%+/\e[97m&/g; s/#+/\e[90m&/g; s/\\|/\e[94m|/g; s/=+/\e[37m&/g' <<< "$l")$'\e[0m'
-  printf '  %s   %s\n' "$l" "${INFO[$i]:-}"
-done
+[ -n "$SW" ] && FIELDS+=("󰒓|Switches|${SW# }")
+LOGOF=/usr/share/ps5-bazzite-deck/fastfetch-logo.txt; [ -r "$LOGOF" ] || LOGOF=/usr/local/share/ps5-bazzite-deck/fastfetch-logo.txt
+TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
+[ -r "$LOGOF" ] || { LOGOF=$TMPD/logo.txt; cat > "$LOGOF" << 'LOGO'
+
+     $1%%%%%%%%%%%%%%%%%%%%
+   $1%%%%%%%%%%%%%$2██$1%%%%%%%%%%%
+  $1%%%%%%%%%%%%%%$2███████$1%%%%%%%%
+  $1%%%%%%%%%%%%%%$2█████$1%$2███$1%%%%%$3###
+  $1%%%%%%%%%%%%%%$2█████$1%$2████$1%%$3######
+  $1%%%%%%%%%%%%%%$2█████$1%$2█████$1%$3#######
+  $1%%%%%%%%%%%%%%$2█████$1%$2██████$3########
+  $1%%%%%%%%%%%%%%$2█████$1%$2██████$3#########
+  $1%%%%%%%%%%%%%%$2█████$3#$2██████$3#########
+  $1%%%%%%%%%%%$2██$1%$2█████$3#$2███$3############
+  $1%%%%%%%%$2█████$1%$2█████$3####$2██████$3######
+  $1%%%%%$2█████$1%$3###$2█████$3#$2████$3####$2████$3###
+   $1%%$2█████$1%%%$2██$3#$2█████$3#$2██$3##$2████████$3##
+    $1%%%%$2███████$3#$2█████$3####$2██████$3####
+     $1%%%%$3#$2█████$3#$2█████$3#$2██████$3######
+      $1%$3###########$2███$3#$2███$3########
+        $3#######################
+          $3###################
+              $3###########
+LOGO
+truncate -s -1 "$LOGOF"; }
+if command -v fastfetch > /dev/null; then
+  # the first block as fastfetch draws it, with Bazzite's layout and colours, and PS5 lines instead of the hardware ones
+  # each value in a file of its own: fastfetch only cats a fixed path, so nothing in a value is interpreted
+  printf '%s\n' "${FIELDS[@]}" | python3 -c '
+import json, os, sys
+d, logo = sys.argv[1], sys.argv[2]
+mods = [{"type": "title", "key": " ", "color": {"user": "light_blue", "at": "white", "host": "magenta"}}, "break"]
+for n, line in enumerate(sys.stdin.read().splitlines()):
+    if line == "-":
+        mods.append("break"); continue
+    icon, key, value = line.split("|", 2)
+    open(os.path.join(d, f"v{n}"), "w", encoding="utf-8").write(value)
+    mods.append({"type": "command", "key": f" {icon} {key:<10}", "text": "cat " + os.path.join(d, f"v{n}")})
+mods += ["break", {"type": "colors", "paddingLeft": 2, "symbol": "circle"}]
+print(json.dumps({"logo": {"type": "file", "source": logo,
+    "color": {"1": "94", "2": "97", "3": "95", "4": "0", "5": "8", "6": "55"}},
+    "display": {"separator": "  ", "color": {"keys": "light_blue"}}, "modules": mods}, ensure_ascii=False))
+' "$TMPD" "$LOGOF" > "$TMPD/report.jsonc"
+  ACC=$(/usr/libexec/bazzite-bling-fastfetch 2>/dev/null)
+  fastfetch --pipe "$([ -n "$C" ] && echo false || echo true)" ${ACC:+--color "$ACC"} -c "$TMPD/report.jsonc"
+else
+  for f in "${FIELDS[@]}"; do [ "$f" = - ] && { echo; continue; }; IFS='|' read -r _ n v <<< "$f"; printf '  %-11s %s\n' "$n" "$v"; done
+fi
 echo
 echo "SUMMARY: $INSTALL | $MODEL | HDMI ${HDMI:-?} | ${WIRELESS%% (*} | ${DNAME:-?} ${MODE:-} | VRAM ${VUSE:-?}M | $(uname -r) | ${ROOT:-?}"
 

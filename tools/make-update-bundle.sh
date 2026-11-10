@@ -39,6 +39,8 @@ ps5-bt-import /usr/local/sbin/ps5-bt-import 755
 ps5-bt-import.service /etc/systemd/system/ps5-bt-import.service
 ps5-report.sh /usr/local/bin/ps5-report 755
 ps5-m2-install.sh /usr/local/bin/ps5-m2-install 755
+ps5-fastfetch-logo.txt /usr/local/share/ps5-bazzite-deck/fastfetch-logo.txt
+ps5-fastfetch.sh /etc/profile.d/zz-ps5-fastfetch.sh
 ps5-perf /usr/local/sbin/ps5-perf 755
 ps5-perf.service /etc/systemd/system/ps5-perf.service
 ps5-stage-viola-fw /usr/local/sbin/ps5-stage-viola-fw 755
