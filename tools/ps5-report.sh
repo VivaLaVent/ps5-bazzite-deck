@@ -71,9 +71,9 @@ FIELDS=(
   "󰘚|Wireless|$WIRELESS"  "󰖩|Wi-Fi|${WIFI:-no Wi-Fi device}"  "󰂯|Bluetooth|$BT"  "󰈐|Fan|$FAN"
 )
 [ -n "$SW" ] && FIELDS+=("󰒓|Switches|${SW# }")
-LOGOF=/usr/share/ps5-bazzite-deck/fastfetch-logo.txt; [ -r "$LOGOF" ] || LOGOF=/usr/local/share/ps5-bazzite-deck/fastfetch-logo.txt
 TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
-[ -r "$LOGOF" ] || { LOGOF=$TMPD/logo.txt; cat > "$LOGOF" << 'LOGO'
+LOGOF=$TMPD/logo.txt
+cat > "$LOGOF" << 'LOGO'
 
      $1%%%%%%%%%%%%%%%%%%%%
    $1%%%%%%%%%%%%%$2██$1%%%%%%%%%%%
@@ -95,7 +95,7 @@ TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
           $3###################
               $3###########
 LOGO
-truncate -s -1 "$LOGOF"; }
+truncate -s -1 "$LOGOF"
 if command -v fastfetch > /dev/null; then
   # the first block as fastfetch draws it, with Bazzite's layout and colours, and PS5 lines instead of the hardware ones
   # each value in a file of its own: fastfetch only cats a fixed path, so nothing in a value is interpreted
