@@ -1,0 +1,165 @@
+PS5 HDMI: test switches for the display deltas; no HDR offered on VERDE
+
+- hdmi.rearm, hdmi.edid_keep, hdmi.scdc_writes, hdmi.sleep_mute (all on, 0644): each turns one of the deltas
+  this display stack has over rmux's tree off, to find out on which TVs they are still needed. Off, re-arm
+  doesn't set the picture up again when the same display re-announces itself, an invalid EDID replaces the
+  previous one, TMDS_Config and Source Version are only written when scrambling needs them, and an output going
+  down re-initialises the video setup as in rmux's tree.
+- VERDE: the HDR Static Metadata block is dropped from the EDID. No tree has an HDR setup for VERDE, so the TV
+  was never told about HDR and PQ content came out washed out; without the block nothing switches to HDR.
+---
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+index 6b87bd881..23a1e8ce6 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -5468,9 +5468,11 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+ 					sceHdmiSetVrrMode(ps5_hdmi_vrr_possible() &&
+ 							  dm_new_crtc_state->freesync_config.state == VRR_STATE_ACTIVE_VARIABLE);
+ 					sceHdmiInitVideoConfig();
+-				} else {
++				} else if (ps5_hdmi_sleep_mute()) {
+ 					/* Output going down: stay muted and leave HDR, or the TV flickers until the picture returns. */
+ 					sceHdmiSetHdrConfig(NULL, false);
++				} else {
++					sceHdmiInitVideoConfig();
+ 				}
+ 			}
+ 		}
+diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
+index 0593cf134..a0c878f6c 100755
+--- a/drivers/ps5/hdmi.c
++++ b/drivers/ps5/hdmi.c
+@@ -129,6 +129,25 @@ static u8 dp_ch_swap;
+ static bool scrambling;
+ static bool sink_scdc;		/* the sink's EDID has an HDMI Forum VSDB with SCDC */
+ 
++static bool rearm = true;
++module_param(rearm, bool, 0644);
++MODULE_PARM_DESC(rearm, "Set the picture up again when the same display re-announces itself (default on; test switch)");
++static bool edid_keep = true;
++module_param(edid_keep, bool, 0644);
++MODULE_PARM_DESC(edid_keep, "Keep the previous EDID when an announced one is invalid (default on; test switch)");
++static bool scdc_writes = true;
++module_param(scdc_writes, bool, 0644);
++MODULE_PARM_DESC(scdc_writes, "Write SCDC Source Version and TMDS_Config to every SCDC sink (default on; test switch)");
++static bool sleep_mute = true;
++module_param(sleep_mute, bool, 0644);
++MODULE_PARM_DESC(sleep_mute, "Stay muted and leave HDR when the output goes down (default on; test switch)");
++
++bool ps5_hdmi_sleep_mute(void)
++{
++	return READ_ONCE(sleep_mute);
++}
++EXPORT_SYMBOL(ps5_hdmi_sleep_mute);
++
+ /*
+  * SCDC sink: an HF-VSDB with SCDC_Present, or 4K / 4:2:0-only modes (an HDMI 2.x TV
+  * showing its HDMI 1.4 EDID still lists those and needs the Source Version to come back).
+@@ -1179,7 +1198,7 @@ static void setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+ 	i2c_begin_block();
+ 	i2c_write(0x7a8b, 0x05);
+ 	i2c_end_block();
+-	if (sink_scdc) {
++	if (sink_scdc && READ_ONCE(scdc_writes)) {
+ 		/*
+ 		 * Source Version 1, as HDMI 2.x sources write it: some TVs only show their HDMI 2.x EDID then.
+ 		 * 0x7a80 is the bridge's DDC write: SCDC address, register, length-1, start.
+@@ -1192,12 +1211,12 @@ static void setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+ 	}
+ 	/* TMDS_Config for every SCDC sink, 0x00 at low rates too, as a PC does: some TVs fall back to HDMI 1.4 otherwise. */
+ 	i2c_begin_block();
+-	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || sink_scdc) {
++	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || (sink_scdc && READ_ONCE(scdc_writes))) {
+ 		i2c_write(0x7c00, (vic == 97 || hdmi_mode_is_hi_rate(mode)) ? 0x03 : 0x00);
+ 		i2c_write_data(0x7a80, (u8[]){0xa8, 0x20, 0x00, 0x80}, 4);
+ 	}
+ 	i2c_end_block();
+-	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || sink_scdc) {
++	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || (sink_scdc && READ_ONCE(scdc_writes))) {
+ 		i2c_waitclear(0x7a84, 0x01);
+ 	}
+ 	scrambling = vic == 97 || hdmi_mode_is_hi_rate(mode);
+@@ -1219,6 +1238,7 @@ static void setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+  */
+ static bool vrr = true;
+ module_param(vrr, bool, 0444);
++
+ MODULE_PARM_DESC(vrr, "VRR on FLAVA3 consoles: offer the TV's VRR range, switched with Steam's VRR setting (default on; 0 never offers it)");
+ 
+ #define VRR_FOLLOW_STEP_MS	250	/* between the follow steps (tested up to 1000) */
+@@ -2109,6 +2129,36 @@ static void fix_edid(u8 *edid)
+ 	edid[0x7f] = -sum & 0xff;
+ }
+ 
++/* VERDE has no HDR setup: without the HDR Static Metadata block nothing switches to an HDR output the TV never learns of. */
++static void verde_drop_hdr(u8 *e, int len)
++{
++	int ext = len >= EDID_LENGTH ? e[0x7e] : 0, x, i, j;
++
++	for (x = 1; x <= ext && (x + 1) * EDID_LENGTH <= len; x++) {
++		u8 *b = e + x * EDID_LENGTH;
++		u8 d = b[2];
++		u32 sum = 0;
++
++		if (b[0] != 0x02 || d < 4 || d > 127)
++			continue;
++		for (i = 4; i < d; i += (b[i] & 0x1f) + 1) {
++			int n = (b[i] & 0x1f) + 1;
++
++			if (i + n > d)
++				break;
++			if (b[i] >> 5 != 7 || n < 2 || b[i + 1] != 0x06)
++				continue;
++			memmove(b + i, b + i + n, 127 - i - n);
++			memset(b + 127 - n, 0, n);
++			b[2] = d -= n;
++			for (j = 0; j < 127; j++)
++				sum += b[j];
++			b[127] = -sum & 0xff;
++			break;
++		}
++	}
++}
++
+ static DEFINE_MUTEX(hotplug_lock);
+ static void (*hotplug_handler)(void *data);
+ static void *hotplug_data;
+@@ -2324,6 +2374,8 @@ void hdmi_notification_handler(struct icc_msg *msg)
+ 				u8 byte0 = msg->data[4];
+ 
+ 				fix_edid(&msg->data[4]);
++				if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3)
++					verde_drop_hdr(&msg->data[4], length);
+ 				frl_note_edid(byte0, &msg->data[4], length);
+ 			}
+ 			edid = drm_edid_alloc(&msg->data[4], length);
+@@ -2331,7 +2383,7 @@ void hdmi_notification_handler(struct icc_msg *msg)
+ 			 * A short or broken announcement (display power changes) must not replace the EDID: the next
+ 			 * detection would get the bridge's own, a "generic display" with 1080p only.
+ 			 */
+-			if (!edid || !drm_edid_valid(edid)) {
++			if (!edid || (READ_ONCE(edid_keep) && !drm_edid_valid(edid))) {
+ 				drm_edid_free(edid);
+ 				pr_info_ratelimited("ignored an invalid EDID announcement, keeping the previous EDID\n");
+ 				goto notify_cec;
+@@ -2367,7 +2419,7 @@ void hdmi_notification_handler(struct icc_msg *msg)
+ 			if (other) {
+ 				cancel_delayed_work(&rearm_work);
+ 				pr_info("different display, re-arm skipped\n");
+-			} else {
++			} else if (READ_ONCE(rearm)) {
+ 				rearm_announce = ktime_get();
+ 				mod_delayed_work(system_dfl_wq, &rearm_work,
+ 						 msecs_to_jiffies(REARM_SETTLE_MS));
+diff --git a/include/linux/ps5.h b/include/linux/ps5.h
+index 1b5e88574..ab8704397 100755
+--- a/include/linux/ps5.h
++++ b/include/linux/ps5.h
+@@ -111,6 +111,7 @@ struct ps5_usbc_state {
+ 
+ bool ps5_hdmi_vrr_possible(void);
+ bool ps5_hdmi_ic_is_flava3(void);
++bool ps5_hdmi_sleep_mute(void);
+ int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src);
+ void sceHdmiSetVrrMode(bool on);
+ bool sceHdmiGetVrrMode(void);

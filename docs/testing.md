@@ -33,6 +33,19 @@ release through Steam's Beta channel (or `sudo bootc upgrade`) and one Legacy in
 | Session | Starts in Desktop Mode; Steam's setting switches the default to Game Mode; Switch to Desktop and back; Steam's own startup video when Game Mode starts; Steam's update check finds nothing |
 | M.2 | `ps5-m2-install`, start from the M.2, `--back` |
 
+## Display switches
+
+Four parts of the display code that rmux's tree doesn't have, each with a switch, on by default. Turn one off at a time, at runtime: `echo 0 | sudo tee /sys/module/hdmi/parameters/<switch>` (`ps5-report` shows their state), then do what it is for and note whether anything changes:
+
+| Switch | What it does | Test with it off |
+|---|---|---|
+| `rearm` | sets the picture up again when the same display re-announces itself | TV off and on, switch the TV's input away and back |
+| `edid_keep` | keeps the previous EDID when an announced one is invalid | TV power cycles; modes after that (`ps5-report`, Display) |
+| `scdc_writes` | writes SCDC Source Version and TMDS_Config to every SCDC sink | a mode below 4K60 (1080p, 1440p) and the modes the TV offers after a cold start |
+| `sleep_mute` | stays muted and leaves HDR when the output goes down | sleep and wake, screen blanking on the desktop, with and without HDR |
+
+Report per switch: console, HDMI chip, TV model, and "no difference" or what broke.
+
 ## PS5 pairings in Linux
 
 With a DualSense paired in the PS5 system and the loader of the release:

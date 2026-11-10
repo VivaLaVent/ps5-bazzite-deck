@@ -2,6 +2,13 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.10] – 2026-11-<DD>
+> Pre-release. Switches to test which display fixes are still needed; HDR no longer offered on VERDE; USB autosuspend off on bootc.
+- **Display test switches** (`patches/ps5-hdmi-switches.patch`): `hdmi.rearm`, `hdmi.edid_keep`, `hdmi.scdc_writes`, `hdmi.sleep_mute`, all on and changeable at runtime, each turns off one delta this display stack has over rmux's tree (off, `sleep_mute` re-initialises the video setup as his tree does). `ps5-report` shows them; `docs/testing.md` has the test per switch. The ones that make no difference go; the ones that do go upstream
+- **VERDE: no HDR offered** (same patch): neither the official tree nor rmux's has an HDR setup for VERDE, nor did v1.8.9, so the TV was never told and HDR content came out washed out (reported on a Slim with an LG C2, while the Pro was fine from the same drive). FLAVA3's HDR path is unchanged since v1.8.9. The HDR Static Metadata block is dropped from the EDID on VERDE, so neither Game Mode nor the desktop switches to HDR
+- **bootc: `usbcore.autosuspend=-1`**: USB SSDs can drop off or reset when USB autosuspend suspends them, and the system runs from one (as in the CachyOS PS5 guide)
+- `update.sh` no longer removes `hdmi.rearm=` from `cmdline.txt`, which is a switch again
+
 ## [v2.9] – 2026-11-10
 > Pre-release. Controllers paired in the PS5 system connect in Linux without pairing; compute through KFD; newer image builder.
 - **PS5 pairings in Linux** (`loader/patches/0004`, ps5-linux-loader #97 by Slip; `ps5-bt-import`, `tools/fetch-bt-sync.sh`): the loader writes the PS5 system's active Bluetooth pairings to `ps5-bt-sync.json` next to the initrd at every start, and upstream's importer (`bluetooth/ps5-bt-sync` from ps5-linux-patches, fetched at a pinned commit and checksum, not kept in this repository) merges them into BlueZ before Bluetooth starts. The export carries no adapter address, so `ps5-bt-import` runs the importer only while Linux uses the PS5's own address and deletes the handoff otherwise: with the Linux-only address on, the PS5's keys would replace working Linux pairings. `ps5-bt-address is-on` gives that state as an exit status. Not for boot files on the console's own storage (`ps5-m2-install --boot`), where Linux can't read the handoff

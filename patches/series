@@ -9,3 +9,4 @@ ps5-mt7921-no-iso.patch    # MediaTek Bluetooth: no ISO setup (#71)
 ps5-iw620-bt.patch         # IW620 Bluetooth: repeated link key request, LL privacy (#75)
 ps5-dc-triplebuffer.patch  # display: no stale triple-buffer flags in full updates (#72)
 ps5-gfx1013-kfd-tlb.patch  # GFX1013: TLB flush for KFD compute (#57 path + #77)
+ps5-hdmi-switches.patch    # test switches for the display deltas; VERDE: no HDR offered

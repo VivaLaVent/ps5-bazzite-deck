@@ -124,6 +124,7 @@ grep -v 'root hub' <<< "$USB" | sed 's/^/  /'
 k | grep -E 'usb [0-9]+-[0-9.]+:' | grep -i -E 'error|reset|disconnect|-71|descriptor read|over-current' | last 10
 
 echo; echo "=== Display"
+P=/sys/module/hdmi/parameters; [ -e $P/rearm ] && echo "  switches: rearm=$(cat $P/rearm) edid_keep=$(cat $P/edid_keep) scdc_writes=$(cat $P/scdc_writes) sleep_mute=$(cat $P/sleep_mute)"
 for c in /sys/class/drm/card*-*; do [ -f "$c/status" ] && echo "  ${c##*/}: $(cat "$c/status")$( [ "$(cat "$c/status")" = connected ] && echo ", modes: $(sort "$c/modes" | uniq -c | awk '{printf "%s(%s) ", $2, $1}')")"; done
 k | grep -e 'hdmi' -e 'PS5 VRR' -e 'FRL' -e 'EDID' -e 'ALLM' | grep -v -e 'switched on' | last 25
 echo "  counts: EDID announcements $(k | grep -ciE 'got real (hdmi )?edid'), re-arms $(k | grep -c 're-arm #'), ignored EDIDs $(k | grep -c 'EDID announcement')"

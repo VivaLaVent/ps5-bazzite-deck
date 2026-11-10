@@ -55,8 +55,8 @@ sudo rm -f /etc/ps5-bazzite-deck/bt-address
 sudo rm -f /etc/NetworkManager/conf.d/99-ps5-wifi.conf /usr/local/share/ps5-bazzite-deck/reboot.target /usr/local/bin/vrr-report
 # Bazzite's ostree-only services fail at every boot here
 sudo systemctl mask bootloader-update.service greenboot-healthcheck.service greenboot-success.target >/dev/null 2>&1 || true
-# switches the kernel no longer has (hdmi.rearm=0 also kept TVs dark after mode changes)
-sudo sed -i -E 's/ *hdmi\.(rearm|rearm_[a-z_]+|icc_trace|vrr_measure|modes_100hz)=[^ ]*//g' "$EFI/cmdline.txt"
+# switches the kernel no longer has
+sudo sed -i -E 's/ *hdmi\.(rearm_[a-z_]+|icc_trace|vrr_measure|modes_100hz)=[^ ]*//g' "$EFI/cmdline.txt"
 for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-connectable ps5-bt-revive ps5-bt-import ps5-wifi-repair ps5-perf ps5-stage-viola-fw ps5-console-defaults ps5-session-defaults; do
   [ -f "/etc/systemd/system/$u.service" ] && sudo systemctl enable "$u.service" 2>/dev/null || true
 done
