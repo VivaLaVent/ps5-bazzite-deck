@@ -5,6 +5,9 @@
 set -euo pipefail
 IMG=${1:?usage: finish-disk-image.sh disk.raw}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
+# bootc-image-builder writes a GPT with first usable LBA 2048, which PS5 system software 4.x can't read
+# ("unknown format", and the loader finds no bzImage): 34, as in the Legacy images
+python3 "$HERE/tools/gpt-first-lba.py" "$IMG" --apply
 LOOP=$(losetup -fP --show "$IMG")
 M=$(mktemp -d)
 mkdir "$M/esp" "$M/boot"

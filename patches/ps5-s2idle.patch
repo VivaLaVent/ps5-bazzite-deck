@@ -1,6 +1,6 @@
-PS5 suspend-to-idle (Dasloh, ps5-linux-patches PR #4), on 7.3.1 + rmux shitshow
+PS5 suspend-to-idle (Dasloh, ps5-linux-patches PR #4)
 
-- s2idle entry and resume for the PS5's devices (ICC, AHCI, xHCI, Ethernet, LED, amdgpu); needs CONFIG_SUSPEND=y
+s2idle entry and resume for the PS5's devices (ICC, AHCI, xHCI, Ethernet, LED, amdgpu); needs CONFIG_SUSPEND=y.
 ---
 diff --git a/drivers/ata/ahci_salina.c b/drivers/ata/ahci_salina.c
 index c020194eb..619fd8444 100644

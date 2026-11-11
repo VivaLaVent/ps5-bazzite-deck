@@ -1,0 +1,40 @@
+PS5 CPU clock: schedutil rate limit; off on the Pro
+
+- transition_delay_us 10 ms. From the 50 us latency alone schedutil re-evaluated every 75 us: ~275 P-state
+  requests a second to MP1 at idle, its kthread the busiest task, cores at 2.3-2.6 GHz with nothing running
+  (found and measured by fitamix; 10 ms is what he tested: ~800 MHz at idle, games still reach the full clock).
+- ps5-cpufreq stays off on the Pro: its MP1 never answers P-state requests (0x0b), and the mailbox then stays
+  busy for every later message, the GPU clock requests included: the GPU can't clock down and the console runs
+  hot. The Pro keeps the CPU clock its firmware sets, as in v2.1.x.
+---
+diff --git a/drivers/cpufreq/ps5-cpufreq.c b/drivers/cpufreq/ps5-cpufreq.c
+index cfe6d09fd..cb1148d00 100644
+--- a/drivers/cpufreq/ps5-cpufreq.c
++++ b/drivers/cpufreq/ps5-cpufreq.c
+@@ -75,6 +75,11 @@ static int ps5_cpufreq_cpu_init(struct cpufreq_policy *policy)
+ 	cpumask_copy(policy->cpus, cpu_present_mask);
+ 	policy->freq_table = ps5_freq_table;
+ 	policy->cpuinfo.transition_latency = PS5_TRANSITION_LATENCY_NS;
++	/*
++	 * Every change is a mailbox request to MP1. From the latency alone schedutil would re-evaluate every
++	 * 75 us: hundreds of requests a second at idle, its kthread the busiest task, the cores never at the floor.
++	 */
++	policy->transition_delay_us = 10 * USEC_PER_MSEC;
+ 	policy->boost_supported = true;
+ 	policy->cur = PS5_CPU_MHZ_FLOOR * 1000;
+ 
+@@ -96,8 +101,12 @@ static int __init ps5_cpufreq_init(void)
+ 	struct pci_dev *pdev = NULL;
+ 
+ 	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, pdev))) {
+-		if (pdev->vendor == PCI_VENDOR_ID_ATI && ps5_is_viola(pdev->device))
+-			ps5_gpu_mhz_ceil = PS5PRO_GPU_MHZ_CEIL;
++		/* The Pro's MP1 never answers P-state requests: the mailbox stays busy, GPU clocks included */
++		if (pdev->vendor == PCI_VENDOR_ID_ATI && ps5_is_viola(pdev->device)) {
++			pci_dev_put(pdev);
++			pr_info("PS5 Pro: CPU clock control left to the firmware\n");
++			return -ENODEV;
++		}
+ 	}
+ 
+ 	pr_info("Strawberry was here\n");

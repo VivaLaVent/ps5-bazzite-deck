@@ -53,3 +53,6 @@ jobs:
           git commit -qm "pins: $CHANNEL kernel from $TAG" bootc/pins.env
           git pull -q --rebase && git push -q
           gh workflow run bootc-build-image.yml --repo "$GITHUB_REPOSITORY" --ref main
+          # the disk image was built while this was a pre-release, so its installs follow :beta: build it again,
+          # now for :stable (same image, the workflow picks the channel from the release's state)
+          [ "$CHANNEL" = beta ] || gh workflow run bootc-build-disk-image.yml --repo "$GITHUB_REPOSITORY" --ref main -f release="$TAG"

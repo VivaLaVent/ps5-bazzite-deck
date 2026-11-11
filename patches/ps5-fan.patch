@@ -8,7 +8,7 @@ PS5 fan: the console's firmware control by default, kernel curve opt-in
   controller values all retail tables share
 ---
 diff --git a/drivers/ps5/fan.c b/drivers/ps5/fan.c
-index d5a0775..1ba2705 100644
+index d5a077532..1ba270591 100644
 --- a/drivers/ps5/fan.c
 +++ b/drivers/ps5/fan.c
 @@ -307,10 +307,22 @@ static inline unsigned int ps5_duty_to_pwm(unsigned int duty)

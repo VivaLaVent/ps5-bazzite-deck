@@ -1,17 +1,22 @@
-PS5 Pro: Bluetooth and CPU clock as in v2.1.x
+PS5 Bluetooth: Pro, MediaTek and IW620 fixes, and the USB controller they sit on
 
-- Bluetooth (0e8d:3605, QuartConz, mfoster978 PR #30): HCI on interface 3 with the IF3 routing undone before
-  setup and shutdown (setup re-runs at every power on), the first HCI Reset retried after a cold boot, ACL on
-  bulk OUT 0x0d, no autosuspend. Replaces the early draft in rmux's tree; IW620 and Slim stay as they are.
-- ps5-cpufreq stays off on the Pro: its MP1 never answers P-state requests (0x0b), and the mailbox then stays
-  busy for every later message, the GPU clock requests of ps5-gpufreq included: the GPU can't clock down and the
-  console runs hot. The Pro keeps the CPU clock its firmware sets, as in v2.1.x.
+- Pro (0e8d:3605; QuartConz, mfoster978 PR #30): HCI on interface 3 with the IF3 routing undone before setup
+  and shutdown (setup re-runs at every power on), the first HCI Reset retried after a cold boot, ACL on bulk
+  OUT 0x0d, no autosuspend. Replaces the early draft in rmux's tree.
+- MediaTek (0e8d:3603): no ISO interface setup (ps5-linux-patches #71). It times out, and the reset after it
+  leaves Bluetooth broken after a warm restart until a cold boot.
+- IW620 (1286:2059; ps5-linux-patches #75): the repeated Just Works link key request right after pairing gets
+  the key the controller just reported (ps5_iw620_linkkey=0 turns it off); LL privacy and the extended LE
+  features are hidden from the stack (ps5_iw620_le=0 turns it off).
+- Salina xHCI (ps5-linux-patches #78, Slip): it doesn't return from runtime D3, and the Bluetooth chip on it
+  was lost until a cold start; a runtime PM reference keeps it in D0 even when userspace sets power/control
+  to auto.
 ---
 diff --git a/drivers/bluetooth/btusb.c b/drivers/bluetooth/btusb.c
-index 6909f2617..acca46b03 100644
+index 6909f2617..4c777c8f8 100644
 --- a/drivers/bluetooth/btusb.c
 +++ b/drivers/bluetooth/btusb.c
-@@ -39,10 +39,54 @@ static bool enable_autosuspend = IS_ENABLED(CONFIG_BT_HCIBTUSB_AUTOSUSPEND);
+@@ -39,10 +39,61 @@ static bool enable_autosuspend = IS_ENABLED(CONFIG_BT_HCIBTUSB_AUTOSUSPEND);
  static int ps5_tx_ep = 0x02;
  static bool enable_poll_sync = IS_ENABLED(CONFIG_BT_HCIBTUSB_POLL_SYNC);
  static bool reset = true;
@@ -38,6 +43,13 @@ index 6909f2617..acca46b03 100644
 +{
 +	return le16_to_cpu(udev->descriptor.idVendor) == PS5_VIOLA_BT_VID &&
 +	       le16_to_cpu(udev->descriptor.idProduct) == PS5_VIOLA_BT_PID;
++}
++
++/* PS5 MT7921 (0e8d:3603): the ISO setup times out, and the reset after it breaks Bluetooth after a kexec (#71) */
++static bool btusb_is_ps5_mt7921(struct usb_device *udev)
++{
++	return le16_to_cpu(udev->descriptor.idVendor) == 0x0e8d &&
++	       le16_to_cpu(udev->descriptor.idProduct) == 0x3603;
 +}
 +
 +static int btusb_ps5_viola_wait_ready(struct hci_dev *hdev)
@@ -67,7 +79,7 @@ index 6909f2617..acca46b03 100644
  #define BTUSB_IGNORE			BIT(0)
  #define BTUSB_DIGIANSWER		BIT(1)
  #define BTUSB_CSR			BIT(2)
-@@ -81,10 +125,6 @@ static struct usb_driver btusb_driver;
+@@ -81,10 +132,6 @@ static struct usb_driver btusb_driver;
  #define BTUSB_HCI_IFACE_RECIPIENT   BIT(34)
  
  static const struct usb_device_id btusb_table[] = {
@@ -78,7 +90,7 @@ index 6909f2617..acca46b03 100644
  	/*
  	 * NXP IW610 (0471:0215): the composite device reports Bluetooth
  	 * class at the whole-device level, so the generic entry below
-@@ -94,6 +134,14 @@ static const struct usb_device_id btusb_table[] = {
+@@ -94,6 +141,14 @@ static const struct usb_device_id btusb_table[] = {
  	{ USB_DEVICE_AND_INTERFACE_INFO(0x0471, 0x0215, 0xff, 0xff, 0xff),
  	  .driver_info = BTUSB_IGNORE },
  
@@ -93,7 +105,7 @@ index 6909f2617..acca46b03 100644
  	/* Generic Bluetooth USB device */
  	{ USB_DEVICE_INFO(0xe0, 0x01, 0x01) },
  
-@@ -1041,6 +1089,7 @@ struct btusb_data {
+@@ -1041,6 +1096,7 @@ struct btusb_data {
  	unsigned long flags;
  
  	bool poll_sync;
@@ -101,7 +113,128 @@ index 6909f2617..acca46b03 100644
  	int intr_interval;
  	struct work_struct  work;
  	struct work_struct  waker;
-@@ -2219,12 +2268,11 @@ static struct urb *alloc_ctrl_urb(struct hci_dev *hdev, struct sk_buff *skb)
+@@ -1085,6 +1141,12 @@ struct btusb_data {
+ 	const struct usb_device_id *match_id;
+ 
+ 	int (*recv_event)(struct hci_dev *hdev, struct sk_buff *skb);
++
++	/* PS5 IW620 link key re-request */
++	struct work_struct ps5_lk_work;
++	struct hci_cp_link_key_reply ps5_lk;
++	unsigned long ps5_lk_time;
++	bool ps5_lk_valid;
+ 	int (*recv_acl)(struct hci_dev *hdev, struct sk_buff *skb);
+ 	int (*recv_bulk)(struct btusb_data *data, void *buffer, int count);
+ 
+@@ -1320,6 +1382,107 @@ static int btusb_recv_event(struct hci_dev *hdev, struct sk_buff *skb)
+ 	return data->recv_event(hdev, skb);
+ }
+ 
++/* PS5 IW620: extended LE connects never complete and LL privacy hides bonded devices. */
++static bool ps5_iw620_le = true;
++module_param(ps5_iw620_le, bool, 0444);
++MODULE_PARM_DESC(ps5_iw620_le,
++		 "PS5 IW620: use legacy LE and host address resolution (default: true)");
++
++/* PS5 IW620: the controller requests a new Just Works key again after pairing. */
++static bool ps5_iw620_linkkey = true;
++module_param(ps5_iw620_linkkey, bool, 0444);
++MODULE_PARM_DESC(ps5_iw620_linkkey,
++		 "PS5 IW620: answer the repeated link key request after pairing (default: true)");
++
++static int btusb_ps5_iw620_lk_sync(struct hci_dev *hdev, void *unused)
++{
++	struct btusb_data *data = hci_get_drvdata(hdev);
++	int err;
++
++	bt_dev_info(hdev, "PS5 IW620: repeated link key request for %pMR, using the new key",
++		    &data->ps5_lk.bdaddr);
++	err = __hci_cmd_sync_status(hdev, HCI_OP_LINK_KEY_REPLY,
++				    sizeof(data->ps5_lk), &data->ps5_lk,
++				    HCI_CMD_TIMEOUT);
++	memzero_explicit(data->ps5_lk.link_key, sizeof(data->ps5_lk.link_key));
++	return err;
++}
++
++static void btusb_ps5_iw620_lk_work(struct work_struct *work)
++{
++	struct btusb_data *data = container_of(work, struct btusb_data,
++					       ps5_lk_work);
++
++	if (hci_cmd_sync_submit(data->hdev, btusb_ps5_iw620_lk_sync, NULL, NULL))
++		bt_dev_err(data->hdev, "PS5 IW620: could not queue link key reply");
++}
++
++static int btusb_recv_event_ps5_iw620(struct hci_dev *hdev, struct sk_buff *skb)
++{
++	struct btusb_data *data = hci_get_drvdata(hdev);
++	struct hci_event_hdr *hdr = (void *)skb->data;
++	struct hci_ev_link_key_notify *nt;
++	struct hci_ev_link_key_req *rq;
++	struct hci_ev_cmd_complete *ev;
++	unsigned int plen;
++	u8 *rp;
++
++	if (skb->len < sizeof(*hdr))
++		goto out;
++	plen = skb->len - sizeof(*hdr);
++
++	switch (hdr->evt) {
++	case HCI_EV_CMD_COMPLETE:
++		if (!ps5_iw620_le || plen < sizeof(*ev) + 1)
++			break;
++		ev = (void *)(skb->data + sizeof(*hdr));
++		rp = (u8 *)(ev + 1);
++		if (rp[0])
++			break;
++		switch (__le16_to_cpu(ev->opcode)) {
++		case HCI_OP_LE_READ_LOCAL_FEATURES:
++			if (plen >= sizeof(*ev) + 1 + 8) {
++				rp[1 + 0] &= ~HCI_LE_LL_PRIVACY;
++				rp[1 + 1] &= ~HCI_LE_EXT_ADV;
++			}
++			break;
++		case HCI_OP_READ_LOCAL_COMMANDS:
++			/* LE Set Extended Scan Parameters, LE Extended Create Connection */
++			if (plen >= sizeof(*ev) + 1 + 38)
++				rp[1 + 37] &= ~(0x20 | 0x80);
++			break;
++		}
++		break;
++	case HCI_EV_LINK_KEY_NOTIFY:
++		if (!ps5_iw620_linkkey || plen < sizeof(*nt))
++			break;
++		nt = (void *)(skb->data + sizeof(*hdr));
++		data->ps5_lk_valid = nt->key_type == HCI_LK_UNAUTH_COMBINATION_P192 ||
++				     nt->key_type == HCI_LK_UNAUTH_COMBINATION_P256;
++		if (data->ps5_lk_valid) {
++			bacpy(&data->ps5_lk.bdaddr, &nt->bdaddr);
++			memcpy(data->ps5_lk.link_key, nt->link_key, HCI_LINK_KEY_SIZE);
++			data->ps5_lk_time = jiffies;
++		}
++		break;
++	case HCI_EV_LINK_KEY_REQ:
++		if (!ps5_iw620_linkkey || !data->ps5_lk_valid || plen < sizeof(*rq))
++			break;
++		rq = (void *)(skb->data + sizeof(*hdr));
++		data->ps5_lk_valid = false;
++		if (bacmp(&rq->bdaddr, &data->ps5_lk.bdaddr) ||
++		    time_after(jiffies, data->ps5_lk_time + 2 * HZ)) {
++			memzero_explicit(data->ps5_lk.link_key, sizeof(data->ps5_lk.link_key));
++			break;
++		}
++		schedule_work(&data->ps5_lk_work);
++		kfree_skb(skb);
++		return 0;
++	}
++out:
++	return hci_recv_frame(hdev, skb);
++}
++
+ static int btusb_recv_intr(struct btusb_data *data, void *buffer, int count)
+ {
+ 	struct sk_buff *skb;
+@@ -2219,12 +2382,11 @@ static struct urb *alloc_ctrl_urb(struct hci_dev *hdev, struct sk_buff *skb)
  	if (data->match_id->driver_info & BTUSB_HCI_IFACE_RECIPIENT)
  		dr->wIndex = __cpu_to_le16(
  			data->intf->cur_altsetting->desc.bInterfaceNumber);
@@ -118,7 +251,7 @@ index 6909f2617..acca46b03 100644
  
  	dr->wValue       = 0;
  	dr->wLength      = __cpu_to_le16(skb->len);
-@@ -3062,9 +3110,8 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
+@@ -3062,9 +3224,8 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
  {
  	struct btusb_data *data = hci_get_drvdata(hdev);
  	struct btmtk_data *btmtk_data = hci_get_priv(hdev);
@@ -129,7 +262,7 @@ index 6909f2617..acca46b03 100644
  
  	/* MediaTek WMT vendor cmd requiring below USB resources to
  	 * complete the handshake.
-@@ -3075,6 +3122,15 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
+@@ -3075,8 +3236,18 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
  	btmtk_data->ctrl_anchor = &data->ctrl_anchor;
  	btmtk_data->reset_sync = btusb_mtk_reset;
  
@@ -143,9 +276,13 @@ index 6909f2617..acca46b03 100644
 +		data->cmdreq_type = USB_TYPE_CLASS;
 +
  	/* Claim ISO data interface and endpoint */
- 	if (!viola && !test_bit(BTMTK_ISOPKT_OVER_INTR, &btmtk_data->flags)) {
+-	if (!viola && !test_bit(BTMTK_ISOPKT_OVER_INTR, &btmtk_data->flags)) {
++	if (!viola && !btusb_is_ps5_mt7921(data->udev) &&
++	    !test_bit(BTMTK_ISOPKT_OVER_INTR, &btmtk_data->flags)) {
  		btmtk_data->isopkt_intf = usb_ifnum_to_if(data->udev, MTK_ISO_IFNUM);
-@@ -3085,93 +3141,42 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
+ 		btusb_mtk_claim_iso_intf(data);
+ 	}
+@@ -3085,93 +3256,42 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
  	if (err)
  		return err;
  
@@ -272,7 +409,7 @@ index 6909f2617..acca46b03 100644
  	}
  
  	switch (btmtk_data->dev_id) {
-@@ -3208,8 +3213,16 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
+@@ -3208,8 +3328,16 @@ static int btusb_mtk_setup(struct hci_dev *hdev)
  
  static int btusb_mtk_shutdown(struct hci_dev *hdev)
  {
@@ -289,7 +426,7 @@ index 6909f2617..acca46b03 100644
  	ret = btmtk_usb_shutdown(hdev);
  
  	/* Release MediaTek iso interface after shutdown */
-@@ -4324,9 +4337,9 @@ static int btusb_probe(struct usb_interface *intf,
+@@ -4324,9 +4452,9 @@ static int btusb_probe(struct usb_interface *intf,
  
  	BT_DBG("intf %p id %p", intf, id);
  
@@ -302,7 +439,7 @@ index 6909f2617..acca46b03 100644
  		return -ENODEV;
  
  	if ((id->driver_info & BTUSB_IFNUM_2) &&
-@@ -4377,9 +4390,35 @@ static int btusb_probe(struct usb_interface *intf,
+@@ -4377,9 +4505,35 @@ static int btusb_probe(struct usb_interface *intf,
  	if (err)
  		goto err_free_data;
  
@@ -339,7 +476,7 @@ index 6909f2617..acca46b03 100644
  	 */
  	if (le16_to_cpu(interface_to_usbdev(intf)->descriptor.idVendor) == 0x0e8d &&
  	    le16_to_cpu(interface_to_usbdev(intf)->descriptor.idProduct) == 0x3603 && ps5_tx_ep) {
-@@ -4398,40 +4437,6 @@ static int btusb_probe(struct usb_interface *intf,
+@@ -4398,40 +4552,6 @@ static int btusb_probe(struct usb_interface *intf,
  		}
  	}
  
@@ -380,7 +517,32 @@ index 6909f2617..acca46b03 100644
  	if (id->driver_info & BTUSB_AMP) {
  		data->cmdreq_type = USB_TYPE_CLASS | 0x01;
  		data->cmdreq = 0x2b;
-@@ -5074,9 +5079,6 @@ MODULE_PARM_DESC(ps5_tx_ep, "PS5 MediaTek BT: bulk OUT endpoint for ACL (0 = def
+@@ -4703,6 +4823,16 @@ static int btusb_probe(struct usb_interface *intf,
+ 		dev_info(&intf->dev, "PS5 btusb: legacy LE command family quirks set\n");
+ 	}
+ 
++	INIT_WORK(&data->ps5_lk_work, btusb_ps5_iw620_lk_work);
++	if ((ps5_iw620_le || ps5_iw620_linkkey) &&
++	    le16_to_cpu(data->udev->descriptor.idVendor) == 0x1286 &&
++	    le16_to_cpu(data->udev->descriptor.idProduct) == 0x2059) {
++		data->recv_event = btusb_recv_event_ps5_iw620;
++		dev_info(&intf->dev, "PS5 IW620:%s%s\n",
++			 ps5_iw620_le ? " legacy LE, host address resolution;" : "",
++			 ps5_iw620_linkkey ? " link key re-request" : "");
++	}
++
+ 	if (id->driver_info & BTUSB_BROKEN_EXT_SCAN)
+ 		hci_set_quirk(hdev, HCI_QUIRK_BROKEN_EXT_SCAN);
+ 
+@@ -4827,6 +4957,7 @@ static void btusb_disconnect(struct usb_interface *intf)
+ 	if (data->disconnect)
+ 		data->disconnect(hdev);
+ 
++	cancel_work_sync(&data->ps5_lk_work);
+ 	hci_unregister_dev(hdev);
+ 
+ 	if (data->oob_wake_irq) {
+@@ -5074,9 +5205,6 @@ MODULE_PARM_DESC(ps5_tx_ep, "PS5 MediaTek BT: bulk OUT endpoint for ACL (0 = def
  module_param(reset, bool, 0644);
  MODULE_PARM_DESC(reset, "Send HCI reset command on initialization");
  
@@ -390,22 +552,28 @@ index 6909f2617..acca46b03 100644
  MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
  MODULE_DESCRIPTION("Generic Bluetooth USB driver ver " VERSION);
  MODULE_VERSION(VERSION);
-diff --git a/drivers/cpufreq/ps5-cpufreq.c b/drivers/cpufreq/ps5-cpufreq.c
-index cfe6d09fd..3540ca28e 100644
---- a/drivers/cpufreq/ps5-cpufreq.c
-+++ b/drivers/cpufreq/ps5-cpufreq.c
-@@ -96,8 +96,12 @@ static int __init ps5_cpufreq_init(void)
- 	struct pci_dev *pdev = NULL;
+diff --git a/drivers/usb/host/xhci-pci.c b/drivers/usb/host/xhci-pci.c
+index d06167a98..18875aecc 100644
+--- a/drivers/usb/host/xhci-pci.c
++++ b/drivers/usb/host/xhci-pci.c
+@@ -688,7 +688,9 @@ int xhci_pci_common_probe(struct pci_dev *dev, const struct pci_device_id *id)
+ 	/* USB-2 and USB-3 roothubs initialized, allow runtime pm suspend */
+ 	pm_runtime_put_noidle(&dev->dev);
  
- 	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, pdev))) {
--		if (pdev->vendor == PCI_VENDOR_ID_ATI && ps5_is_viola(pdev->device))
--			ps5_gpu_mhz_ceil = PS5PRO_GPU_MHZ_CEIL;
-+		/* The Pro's MP1 never answers P-state requests: the mailbox stays busy, GPU clocks included */
-+		if (pdev->vendor == PCI_VENDOR_ID_ATI && ps5_is_viola(pdev->device)) {
-+			pci_dev_put(pdev);
-+			pr_info("PS5 Pro: CPU clock control left to the firmware\n");
-+			return -ENODEV;
-+		}
- 	}
+-	if (pci_choose_state(dev, PMSG_SUSPEND) == PCI_D0)
++	/* The PS5 Salina controller does not return from runtime D3 */
++	if (pci_choose_state(dev, PMSG_SUSPEND) == PCI_D0 ||
++	    (xhci->quirks & XHCI_PS5_SALINA_PHY))
+ 		pm_runtime_get(&dev->dev);
+ 	else if (xhci->quirks & XHCI_DEFAULT_PM_RUNTIME_ALLOW)
+ 		pm_runtime_allow(&dev->dev);
+@@ -752,7 +754,8 @@ void xhci_pci_remove(struct pci_dev *dev)
  
- 	pr_info("Strawberry was here\n");
+ 	xhci->xhc_state |= XHCI_STATE_REMOVING;
+ 
+-	if (pci_choose_state(dev, PMSG_SUSPEND) == PCI_D0)
++	if (pci_choose_state(dev, PMSG_SUSPEND) == PCI_D0 ||
++	    (xhci->quirks & XHCI_PS5_SALINA_PHY))
+ 		pm_runtime_put(&dev->dev);
+ 	else if (xhci->quirks & XHCI_DEFAULT_PM_RUNTIME_ALLOW)
+ 		pm_runtime_forbid(&dev->dev);

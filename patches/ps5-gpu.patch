@@ -1,9 +1,16 @@
-PS5 GPU on 7.3.1 + rmux shitshow: thermal governor
+PS5 GPU: clock governor, KFD TLB flush
 
 - GPU clock governor with a temperature limit (Borchev, #66; ps5_gpufreq.temp_limit, 85 C by default), registered
-  by amdgpu. rmux's devfreq ps5-gpufreq has no thermal limit and stays disabled (CONFIG_PS5_GPUFREQ)
-- Pro (Viola firmware): gpu_metrics reported as unsupported (no SMU metrics table)
-- The overlay's GPU load and temperature come with the display stack (amdgpu_dm.c)
+  by amdgpu. rmux's devfreq ps5-gpufreq has no thermal limit and stays disabled (CONFIG_PS5_GPUFREQ).
+- GPU clock after CPU boost: MP1's universal mode, entered each time a boost frequency is chosen, sets a GPU
+  clock range of 2000 MHz and up. The governor's cached clock was then stale and an idle GPU stayed at 2 GHz,
+  since "500 MHz" looked already set: 62 C at the desktop instead of 46 C. mp1 now tells the governor after
+  entering or leaving that mode, and the next poll requests its clock again.
+- Pro (Viola firmware): gpu_metrics reported as unsupported (no SMU metrics table).
+- GFX1013: the MMIO PASID TLB flush for KFD from ps5-linux-patches #57 (Tertium), which rmux's tree dropped,
+  with #77 (Sergey): the PS5 never programs ATC_VMID*_PASID_MAPPING, so no VMID matched and nothing was
+  flushed; KFD (ROCm/HIP, OpenCL) ran on stale translations. Every KFD VMID is flushed when none maps the
+  PASID. Vulkan and games don't use KFD.
 ---
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
 index 1021dcc5f..52ab4c8d7 100644
@@ -21,6 +28,154 @@ index 1021dcc5f..52ab4c8d7 100644
  #endif
  
  	return r;
+diff --git a/drivers/gpu/drm/amd/amdgpu/gmc_v10_0.c b/drivers/gpu/drm/amd/amdgpu/gmc_v10_0.c
+index c70657bc0..316abfd84 100644
+--- a/drivers/gpu/drm/amd/amdgpu/gmc_v10_0.c
++++ b/drivers/gpu/drm/amd/amdgpu/gmc_v10_0.c
+@@ -232,12 +232,14 @@ static bool gmc_v10_0_get_atc_vmid_pasid_mapping_info(
+  *
+  * Flush the TLB for the requested page table.
+  */
+-static void gmc_v10_0_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
+-					uint32_t vmhub, uint32_t flush_type)
++static void gmc_v10_0_flush_gpu_tlb_internal(struct amdgpu_device *adev,
++					     uint32_t vmid, uint32_t vmhub,
++					     uint32_t flush_type,
++					     bool gfx1013_pasid_path)
+ {
+-	bool use_semaphore = gmc_v10_0_use_invalidate_semaphore(adev, vmhub);
++	bool use_semaphore;
+ 	struct amdgpu_vmhub *hub = &adev->vmhub[vmhub];
+-	u32 inv_req = hub->vmhub_funcs->get_invalidate_req(vmid, flush_type);
++	u32 inv_req;
+ 	/* Use register 17 for GART */
+ 	const unsigned int eng = 17;
+ 	unsigned char hub_ip = 0;
+@@ -245,6 +247,14 @@ static void gmc_v10_0_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
+ 	unsigned int i;
+ 	u32 tmp;
+ 
++	if (gfx1013_pasid_path && vmhub == AMDGPU_GFXHUB(0) &&
++	    flush_type == 2)
++		flush_type = 0;
++
++	use_semaphore = gmc_v10_0_use_invalidate_semaphore(adev, vmhub) ||
++		(gfx1013_pasid_path && vmhub == AMDGPU_GFXHUB(0));
++	inv_req = hub->vmhub_funcs->get_invalidate_req(vmid, flush_type);
++
+ 	sem = hub->vm_inv_eng0_sem + hub->eng_distance * eng;
+ 	req = hub->vm_inv_eng0_req + hub->eng_distance * eng;
+ 	ack = hub->vm_inv_eng0_ack + hub->eng_distance * eng;
+@@ -255,7 +265,8 @@ static void gmc_v10_0_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
+ 	/* This is necessary for SRIOV as well as for GFXOFF to function
+ 	 * properly under bare metal
+ 	 */
+-	if (adev->gfx.kiq[0].ring.sched.ready && !adev->enable_mes &&
++	if (!gfx1013_pasid_path &&
++	    adev->gfx.kiq[0].ring.sched.ready && !adev->enable_mes &&
+ 	    (amdgpu_sriov_runtime(adev) || !amdgpu_sriov_vf(adev))) {
+ 		amdgpu_gmc_fw_reg_write_reg_wait(adev, req, ack, inv_req,
+ 						 1 << vmid, GET_INST(GC, 0));
+@@ -318,6 +329,13 @@ static void gmc_v10_0_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
+ 			vmhub);
+ }
+ 
++static void gmc_v10_0_flush_gpu_tlb(struct amdgpu_device *adev, uint32_t vmid,
++					uint32_t vmhub, uint32_t flush_type)
++{
++	gmc_v10_0_flush_gpu_tlb_internal(adev, vmid, vmhub, flush_type,
++					   false);
++}
++
+ /**
+  * gmc_v10_0_flush_gpu_tlb_pasid - tlb flush via pasid
+  *
+@@ -334,7 +352,11 @@ static void gmc_v10_0_flush_gpu_tlb_pasid(struct amdgpu_device *adev,
+ 					  bool all_hub, uint32_t inst)
+ {
+ 	uint16_t queried;
+-	int vmid, i;
++	int vmid, i, matched = 0;
++	bool gfx1013_pasid_path =
++		(adev->pdev->device == 0x13FE || adev->pdev->device == 0x13DB ||
++		 adev->pdev->device == 0x13FB) &&
++		amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(10, 1, 3);
+ 
+ 	for (vmid = 1; vmid < AMDGPU_NUM_VMID; vmid++) {
+ 		bool valid;
+@@ -343,17 +365,45 @@ static void gmc_v10_0_flush_gpu_tlb_pasid(struct amdgpu_device *adev,
+ 								  &queried);
+ 		if (!valid || queried != pasid)
+ 			continue;
++		matched++;
+ 
+ 		if (all_hub) {
+ 			for_each_set_bit(i, adev->vmhubs_mask,
+ 					 AMDGPU_MAX_VMHUBS)
+-				gmc_v10_0_flush_gpu_tlb(adev, vmid, i,
+-							flush_type);
++				if (gfx1013_pasid_path)
++					gmc_v10_0_flush_gpu_tlb_internal(
++						adev, vmid, i, flush_type, true);
++				else
++					gmc_v10_0_flush_gpu_tlb(
++						adev, vmid, i, flush_type);
+ 		} else {
+-			gmc_v10_0_flush_gpu_tlb(adev, vmid, AMDGPU_GFXHUB(0),
+-						flush_type);
++			if (gfx1013_pasid_path)
++				gmc_v10_0_flush_gpu_tlb_internal(
++					adev, vmid, AMDGPU_GFXHUB(0),
++					flush_type, true);
++			else
++				gmc_v10_0_flush_gpu_tlb(
++					adev, vmid, AMDGPU_GFXHUB(0),
++					flush_type);
+ 		}
+ 	}
++
++	/*
++	 * The PS5 never programs ATC_VMID*_PASID_MAPPING (all zero under HWS),
++	 * so the lookup above finds no VMID and nothing gets invalidated: KFD
++	 * then runs on stale translations (page faults, lost writes). Flush
++	 * every KFD VMID instead; that is only a few register writes.
++	 */
++	if (!matched && gfx1013_pasid_path) {
++		dev_info_once(adev->dev,
++			      "GFX1013: no VMID for PASID %u, flushing all KFD VMIDs\n",
++			      pasid);
++		for (vmid = adev->vm_manager.first_kfd_vmid;
++		     vmid < AMDGPU_NUM_VMID; vmid++)
++			for_each_set_bit(i, adev->vmhubs_mask, AMDGPU_MAX_VMHUBS)
++				gmc_v10_0_flush_gpu_tlb_internal(adev, vmid, i,
++								 flush_type, true);
++	}
+ }
+ 
+ static uint64_t gmc_v10_0_emit_flush_gpu_tlb(struct amdgpu_ring *ring,
+@@ -960,7 +1010,21 @@ static int gmc_v10_0_hw_init(struct amdgpu_ip_block *ip_block)
+ 	struct amdgpu_device *adev = ip_block->adev;
+ 	int r;
+ 
+-	adev->gmc.flush_pasid_uses_kiq = !amdgpu_emu_mode;
++	/*
++	 * GFX1013/BC-250/PS5: KIQ-routed PASID TLB invalidation can corrupt
++	 * sustained KFD workloads.  Keep the existing behavior for every
++	 * other GMC v10 device and route only GFX1013 through MMIO.
++	 */
++	adev->gmc.flush_pasid_uses_kiq = !amdgpu_emu_mode &&
++		amdgpu_ip_version(adev, GC_HWIP, 0) != IP_VERSION(10, 1, 3);
++	if (!adev->gmc.flush_pasid_uses_kiq &&
++	    amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(10, 1, 3))
++		dev_info(adev->dev,
++			 "GFX1013/BC-250/PS5: using MMIO PASID TLB flushes\n");
++
++	if (amdgpu_ip_version(adev, GC_HWIP, 0) == IP_VERSION(10, 1, 3))
++		dev_info(adev->dev,
++			 "GFX1013/BC-250/PS5: PASID-only CPU type-0 invalidation\n");
+ 
+ 	/* The sequence of these two function calls matters.*/
+ 	gmc_v10_0_init_golden_registers(adev);
 diff --git a/drivers/gpu/drm/amd/pm/amdgpu_pm.c b/drivers/gpu/drm/amd/pm/amdgpu_pm.c
 index bb304f32a..aa55a8347 100644
 --- a/drivers/gpu/drm/amd/pm/amdgpu_pm.c
@@ -45,10 +200,10 @@ index ca77af701..759960c8d 100644
  obj-y += led/
 diff --git a/drivers/ps5/gpufreq.c b/drivers/ps5/gpufreq.c
 new file mode 100644
-index 000000000..bc92614cf
+index 000000000..22955f157
 --- /dev/null
 +++ b/drivers/ps5/gpufreq.c
-@@ -0,0 +1,304 @@
+@@ -0,0 +1,332 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +/* PS5 GPU clock via SMU RequestGfxclk on amdgpu's busy time, capped to hold the SoC at temp_limit. */
 +
@@ -259,6 +414,29 @@ index 000000000..bc92614cf
 +	dev_pm_opp_remove_all_dynamic(dev);
 +}
 +
++static struct ps5_gpufreq *ps5_gpufreq_one;
++
++/*
++ * MP1's universal mode (CPU boost) sets a GPU clock range of its own, 2000 MHz and up: the clock cached here
++ * is then stale, and an idle GPU would stay there because "500 MHz" looks already set. Forget it, and the
++ * next poll requests the governor's clock again.
++ */
++void ps5_gpufreq_resync(void)
++{
++	struct ps5_gpufreq *gf = READ_ONCE(ps5_gpufreq_one);
++
++	if (!gf)
++		return;
++	mutex_lock(&gf->lock);
++	gf->mhz = 0;
++	mutex_unlock(&gf->lock);
++}
++
++static void ps5_gpufreq_forget(void *data)
++{
++	WRITE_ONCE(ps5_gpufreq_one, NULL);
++}
++
 +static int ps5_gpufreq_probe(struct platform_device *pdev)
 +{
 +	struct device *dev = &pdev->dev;
@@ -317,6 +495,11 @@ index 000000000..bc92614cf
 +		return ret;
 +	queue_delayed_work(system_freezable_power_efficient_wq, &gf->thermal, 0);
 +
++	ret = devm_add_action_or_reset(dev, ps5_gpufreq_forget, NULL);
++	if (ret)
++		return ret;
++	WRITE_ONCE(ps5_gpufreq_one, gf);
++
 +	dev_info(dev, "%u-%u MHz, now at %u MHz, limit %u C\n", PS5_GPU_MIN_MHZ,
 +		 max_mhz, mhz, temp_limit);
 +	return 0;
@@ -353,3 +536,48 @@ index 000000000..bc92614cf
 +					     sizeof(busy_ns));
 +}
 +EXPORT_SYMBOL(ps5_gpufreq_register);
+diff --git a/drivers/ps5/mp1.c b/drivers/ps5/mp1.c
+index fd5b38b9e..e225c6523 100644
+--- a/drivers/ps5/mp1.c
++++ b/drivers/ps5/mp1.c
+@@ -608,6 +608,7 @@ EXPORT_SYMBOL(mp1_set_sleep_entry);
+ static int mp1_universal_mode_enter(u32 *params)
+ {
+ 	struct mp1_msg msg = {};
++	int ret;
+ 
+ 	pcirc_smn_write(MP1_C2PMSG_56, params[1]);
+ 	pcirc_smn_write(MP1_C2PMSG_57, params[2]);
+@@ -615,13 +616,18 @@ static int mp1_universal_mode_enter(u32 *params)
+ 	pcirc_smn_write(MP1_C2PMSG_59, params[4]);
+ 
+ 	msg.arg = params[0];
+-	return mp1fw_sendmsg(&msg, PPSMC_MSG_UniversalModeEntry);
++	ret = mp1fw_sendmsg(&msg, PPSMC_MSG_UniversalModeEntry);
++	ps5_gpufreq_resync();
++	return ret;
+ }
+ 
+ static int mp1_universal_mode_exit(void)
+ {
+ 	struct mp1_msg msg = {};
+-	return mp1fw_sendmsg(&msg, PPSMC_MSG_UniversalModeExit);
++	int ret = mp1fw_sendmsg(&msg, PPSMC_MSG_UniversalModeExit);
++
++	ps5_gpufreq_resync();
++	return ret;
+ }
+ 
+ int mp1_boost_enter(u32 cpu_mhz_min, u32 cpu_mhz_max, u32 gpu_mhz_min, u32 gpu_mhz_max)
+diff --git a/include/linux/ps5.h b/include/linux/ps5.h
+index ab8704397..d3254ba2a 100755
+--- a/include/linux/ps5.h
++++ b/include/linux/ps5.h
+@@ -176,6 +176,7 @@ void mp1_viola_enable_wgps(void);
+ int ps5_mp1_send(u8 msgid, u32 arg, u32 *resp);
+ int ps5_mp1_query_gfxclk(u32 *mhz);
+ int ps5_mp1_request_gfxclk(u32 mhz);
++void ps5_gpufreq_resync(void);
+ int ps5_soc_temp(int *millidegrees);
+ 
+ /* GPU busy time so far, ns. */

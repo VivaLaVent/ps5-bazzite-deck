@@ -1,12 +1,27 @@
-PS5 display on 7.3.1: our FLAVA3/Verde stack (as in v2.1.x), in place of rmux's display rework
+PS5 display: the FLAVA3/VERDE stack of v1.8.9, in place of rmux's display rework
 
-Our display code replayed onto plain 7.3.1: the HDMI chip driver (FLAVA3 and Verde setup, 4K120 over FRL by
-Lawson, standard 1080p/1440p/2160p modes with the FLAVA3 1440p timings, VRR, re-arm, EDID keep and fallback, SCDC,
-sleep mute, RGB range, Verde game content), CEC, USB-C DisplayPort, and amdgpu's PS5 display hooks and DC link
-changes. rmux's FRL planner, recovery and ALLM go out with it; everything outside the display stays his.
+- HDMI chip driver: FLAVA3 and VERDE setup, 4K120 over FRL (Lawson), VRR and HDR (12 bpc 4:2:2) on FLAVA3,
+  re-arm, EDID keep and fallback, SCDC writes, sleep mute, RGB range, VERDE game content; CEC (#53), USB-C
+  DisplayPort, amdgpu's PS5 display hooks and DC link changes. rmux's FRL planner, recovery and ALLM go out
+  with it; everything outside the display stays his.
+- Modes: the bridge's own (1080p and 1440p at 60/100/120 Hz, 2160p60, 4K100/120 over FRL) within the display's
+  limits. FLAVA3 also takes every other progressive timing up to 600 MHz through the bridge's manual setup
+  (index 0x05 and its timing registers, from rmux's tree); VERDE keeps to the bridge's own setups.
+- Test switches hdmi.rearm, hdmi.edid_keep, hdmi.scdc_writes, hdmi.sleep_mute (all on, 0644): each turns one
+  delta over rmux's tree off, to find out on which TVs it is still needed. Off, re-arm doesn't set the picture
+  up again when the same display re-announces itself, an invalid EDID replaces the previous one, TMDS_Config
+  and Source Version are only written when scrambling needs them, and an output going down re-initialises the
+  video setup as in rmux's tree.
+- VERDE: the HDR Static Metadata block is dropped from the EDID. No tree has an HDR setup for VERDE, so the TV
+  was never told about HDR and PQ content came out washed out; without the block nothing switches to HDR.
+- DCN201: triple-buffer flags cleared before full updates, which lock every pipe double-buffered
+  (ps5-linux-patches #72).
+- GPU load and temperature for overlays: gpu_busy_percent from the GFX busy time and an amdgpu hwmon with the
+  die's sensor, since the base PS5 runs amdgpu without its SMU. Not with the Viola firmware, where amdgpu's own
+  work.
 ---
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-index d83f0e486..b59eaac23 100644
+index d83f0e486..23a1e8ce6 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 @@ -88,10 +88,9 @@
@@ -455,13 +470,13 @@ index d83f0e486..b59eaac23 100644
 +		    !connector->state->crtc->state->active)
 +			continue;
 +		cur = &connector->state->crtc->state->mode;
-+		if (drm_match_cea_mode(cur) != 118)
++		if (drm_match_cea_mode(cur) != 118 && drm_match_cea_mode(cur) != 117)
 +			continue;
 +		changed = true;
 +		list_for_each_entry(mode, &connector->modes, head) {
 +			if (mode->hdisplay != cur->hdisplay || mode->vdisplay != cur->vdisplay ||
 +			    mode->flags & DRM_MODE_FLAG_INTERLACE || drm_match_cea_mode(mode) == 118 ||
-+			    !isHdmiModeValid(mode, amdgpu_force_1080p))
++			    drm_match_cea_mode(mode) == 117 || !isHdmiModeValid(mode, amdgpu_force_1080p))
 +				continue;
 +			if (!best || drm_mode_vrefresh(mode) > drm_mode_vrefresh(best))
 +				best = mode;
@@ -496,7 +511,7 @@ index d83f0e486..b59eaac23 100644
  /**
   * amdgpu_dm_atomic_commit_tail() - AMDgpu DM's commit tail implementation.
   * @state: The atomic state to commit
-@@ -5304,23 +5456,22 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5304,23 +5456,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		    (old_crtc_state->active &&
  		    (!new_crtc_state->active ||
  		     drm_atomic_crtc_needs_modeset(new_crtc_state)))) {
@@ -523,9 +538,11 @@ index d83f0e486..b59eaac23 100644
 +					sceHdmiSetVrrMode(ps5_hdmi_vrr_possible() &&
 +							  dm_new_crtc_state->freesync_config.state == VRR_STATE_ACTIVE_VARIABLE);
 +					sceHdmiInitVideoConfig();
-+				} else {
++				} else if (ps5_hdmi_sleep_mute()) {
 +					/* Output going down: stay muted and leave HDR, or the TV flickers until the picture returns. */
 +					sceHdmiSetHdrConfig(NULL, false);
++				} else {
++					sceHdmiInitVideoConfig();
  				}
 -				/* Init failures are logged; the video setup result decides. */
 -				sceHdmiInitVideoConfig();
@@ -533,7 +550,7 @@ index d83f0e486..b59eaac23 100644
  			}
  		}
  	}
-@@ -5341,45 +5492,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5341,45 +5494,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		if (new_crtc_state->active &&
  		    (!old_crtc_state->active ||
  		     drm_atomic_crtc_needs_modeset(new_crtc_state))) {
@@ -594,7 +611,7 @@ index d83f0e486..b59eaac23 100644
  		}
  	}
  #endif
-@@ -5411,15 +5541,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5411,15 +5543,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
  		dm_old_crtc_state = to_dm_crtc_state(old_crtc_state);
  
@@ -610,7 +627,7 @@ index d83f0e486..b59eaac23 100644
  		scaling_changed = is_scaling_state_different(dm_new_con_state,
  							     dm_old_con_state);
  
-@@ -5451,12 +5572,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5451,12 +5574,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  				= amdgpu_dm_get_output_color_space(&dm_new_crtc_state->stream->timing, new_con_state);
  
  			stream_update.output_color_space = &dm_new_crtc_state->stream->output_color_space;
@@ -623,7 +640,7 @@ index d83f0e486..b59eaac23 100644
  		}
  
  		if (abm_changed) {
-@@ -5594,6 +5709,18 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5594,6 +5711,18 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  
  		if (dm_new_crtc_state->stream)
  			amdgpu_dm_commit_planes(state, dev, dm, crtc, wait_for_vblank);
@@ -642,7 +659,7 @@ index d83f0e486..b59eaac23 100644
  	}
  
  	/* Enable writeback */
-@@ -5799,30 +5926,6 @@ static int dm_update_crtc_state(struct amdgpu_display_manager *dm,
+@@ -5799,30 +5928,6 @@ static int dm_update_crtc_state(struct amdgpu_display_manager *dm,
  			goto fail;
  		}
  
@@ -1986,6 +2003,57 @@ index 0997e697e..000000000
 -		dm_ps5_recovery_reject(recovery, &candidate, &conn->ps5_hdmi_plan);
 -	dm_ps5_recovery_report(recovery);
 -}
+diff --git a/drivers/gpu/drm/amd/display/dc/core/dc.c b/drivers/gpu/drm/amd/display/dc/core/dc.c
+index 519ac878a..cd0575525 100644
+--- a/drivers/gpu/drm/amd/display/dc/core/dc.c
++++ b/drivers/gpu/drm/amd/display/dc/core/dc.c
+@@ -1199,6 +1199,19 @@ static void disable_all_writeback_pipes_for_stream(
+ 		stream->writeback_info[i].wb_enabled = false;
+ }
+ 
++/* Full front-end updates use double-buffered locks on every pipe. */
++static void clear_triplebuffer_flags(struct dc *dc, struct dc_state *context)
++{
++	unsigned int i;
++
++	for (i = 0; i < dc->res_pool->pipe_count; i++) {
++		struct pipe_ctx *pipe = &context->res_ctx.pipe_ctx[i];
++
++		if (pipe->plane_state)
++			pipe->plane_state->triplebuffer_flips = false;
++	}
++}
++
+ static void apply_ctx_interdependent_lock(struct dc *dc,
+ 					  struct dc_state *context,
+ 					  struct dc_stream_state *stream,
+@@ -1467,6 +1480,8 @@ static void disable_dangling_plane(struct dc *dc, struct dc_state *context)
+ 				dc_update_visual_confirm_color(dc, context, pipe);
+ 			}
+ 
++			clear_triplebuffer_flags(dc, dc->current_state);
++			clear_triplebuffer_flags(dc, dangling_context);
+ 			if (dc->hwss.apply_ctx_for_surface) {
+ 				apply_ctx_interdependent_lock(dc, dc->current_state, old_stream, true);
+ 				dc->hwss.apply_ctx_for_surface(dc, old_stream, 0, dangling_context);
+@@ -2381,6 +2396,7 @@ static enum dc_status dc_commit_state_no_check(struct dc *dc, struct dc_state *c
+ 	if (dc->res_pool->funcs->prepare_mcache_programming)
+ 		dc->res_pool->funcs->prepare_mcache_programming(dc, context);
+ 	if (dc->hwss.program_front_end_for_ctx) {
++		clear_triplebuffer_flags(dc, context);
+ 		dc->hwss.interdependent_update_lock(dc, context, true);
+ 		dc->hwss.program_front_end_for_ctx(dc, context);
+ 
+@@ -4976,6 +4992,9 @@ static void commit_planes_for_stream(struct dc *dc,
+ 	if (dc->hwseq->funcs.wait_for_pipe_update_if_needed)
+ 		dc->hwseq->funcs.wait_for_pipe_update_if_needed(dc, top_pipe_to_program, update_type < UPDATE_TYPE_FULL);
+ 
++	if (should_lock_all_pipes)
++		clear_triplebuffer_flags(dc, context);
++
+ 	if (should_lock_all_pipes && dc->hwss.interdependent_update_lock) {
+ 		if (dc->hwss.subvp_pipe_control_lock)
+ 			dc->hwss.subvp_pipe_control_lock(dc, context, true, should_lock_all_pipes, NULL, subvp_prev_use);
 diff --git a/drivers/gpu/drm/amd/display/dc/link/link_dpms.c b/drivers/gpu/drm/amd/display/dc/link/link_dpms.c
 index 25ec3d38a..bf7f7fc4a 100644
 --- a/drivers/gpu/drm/amd/display/dc/link/link_dpms.c
@@ -3111,7 +3179,7 @@ index a2b12d65a..000000000
 -	return !rate || (rate <= 4 && permitted & BIT(rate));
 -}
 diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
-index 4ade01ba6..5442d9c8d 100755
+index 4ade01ba6..a0c878f6c 100755
 --- a/drivers/ps5/hdmi.c
 +++ b/drivers/ps5/hdmi.c
 @@ -3,51 +3,31 @@
@@ -3189,7 +3257,7 @@ index 4ade01ba6..5442d9c8d 100755
  
  static u8 hdmi_ic_type;
  static u8 tmds_polarity;
-@@ -148,230 +127,53 @@ static u8 tmds_ch_swap;
+@@ -148,230 +127,72 @@ static u8 tmds_ch_swap;
  static u8 dp_polarity;
  static u8 dp_ch_swap;
  static bool scrambling;
@@ -3255,7 +3323,8 @@ index 4ade01ba6..5442d9c8d 100755
 -	mutex_unlock(&frl_state_lock);
 -	return failed;
 -}
--
++static bool sink_scdc;		/* the sink's EDID has an HDMI Forum VSDB with SCDC */
+ 
 -static unsigned int frl_get_sink_generation(void)
 -{
 -	unsigned int generation;
@@ -3337,16 +3406,30 @@ index 4ade01ba6..5442d9c8d 100755
 -		frl_failed = true;
 -	mutex_unlock(&frl_state_lock);
 -}
--
++static bool rearm = true;
++module_param(rearm, bool, 0644);
++MODULE_PARM_DESC(rearm, "Set the picture up again when the same display re-announces itself (default on; test switch)");
++static bool edid_keep = true;
++module_param(edid_keep, bool, 0644);
++MODULE_PARM_DESC(edid_keep, "Keep the previous EDID when an announced one is invalid (default on; test switch)");
++static bool scdc_writes = true;
++module_param(scdc_writes, bool, 0644);
++MODULE_PARM_DESC(scdc_writes, "Write SCDC Source Version and TMDS_Config to every SCDC sink (default on; test switch)");
++static bool sleep_mute = true;
++module_param(sleep_mute, bool, 0644);
++MODULE_PARM_DESC(sleep_mute, "Stay muted and leave HDR when the output goes down (default on; test switch)");
+ 
 -static void frl_record_failure(const struct ps5_hdmi_plan *plan, bool fatal)
--{
++bool ps5_hdmi_sleep_mute(void)
+ {
 -	mutex_lock(&frl_state_lock);
 -	if (frl_edid_valid && plan->generation == frl_sink_generation &&
 -	    (!READ_ONCE(frl_recovery) || fatal || !frl_failure_add(&frl_failures, plan)))
 -		frl_failed = true;
 -	mutex_unlock(&frl_state_lock);
--}
-+static bool sink_scdc;		/* the sink's EDID has an HDMI Forum VSDB with SCDC */
++	return READ_ONCE(sleep_mute);
+ }
++EXPORT_SYMBOL(ps5_hdmi_sleep_mute);
  
 -bool ps5_hdmi_recovery_enabled(void)
 +/*
@@ -3457,7 +3540,7 @@ index 4ade01ba6..5442d9c8d 100755
  	i2c_ctx.msg_cur = i2c_ctx.msg_buf;
  	i2c_ctx.msg_hdr = (struct icc_i2c_msg *)i2c_ctx.msg_cur;
  
-@@ -387,7 +189,6 @@ static int i2c_exec(void)
+@@ -387,7 +208,6 @@ static int i2c_exec(void)
  {
  	u8 buf[ICC_MSG_MAX_SIZE] = {};
  	struct icc_msg *msg = (struct icc_msg *)buf;
@@ -3465,7 +3548,7 @@ index 4ade01ba6..5442d9c8d 100755
  
  	i2c_ctx.msg_hdr->length = i2c_ctx.msg_cur - i2c_ctx.msg_buf;
  
-@@ -395,18 +196,8 @@ static int i2c_exec(void)
+@@ -395,18 +215,8 @@ static int i2c_exec(void)
  	msg->msg_type = 0;
  	msg->length = sizeof(*msg) + i2c_ctx.msg_hdr->length;
  	memcpy(msg->data, i2c_ctx.msg_hdr, i2c_ctx.msg_hdr->length);
@@ -3485,7 +3568,7 @@ index 4ade01ba6..5442d9c8d 100755
  }
  
  static void i2c_write_block(struct i2c_block *block, size_t count)
-@@ -669,22 +460,6 @@ static int stopHdcpHw(void)
+@@ -669,22 +479,6 @@ static int stopHdcpHw(void)
  	return icc_query(buf, buf);
  }
  
@@ -3508,7 +3591,7 @@ index 4ade01ba6..5442d9c8d 100755
  static void i2c_cmd_4_2(void)
  {
  	static u8 data[] = {0x31, 0x7a, 0xb8, 0x08, 0x32, 0x7a, 0xb0, 0x05, 0x33, 0x7a, 0xa0, 0x05, 0x34, 0x7a, 0xe1, 0x01, 0x35, 0x7a, 0xe2, 0x01, 0x36, 0x7a, 0xe0, 0x01, 0x37, 0x7c, 0x00, 0x05};
-@@ -707,31 +482,6 @@ static void i2c_cmd_4_2(void)
+@@ -707,31 +501,6 @@ static void i2c_cmd_4_2(void)
  	i2c_exec();
  }
  
@@ -3540,7 +3623,7 @@ index 4ade01ba6..5442d9c8d 100755
  static void sceSetEdidSequence(int sequence)
  {
  	static u8 seq_0[] = {0x04, 0x3f, 0x06, 0x00, 0x02, 0x0c, 0x02, 0x02, 0x01, 0x7a, 0x88, 0xff, 0x01, 0x7a, 0x83, 0x88, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01, 0x02, 0x0f, 0x02, 0x02, 0x01, 0x7a, 0x9c, 0x0e, 0x04, 0x7a, 0x80, 0x00, 0x00, 0x7f, 0x82, 0x03, 0x08, 0x02, 0x01, 0x00, 0x7a, 0x84, 0xa0, 0x03, 0x08, 0x03, 0x01, 0x00, 0x7a, 0x84, 0x01};
-@@ -790,13 +540,8 @@ static void sceControlHdmiEvent(u8 enable)
+@@ -790,13 +559,8 @@ static void sceControlHdmiEvent(u8 enable)
  
  void hdmiSystemResume(void)
  {
@@ -3555,7 +3638,7 @@ index 4ade01ba6..5442d9c8d 100755
  		i2c_cmd_4_2();
  		// sceSetHdcpSequence1st();
  		// sceSetHdcpSequence2nd();
-@@ -807,18 +552,28 @@ void hdmiSystemResume(void)
+@@ -807,18 +571,28 @@ void hdmiSystemResume(void)
  		sceSetEdidSequence(3);
  		sceSetWaitPllSequence();
  		unk_akv();
@@ -3591,7 +3674,7 @@ index 4ade01ba6..5442d9c8d 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -840,10 +595,10 @@ static int initIsrForFlava3(void)
+@@ -840,10 +614,10 @@ static int initIsrForFlava3(void)
  	if (tmds_ch_swap == 1) {
  		i2c_mask(0x701a, 0xb1, 0xff);
  	}
@@ -3604,7 +3687,7 @@ index 4ade01ba6..5442d9c8d 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -871,14 +626,17 @@ static int initDpForFlava3(unsigned int delay_ms)
+@@ -871,14 +645,17 @@ static int initDpForFlava3(unsigned int delay_ms)
  	i2c_write(0x603c, 0x04);
  	i2c_write(0x100e, 0x10);
  	i2c_end_block();
@@ -3626,7 +3709,7 @@ index 4ade01ba6..5442d9c8d 100755
  {
  	i2c_init(1);
  	i2c_begin_block();
-@@ -888,10 +646,10 @@ static int configVSyncSettingFlava3(void)
+@@ -888,10 +665,10 @@ static int configVSyncSettingFlava3(void)
  	i2c_write(0x6c07, 0x00);
  	i2c_write_data(0x7214, (u8[]){0x00, 0x00}, 2);
  	i2c_end_block();
@@ -3639,7 +3722,7 @@ index 4ade01ba6..5442d9c8d 100755
  {
  	i2c_init(1);
  	i2c_begin_block();
-@@ -902,10 +660,10 @@ static int configParamFlava3Pre(void)
+@@ -902,10 +679,10 @@ static int configParamFlava3Pre(void)
  	i2c_write(0x7077, 0x00);
  	i2c_write(0x7079, 0x80);
  	i2c_end_block();
@@ -3652,7 +3735,7 @@ index 4ade01ba6..5442d9c8d 100755
  {
  	i2c_init(1);
  	i2c_begin_block();
-@@ -923,10 +681,10 @@ static int configLinkTrainingFlava3(void)
+@@ -923,10 +700,10 @@ static int configLinkTrainingFlava3(void)
  	i2c_write(0x6a01, 0x4d);
  	i2c_waitset(0x60f9, 0x1a);
  	i2c_waitset(0x6083, 0x02);
@@ -3665,7 +3748,7 @@ index 4ade01ba6..5442d9c8d 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -963,11 +721,39 @@ static int initHdmiPhyForFlava3_1st(void)
+@@ -963,11 +740,39 @@ static int initHdmiPhyForFlava3_1st(void)
  	i2c_write(0x7025, 0x70);
  	i2c_write(0x7030, 0x36);
  	i2c_write(0x7025, 0x77);
@@ -3707,7 +3790,7 @@ index 4ade01ba6..5442d9c8d 100755
  {
  	i2c_init(0);
  	i2c_begin_block();
-@@ -1010,152 +796,234 @@ static int initHdmiPhyForFlava3_2nd(void)
+@@ -1010,115 +815,238 @@ static int initHdmiPhyForFlava3_2nd(void)
  	i2c_write(0x7030, 0x3b);
  	i2c_write(0x7026, 0xef);
  	i2c_end_block();
@@ -3720,10 +3803,8 @@ index 4ade01ba6..5442d9c8d 100755
 +	i2c_init(1);
 +	i2c_mask(0x7203, 0x00, 0x80);
 +	i2c_exec();
- }
- 
--/* Caller holds frl_state_lock; notification callbacks must never take setup_lock. */
--static void allm_reset_locked(void)
++}
++
 +static bool hdmi_mode_is_hi_rate(const struct drm_display_mode *mode);
 +
 +/*
@@ -3745,14 +3826,12 @@ index 4ade01ba6..5442d9c8d 100755
 +MODULE_PARM_DESC(frl_4k120, "Offer 3840x2160 at 120 Hz over HDMI 2.1 FRL on FLAVA3 consoles (default on; 0 never offers it)");
 +
 +static bool ps5_mode_frl(u8 vic)
- {
--	WRITE_ONCE(allm_ready, false);
--	WRITE_ONCE(allm_valid, false);
--	WRITE_ONCE(allm_active, false);
-+	return frl_4k120 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && vic == 118;
++{
++	return frl_4k120 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && (vic == 118 || vic == 117);
  }
  
--static void allm_reset(void)
+-/* Caller holds frl_state_lock; notification callbacks must never take setup_lock. */
+-static void allm_reset_locked(void)
 +/*
 + * 4K120 only where it can work: EDID Max_FRL_Rate >= 4 with 4:2:2, the chip's own FRL report not 1-3,
 + * and 0x7019 bit 6 set after the setup; otherwise it's withheld for this display and amdgpu falls back.
@@ -3766,19 +3845,30 @@ index 4ade01ba6..5442d9c8d 100755
 +
 +void hdmi_set_frl_fallback(void (*cb)(void))
  {
--	mutex_lock(&frl_state_lock);
--	allm_reset_locked();
--	mutex_unlock(&frl_state_lock);
+-	WRITE_ONCE(allm_ready, false);
+-	WRITE_ONCE(allm_valid, false);
+-	WRITE_ONCE(allm_active, false);
 +	WRITE_ONCE(frl_fallback_cb, cb);
  }
 +EXPORT_SYMBOL(hdmi_set_frl_fallback);
  
--/* Publish only against the connection that accepted the converter message. */
--static bool allm_record(unsigned int generation, bool on, bool valid)
+-static void allm_reset(void)
 +static bool frl_offer_ok(void)
  {
--	bool matches;
+-	mutex_lock(&frl_state_lock);
+-	allm_reset_locked();
+-	mutex_unlock(&frl_state_lock);
 +	u8 rate = READ_ONCE(frl_ic_rate);
++
++	return READ_ONCE(frl_edid_ok) && !READ_ONCE(frl_failed) && !(rate && rate < 4);
+ }
+ 
+-/* Publish only against the connection that accepted the converter message. */
+-static bool allm_record(unsigned int generation, bool on, bool valid)
++static void edid_frl_caps(const u8 *e, int len, u8 *max_frl, bool *y422)
+ {
+-	bool matches;
++	int ext, n = len >= 128 ? e[0x7e] : 0, i;
  
 -	mutex_lock(&frl_state_lock);
 -	matches = generation == frl_sink_generation && frl_edid_valid;
@@ -3786,21 +3876,6 @@ index 4ade01ba6..5442d9c8d 100755
 -		WRITE_ONCE(allm_ready, true);
 -		WRITE_ONCE(allm_valid, valid);
 -		WRITE_ONCE(allm_active, valid && on);
--	}
--	mutex_unlock(&frl_state_lock);
--	return matches;
-+	return READ_ONCE(frl_edid_ok) && !READ_ONCE(frl_failed) && !(rate && rate < 4);
- }
- 
--static bool allm_wanted(void)
-+static void edid_frl_caps(const u8 *e, int len, u8 *max_frl, bool *y422)
- {
--	unsigned int policy = READ_ONCE(allm);
-+	int ext, n = len >= 128 ? e[0x7e] : 0, i;
- 
--	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && READ_ONCE(frl_edid_valid) &&
--	       READ_ONCE(sink_allm) &&
--	       (policy == 2 || (policy == 1 && READ_ONCE(allm_game)));
 +	*max_frl = 0;
 +	*y422 = false;
 +	for (ext = 1; ext <= n && (ext + 1) * 128 <= len; ext++) {
@@ -3820,19 +3895,53 @@ index 4ade01ba6..5442d9c8d 100755
 +			    (tag == 7 && b[i + 1] == 0x79))
 +				*max_frl = max_t(u8, *max_frl, b[i + 7] >> 4);
 +		}
+ 	}
+-	mutex_unlock(&frl_state_lock);
+-	return matches;
+ }
+ 
+-static bool allm_wanted(void)
++/* EDID notification: the chip's FRL report and the display's capabilities for 4K120 */
++static void frl_note_edid(u8 byte0, const u8 *e, int len)
+ {
+-	unsigned int policy = READ_ONCE(allm);
++	u32 crc = crc32_le(~0, e, len);
++	u8 max_frl;
++	bool y422, ok;
++
++	u8 rate = (byte0 >> 1) & 7;
++	bool changed = crc != frl_edid_crc;
+ 
+-	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && READ_ONCE(frl_edid_valid) &&
+-	       READ_ONCE(sink_allm) &&
+-	       (policy == 2 || (policy == 1 && READ_ONCE(allm_game)));
++	edid_frl_caps(e, len, &max_frl, &y422);
++	ok = max_frl >= 4 && y422;
++	if (changed) {
++		frl_edid_crc = crc;
++		WRITE_ONCE(frl_failed, false);	/* another display, or the same one changed */
 +	}
++	if (changed || ok != READ_ONCE(frl_edid_ok) || rate != READ_ONCE(frl_ic_rate))
++		pr_info("hdmi: 4K120 %s (EDID FRL rate %u, YCbCr 4:2:2 %s, chip reports %u%s)\n",
++			ok && !READ_ONCE(frl_failed) && !(rate && rate < 4) ? "possible" : "not offered",
++			max_frl, y422 ? "yes" : "no", rate,
++			READ_ONCE(frl_failed) ? ", failed before with this display" : "");
++	WRITE_ONCE(frl_ic_rate, rate);
++	WRITE_ONCE(frl_edid_ok, ok);
  }
  
 -/* HF-VSIF with ALLM_Mode set; off clears 7203 bit 7 to stop the packet. */
 -static int setAllmFlava3(bool on)
-+/* EDID notification: the chip's FRL report and the display's capabilities for 4K120 */
-+static void frl_note_edid(u8 byte0, const u8 *e, int len)
++/* one chip register, read through the EMC */
++static int hdmi_reg_read(u16 reg, u8 *val)
  {
 -	/* PB1-PB28: OUI C4-5D-D8, version 1, ALLM_Mode (PB5 bit 1) */
 -	u8 payload[28] = { 0xd8, 0x5d, 0xc4, 0x01, 0x02 };
-+	u32 crc = crc32_le(~0, e, len);
-+	u8 max_frl;
-+	bool y422, ok;
++	static u8 buf[ICC_MSG_MAX_SIZE];
++	static DEFINE_MUTEX(lock);
++	const u8 body[] = { 0x04, 0x0c, 0x00, 0x01, 0x01, 0x08, 0x01, 0x01, 1, reg >> 8, reg & 0xff, 0x00 };
++	struct icc_msg *msg = (struct icc_msg *)buf;
++	int ret;
  
 -	i2c_init(1);
 -	if (on) {
@@ -3848,42 +3957,6 @@ index 4ade01ba6..5442d9c8d 100755
 -		i2c_waitclear(0x7204, 0x80);
 -	} else {
 -		i2c_mask(0x7203, 0x00, 0x80);
-+	u8 rate = (byte0 >> 1) & 7;
-+	bool changed = crc != frl_edid_crc;
-+
-+	edid_frl_caps(e, len, &max_frl, &y422);
-+	ok = max_frl >= 4 && y422;
-+	if (changed) {
-+		frl_edid_crc = crc;
-+		WRITE_ONCE(frl_failed, false);	/* another display, or the same one changed */
- 	}
--	return i2c_exec();
-+	if (changed || ok != READ_ONCE(frl_edid_ok) || rate != READ_ONCE(frl_ic_rate))
-+		pr_info("hdmi: 4K120 %s (EDID FRL rate %u, YCbCr 4:2:2 %s, chip reports %u%s)\n",
-+			ok && !READ_ONCE(frl_failed) && !(rate && rate < 4) ? "possible" : "not offered",
-+			max_frl, y422 ? "yes" : "no", rate,
-+			READ_ONCE(frl_failed) ? ", failed before with this display" : "");
-+	WRITE_ONCE(frl_ic_rate, rate);
-+	WRITE_ONCE(frl_edid_ok, ok);
- }
- 
--static bool isTimingValid(const struct drm_display_mode *mode)
-+/* one chip register, read through the EMC */
-+static int hdmi_reg_read(u16 reg, u8 *val)
- {
--	if (mode->flags & ~(DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NHSYNC |
--			    DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NVSYNC))
--		return false;
-+	static u8 buf[ICC_MSG_MAX_SIZE];
-+	static DEFINE_MUTEX(lock);
-+	const u8 body[] = { 0x04, 0x0c, 0x00, 0x01, 0x01, 0x08, 0x01, 0x01, 1, reg >> 8, reg & 0xff, 0x00 };
-+	struct icc_msg *msg = (struct icc_msg *)buf;
-+	int ret;
- 
--	if (mode->hdisplay < 640 || mode->hdisplay > 3840 ||
--	    mode->vdisplay < 480 || mode->vdisplay > 2160 ||
--	    mode->clock < 25000 || mode->clock > 600000)
--		return false;
 +	mutex_lock(&lock);
 +	memset(buf, 0, sizeof(buf));
 +	msg->service_id = ICC_SERVICE_ID_HDMI;
@@ -3898,23 +3971,13 @@ index 4ade01ba6..5442d9c8d 100755
 +	mutex_unlock(&lock);
 +	return ret;
 +}
- 
--	if (mode->hsync_start < mode->hdisplay ||
--	    mode->hsync_end <= mode->hsync_start ||
--	    mode->htotal < mode->hsync_end || mode->htotal > 65535 ||
--	    mode->htotal - mode->hsync_start < 2 ||
--	    mode->vsync_start < mode->vdisplay ||
--	    mode->vsync_end <= mode->vsync_start ||
--	    mode->vtotal < mode->vsync_end || mode->vtotal > 65535)
--		return false;
++
 +static void frl_check_fn(struct work_struct *work)
 +{
 +	int seq = atomic_read(&frl_check_seq), i;
 +	void (*cb)(void);
 +	u8 v = 0;
- 
--	return (u64)mode->htotal * mode->vtotal <= 0x100000000ULL &&
--	       (u64)mode->htotal * (mode->vsync_end - mode->vsync_start) <= 0x1000000ULL;
++
 +	for (i = 0; i < 20; i++) {
 +		if (atomic_read(&frl_check_seq) != seq)
 +			return;		/* a new setup started */
@@ -3923,7 +3986,8 @@ index 4ade01ba6..5442d9c8d 100755
 +			return;
 +		}
 +		msleep(250);
-+	}
+ 	}
+-	return i2c_exec();
 +	if (atomic_read(&frl_check_seq) != seq)
 +		return;
 +	WRITE_ONCE(frl_failed, true);
@@ -3934,21 +3998,23 @@ index 4ade01ba6..5442d9c8d 100755
  }
 +static DECLARE_DELAYED_WORK(frl_check_work, frl_check_fn);
  
--static bool isManualTiming(const struct drm_display_mode *mode)
+-static bool isTimingValid(const struct drm_display_mode *mode)
 +/* Sony's 4K mode index (0x7227 / 0x7070): 0x0a = 4K100, 0x0b = 4K120 */
 +static u8 ps5_frl_index(u8 vic)
  {
--	return mode->flags == (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC) &&
--	       isTimingValid(mode);
+-	if (mode->flags & ~(DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NHSYNC |
+-			    DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NVSYNC))
+-		return false;
 +	return vic == 118 ? 0x0b : 0x0a;
- }
++}
  
--static bool isManualMode(const struct drm_display_mode *mode)
+-	if (mode->hdisplay < 640 || mode->hdisplay > 3840 ||
+-	    mode->vdisplay < 480 || mode->vdisplay > 2160 ||
+-	    mode->clock < 25000 || mode->clock > 600000)
+-		return false;
 +/* Source Product Description "SCEI" / "PS5", sent by the PS5 OS in FRL modes */
 +static void sendSpdFlava3(void)
- {
--	if (!isManualTiming(mode))
--		return false;
++{
 +	i2c_init(1);
 +	i2c_begin_block();
 +	i2c_write_data(0x7244, (u8[]){'S', 'C', 'E', 'I'}, 4);
@@ -3960,9 +4026,14 @@ index 4ade01ba6..5442d9c8d 100755
 +	i2c_exec();
 +}
  
--	/* 1440p */
--	if (mode->hdisplay == 2560 && mode->vdisplay == 1440)
--		return mode->clock > 340000;
+-	if (mode->hsync_start < mode->hdisplay ||
+-	    mode->hsync_end <= mode->hsync_start ||
+-	    mode->htotal < mode->hsync_end || mode->htotal > 65535 ||
+-	    mode->htotal - mode->hsync_start < 2 ||
+-	    mode->vsync_start < mode->vdisplay ||
+-	    mode->vsync_end <= mode->vsync_start ||
+-	    mode->vtotal < mode->vsync_end || mode->vtotal > 65535)
+-		return false;
 +/* event sequence 0x30, run by the chip once the FRL link is up: AVI with the VIC, IT content, game */
 +static void sceSetFrlLinkUpSequence(u8 vic)
 +{
@@ -3978,33 +4049,19 @@ index 4ade01ba6..5442d9c8d 100755
 +		     0x02, 0x08, 0x02, 0x01, 0x01, 0x72, 0x04, 0x40,
 +		     0x03, 0x08, 0x03, 0x01, 0x00, 0x72, 0x04, 0x40};
  
--	return mode->clock <= 297000 && !drm_match_cea_mode(mode);
+-	return (u64)mode->htotal * mode->vtotal <= 0x100000000ULL &&
+-	       (u64)mode->htotal * (mode->vsync_end - mode->vsync_start) <= 0x1000000ULL;
 +	i2c_init(0);
 +	i2c_cmd_4_16(data, sizeof(data));
 +	i2c_exec();
  }
  
--static void setManualTimingFlava3(const struct drm_display_mode *mode)
+-static bool isManualTiming(const struct drm_display_mode *mode)
 +/* FRL replacement for setVideoAdditionalConfigFlava3: no TMDS scrambling/SCDC, start in FRL mode */
 +static void setVideoAdditionalConfigFrlFlava3(void)
  {
--	u16 hstart = mode->htotal - mode->hsync_start - 2;
--	u16 vstart = mode->vtotal - mode->vsync_start + 1;
--	u16 width = mode->hdisplay - 1;
--	u16 height = mode->vdisplay - 1;
--	u16 htotal = mode->htotal - 1;
--	u16 hsync = mode->hsync_end - mode->hsync_start - 1;
--	u32 frame = (u32)mode->htotal * mode->vtotal - 1;
--	u32 vsync = (u32)mode->htotal * (mode->vsync_end - mode->vsync_start) - 1;
--	u16 clock = mode->clock / 1000;
--
--	i2c_write_data(0x7042, (u8[]){hstart, hstart >> 8, vstart, vstart >> 8,
--		       width, width >> 8, height, height >> 8}, 8);
--	i2c_write(0x704f, 0x12);
--	i2c_write_data(0x7063, (u8[]){htotal, htotal >> 8, hsync, hsync >> 8,
--		       frame, frame >> 8, frame >> 16, frame >> 24,
--		       vsync, vsync >> 8, vsync >> 16}, 11);
--	i2c_write_data(0x7078, (u8[]){clock, 0x80 | ((clock >> 8) & 0x07)}, 2);
+-	return mode->flags == (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC) &&
+-	       isTimingValid(mode);
 +	i2c_init(1);
 +	i2c_begin_block();
 +	i2c_write(0x705f, 0x80);
@@ -4023,6 +4080,32 @@ index 4ade01ba6..5442d9c8d 100755
 +	scrambling = false;
  }
  
+-static bool isManualMode(const struct drm_display_mode *mode)
++/* The bridge's own setups; FLAVA3 takes any other timing through its manual setup (index 0x05, from rmux) */
++static bool hdmi_mode_is_preset(const struct drm_display_mode *mode)
+ {
+-	if (!isManualTiming(mode))
+-		return false;
++	u8 vic = drm_match_cea_mode(mode);
+ 
+-	/* 1440p */
+ 	if (mode->hdisplay == 2560 && mode->vdisplay == 1440)
+-		return mode->clock > 340000;
+-
+-	return mode->clock <= 297000 && !drm_match_cea_mode(mode);
++		return mode->htotal == 2720;
++	return vic == 16 || vic == 63 || vic == 64 || vic == 97 || ps5_mode_frl(vic);
+ }
+ 
++static bool manual_timing;
++
+ static void setManualTimingFlava3(const struct drm_display_mode *mode)
+ {
+ 	u16 hstart = mode->htotal - mode->hsync_start - 2;
+@@ -1140,22 +1068,15 @@ static void setManualTimingFlava3(const struct drm_display_mode *mode)
+ 	i2c_write_data(0x7078, (u8[]){clock, 0x80 | ((clock >> 8) & 0x07)}, 2);
+ }
+ 
 -static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
 -					 unsigned int bpc, bool yuv422,
 -					 const struct ps5_hdmi_frl_config *config, bool bt2020)
@@ -4037,6 +4120,7 @@ index 4ade01ba6..5442d9c8d 100755
 -	if (frl && (config->bpc != bpc || config->format > PS5_HDMI_420 ||
 -		    yuv422 != (bool)(config->format == PS5_HDMI_422)))
 -		return -EINVAL;
++	bool manual = !hdmi_mode_is_preset(mode);
  
  	i2c_init(1);
  	i2c_mask(0x7021, 0x00, 0xf0);
@@ -4045,7 +4129,7 @@ index 4ade01ba6..5442d9c8d 100755
  	i2c_begin_block();
  	i2c_write(0x100c, 0x01);
  	i2c_write_data(0x68a0, (u8[]){0x96, 0x04}, 2);
-@@ -1163,17 +1031,10 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1163,17 +1084,13 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  	i2c_write(0x7019, 0x00);
  	i2c_write(0x100c, 0x01);
  	i2c_write(0x7005, 0x80);
@@ -4058,14 +4142,15 @@ index 4ade01ba6..5442d9c8d 100755
 -		i2c_write_data(0x7070, (u8[]){0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 6);
 -	} else if (manual) {
 -		/* Set manual timing */
--		i2c_write_data(0x7227, (u8[]){0x05, 0x00}, 2);
--		i2c_write_data(0x7070, (u8[]){0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 6);
++	if (manual) {
+ 		i2c_write_data(0x7227, (u8[]){0x05, 0x00}, 2);
+ 		i2c_write_data(0x7070, (u8[]){0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 6);
 -	} else if (vic == 16 || vic == 63) {
-+	if (vic == 16 || vic == 63) {
++	} else if (vic == 16 || vic == 63 || vic == 64) {
  		/* Set VIC and content type */
  		i2c_write_data(0x7227, (u8[]){vic, 0x00}, 2);
  		i2c_write_data(0x7070, (u8[]){vic, vic, 0x00, 0x00, 0x00, 0x00}, 6);
-@@ -1185,32 +1046,27 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1185,32 +1102,27 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  		/* Set VIC and content type */
  		i2c_write_data(0x7227, (u8[]){0x06, 0x00}, 2);
  		i2c_write_data(0x7070, (u8[]){0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 6);
@@ -4111,14 +4196,16 @@ index 4ade01ba6..5442d9c8d 100755
  	i2c_write(0x7018, (tmds_polarity == 1) << 1);
  	if (tmds_ch_swap == 1) {
  		i2c_end_block();
-@@ -1219,18 +1075,12 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1219,18 +1131,15 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  	}
  	i2c_write(0x10e7, 0xff);
  	i2c_write(0x7202, 0x20);
 -	/* Refresh the 1440p counters after a manual timing has been used. */
 -	if (manual || (manual_timing && mode->hdisplay == 2560 &&
 -		       mode->vdisplay == 1440 && isTimingValid(mode)))
--		setManualTimingFlava3(mode);
++	/* the 1440p setup needs its counters again after a manual timing */
++	if (manual || (manual_timing && mode->hdisplay == 2560 && mode->vdisplay == 1440))
+ 		setManualTimingFlava3(mode);
 -	if (frl) {
 -		i2c_write_data(0x7070, (u8[]){vic, vic}, 2);
 -		i2c_write(0x7072, 0x00);
@@ -4135,7 +4222,7 @@ index 4ade01ba6..5442d9c8d 100755
  		i2c_write(0x7072, 0x01);
  		i2c_write(0x7074, 0x07);
  		i2c_write(0x7206, 0x80);
-@@ -1242,29 +1092,14 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
+@@ -1242,29 +1151,15 @@ static int setHdmiBasicVideoConfigFlava3(const struct drm_display_mode *mode,
  	}
  	i2c_end_block();
  	i2c_waitclear(0x7011, 0xff);
@@ -4145,6 +4232,7 @@ index 4ade01ba6..5442d9c8d 100755
 -		manual_timing = true;
 -	return ret;
 +	i2c_exec();
++	manual_timing |= manual;
  }
  
 -/* Clear IT content and content type; ALLM carries game mode. */
@@ -4167,7 +4255,7 @@ index 4ade01ba6..5442d9c8d 100755
  
  	i2c_init(1);
  	i2c_waitset(0x10e7, 0x80);
-@@ -1272,33 +1107,21 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+@@ -1272,33 +1167,21 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
  		/* Set VIC */
  		i2c_mask(0x7227, vic, 0xff);
  	}
@@ -4213,14 +4301,14 @@ index 4ade01ba6..5442d9c8d 100755
  		i2c_write(0x7019, 0x01);
  	} else {
  		i2c_write(0x7019, 0x00);
-@@ -1314,14 +1137,29 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+@@ -1314,14 +1197,29 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
  	i2c_waitclear(0x7a84, 0x01);
  	i2c_begin_block();
  	i2c_write(0x7a8b, 0x05);
 -	if (scramble || scrambling) {
 -		i2c_write(0x7c00, scramble ? 0x03 : 0x00);
 +	i2c_end_block();
-+	if (sink_scdc) {
++	if (sink_scdc && READ_ONCE(scdc_writes)) {
 +		/*
 +		 * Source Version 1, as HDMI 2.x sources write it: some TVs only show their HDMI 2.x EDID then.
 +		 * 0x7a80 is the bridge's DDC write: SCDC address, register, length-1, start.
@@ -4233,13 +4321,13 @@ index 4ade01ba6..5442d9c8d 100755
 +	}
 +	/* TMDS_Config for every SCDC sink, 0x00 at low rates too, as a PC does: some TVs fall back to HDMI 1.4 otherwise. */
 +	i2c_begin_block();
-+	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || sink_scdc) {
++	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || (sink_scdc && READ_ONCE(scdc_writes))) {
 +		i2c_write(0x7c00, (vic == 97 || hdmi_mode_is_hi_rate(mode)) ? 0x03 : 0x00);
  		i2c_write_data(0x7a80, (u8[]){0xa8, 0x20, 0x00, 0x80}, 4);
  	}
  	i2c_end_block();
 -	if (scramble || scrambling)
-+	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || sink_scdc) {
++	if (vic == 97 || hdmi_mode_is_hi_rate(mode) || scrambling || (sink_scdc && READ_ONCE(scdc_writes))) {
  		i2c_waitclear(0x7a84, 0x01);
 -	scrambling = scramble;
 +	}
@@ -4247,15 +4335,13 @@ index 4ade01ba6..5442d9c8d 100755
  	i2c_begin_block();
  	i2c_write(0x7021, 0xff);
  	i2c_write(0x700a, 0x02);
-@@ -1329,53 +1167,281 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
+@@ -1329,53 +1227,282 @@ static int setVideoAdditionalConfigFlava3(const struct drm_display_mode *mode)
  	i2c_end_block();
  	i2c_delay(700);
  	i2c_write(0x7a8b, 0x00);
 -	/* Start TMDS output, and HDCP unless 5/1 turned it off */
  	i2c_cmd_5_3(0x01);
 -	ret = i2c_exec();
--
--	WRITE_ONCE(hdcp_abort_until, jiffies + msecs_to_jiffies(HDCP_ABORT_MS));
 +	i2c_exec();
 +}
 +
@@ -4266,6 +4352,7 @@ index 4ade01ba6..5442d9c8d 100755
 + */
 +static bool vrr = true;
 +module_param(vrr, bool, 0444);
++
 +MODULE_PARM_DESC(vrr, "VRR on FLAVA3 consoles: offer the TV's VRR range, switched with Steam's VRR setting (default on; 0 never offers it)");
 +
 +#define VRR_FOLLOW_STEP_MS	250	/* between the follow steps (tested up to 1000) */
@@ -4356,7 +4443,8 @@ index 4ade01ba6..5442d9c8d 100755
 +		}
 +	}
 +	kfree(e);
-+
+ 
+-	WRITE_ONCE(hdcp_abort_until, jiffies + msecs_to_jiffies(HDCP_ABORT_MS));
 +	/* VRRmax 0 is open-ended: use the FreeSync maximum, else 120 Hz, this chip's highest. */
 +	if (hf_min >= 1 && hf_max == 0)
 +		hf_max = amd_max > hf_min + 10 ? amd_max : 120;
@@ -4567,7 +4655,7 @@ index 4ade01ba6..5442d9c8d 100755
  }
  
  static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt2020)
-@@ -1383,7 +1449,6 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
+@@ -1383,7 +1510,6 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
  	struct hdmi_drm_infoframe sdr;
  	u8 data[HDMI_INFOFRAME_SIZE(DRM)];
  	bool hdr = frame != NULL;
@@ -4575,7 +4663,7 @@ index 4ade01ba6..5442d9c8d 100755
  
  	/* Sinks keep the last InfoFrame, send EOTF 0 when leaving HDR. */
  	if (!frame && hdr_enabled) {
-@@ -1410,26 +1475,11 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
+@@ -1410,26 +1536,11 @@ static void setHdrConfigFlava3(const struct hdmi_drm_infoframe *frame, bool bt20
  		i2c_write(0x7204, 0x40);
  		i2c_waitclear(0x7204, 0x40);
  	}
@@ -4603,33 +4691,34 @@ index 4ade01ba6..5442d9c8d 100755
  static void setHdmiAudioConfigBasic(int channels)
  {
  	i2c_init(2);
-@@ -1559,6 +1609,10 @@ static void setTmdsConfigVerde(void)
+@@ -1559,19 +1670,18 @@ static void setTmdsConfigVerde(void)
  	i2c_exec();
  }
  
-+/*
-+ * Verde AVI InfoFrame (0x3058) with ITC and content type game, as on FLAVA3, so TVs pick
-+ * their game mode; checksums adjusted by -0xb0.
-+ */
++/* Verde AVI InfoFrame (0x3058): RGB, the mode's VIC, ITC and content type game, as on FLAVA3, so TVs pick their game mode */
  static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
  {
- 	u8 vic = drm_match_cea_mode(mode);
-@@ -1566,11 +1620,11 @@ static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
+-	u8 vic = drm_match_cea_mode(mode);
++	u8 avi[18] = { 0x02, 0x0d, 0x00, 0x00, 0x28, 0x88, drm_match_cea_mode(mode), 0x70 };
++	int i, sum = 0x82;
+ 
++	for (i = 0; i < ARRAY_SIZE(avi); i++)
++		sum += avi[i];
++	avi[2] = -sum;
  	i2c_init(0);
  	i2c_begin_block();
- 	if (vic == 16) {
+-	if (vic == 16) {
 -		i2c_write_data(0x3058, (u8[]){0x02, 0x0d, 0xef, 0x00, 0x28, 0x08, 0x10, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 18);
-+		i2c_write_data(0x3058, (u8[]){0x02, 0x0d, 0x3f, 0x00, 0x28, 0x88, 0x10, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 18);
- 	} else if (mode->hdisplay == 2560 && mode->vdisplay == 1440) {
+-	} else if (mode->hdisplay == 2560 && mode->vdisplay == 1440) {
 -		i2c_write_data(0x3058, (u8[]){0x02, 0x0d, 0xff, 0x00, 0x28, 0x08, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 18);
-+		i2c_write_data(0x3058, (u8[]){0x02, 0x0d, 0x4f, 0x00, 0x28, 0x88, 0x00, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 18);
- 	} else if (vic == 97) {
+-	} else if (vic == 97) {
 -		i2c_write_data(0x3058, (u8[]){0x02, 0x0d, 0x9e, 0x00, 0x28, 0x08, 0x61, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 18);
-+		i2c_write_data(0x3058, (u8[]){0x02, 0x0d, 0xee, 0x00, 0x28, 0x88, 0x61, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 18);
- 	}
+-	}
++	i2c_write_data(0x3058, avi, sizeof(avi));
  	i2c_write_data(0x31d0, (u8[]){0x01, 0x19, 0x5f, 0x53, 0x43, 0x45, 0x49, 0x00, 0x00, 0x00, 0x00, 0x50, 0x53, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08}, 28);
  	i2c_end_block();
-@@ -1638,236 +1692,34 @@ static void sceHdmiSetAudioConfigVerde(int channels)
+ 	i2c_begin_block();
+@@ -1638,236 +1748,34 @@ static void sceHdmiSetAudioConfigVerde(int channels)
  	setAudioConfigForVerde(channels);
  }
  
@@ -4674,15 +4763,15 @@ index 4ade01ba6..5442d9c8d 100755
 -EXPORT_SYMBOL(ps5_hdmi_allm_update);
 -
 -static void allm_update_work_func(struct work_struct *work)
-+void sceHdmiInitVideoConfig(void)
- {
+-{
 -	ps5_hdmi_allm_update();
 -}
 -static DECLARE_WORK(allm_update_work, allm_update_work_func);
 -
 -/* amdgpu: the HF-VSIF write waits on the IC, so keep it out of the commit. */
 -void ps5_hdmi_allm_queue_update(void)
--{
++void sceHdmiInitVideoConfig(void)
+ {
 -	queue_work(system_dfl_wq, &allm_update_work);
 -}
 -EXPORT_SYMBOL(ps5_hdmi_allm_queue_update);
@@ -4807,20 +4896,20 @@ index 4ade01ba6..5442d9c8d 100755
 -	       frl_wiring_valid() && frl_mode_config(mode, max_bpc, config);
 -}
 -EXPORT_SYMBOL(getHdmiFrlConfig);
-+/* when the bridge was last set up for a mode (any path); see REARM_QUIET_MS */
-+static ktime_t last_video_setup;
- 
+-
 -bool isHdmiFrlTiming(const struct drm_display_mode *mode)
-+void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422)
- {
+-{
 -	struct ps5_hdmi_frl_config config;
 -
 -	return frl_mode_config(mode, 10, &config);
 -}
 -EXPORT_SYMBOL(isHdmiFrlTiming);
--
++/* when the bridge was last set up for a mode (any path); see REARM_QUIET_MS */
++static ktime_t last_video_setup;
+ 
 -bool isHdmiModeFrl(const struct drm_display_mode *mode)
--{
++void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422)
+ {
 -	struct ps5_hdmi_frl_config config;
 -
 -	return getHdmiFrlConfig(mode, 10, &config);
@@ -4883,21 +4972,21 @@ index 4ade01ba6..5442d9c8d 100755
  }
  EXPORT_SYMBOL(sceHdmiSetVideoConfig);
  
-@@ -1879,31 +1731,18 @@ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020)
+@@ -1879,31 +1787,18 @@ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020)
  }
  EXPORT_SYMBOL(sceHdmiSetHdrConfig);
  
 -/* The converter resets RGB range signaling to full on each modeset. */
 -void sceHdmiSetRgbRange(bool limited)
-+void sceHdmiDeviceSetVideoMute(int mute)
- {
+-{
 -	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
 -		setRgbRangeFlava3(limited);
 -}
 -EXPORT_SYMBOL(sceHdmiSetRgbRange);
 -
 -int sceHdmiDeviceSetVideoMute(int mute)
--{
++void sceHdmiDeviceSetVideoMute(int mute)
+ {
 -	int ret;
 -
 +	/* VRR: while the chip switches to follow mode, the follow block unmutes when done */
@@ -4920,54 +5009,66 @@ index 4ade01ba6..5442d9c8d 100755
  }
  EXPORT_SYMBOL(sceHdmiDeviceSetVideoMute);
  
-@@ -1980,223 +1819,186 @@ u32 getHdmiDpAudioN(u32 default_n)
+@@ -1980,223 +1875,206 @@ u32 getHdmiDpAudioN(u32 default_n)
  }
  EXPORT_SYMBOL(getHdmiDpAudioN);
  
 -bool isHdmiModeStock(const struct drm_display_mode *mode)
-+/* 1440p120 (497.75 MHz) on FLAVA3, set up like 4K60 (1/40 clock ratio, scrambling); the others can't. */
-+
++/* Above 340 MHz the bridge scrambles at a 1/40 clock ratio, as for 4K60 */
 +static bool hdmi_mode_is_hi_rate(const struct drm_display_mode *mode)
-+{
+ {
+-	u8 vic = drm_match_cea_mode(mode);
 +	return mode->clock > 340000;
 +}
-+
-+bool isHdmiModeValid(const struct drm_display_mode *mode, int force_1080p)
- {
- 	u8 vic = drm_match_cea_mode(mode);
  
 -	/* 1440p */
 -	if (mode->hdisplay == 2560 && mode->vdisplay == 1440)
 -		return mode->clock == 241500 || mode->clock == 241700;
++/* Progressive TMDS timings up to 600 MHz: the bridge's setups on both chips, FLAVA3's manual setup for the rest */
++bool isHdmiModeValid(const struct drm_display_mode *mode, int force_1080p)
++{
++	u8 vic = drm_match_cea_mode(mode);
+ 
+-	switch (vic) {
+-	case 16: /* 1080p60 */
+-	case 63: /* 1080p120 */
+-	case 97: /* 2160p60 */
 +	if (force_1080p)
 +		return vic == 16; /* 1080p60 */
-+
-+	/* 1440p: only the standard timings the bridge's 1440p setup is made for */
-+	if (mode->hdisplay == 2560 && mode->vdisplay == 1440) {
-+		if (mode->htotal != 2720)
-+			return false;
-+		if ((mode->clock == 241500 || mode->clock == 241700) && mode->vtotal == 1481)
-+			return true;	/* 1440p60, VESA DMT reduced blanking */
-+		return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 &&
-+		       mode->clock == 497750 && mode->vtotal == 1525;	/* 1440p120, CVT-RB */
-+	}
- 
- 	switch (vic) {
- 	case 16: /* 1080p60 */
- 	case 63: /* 1080p120 */
- 	case 97: /* 2160p60 */
++	if (vic == 117 || vic == 118)	/* 2160p100/120 over FRL */
++		return ps5_mode_frl(vic) && frl_offer_ok() && (vic == 118 || mode->clock == 1188000);
++	if (mode->flags & ~(DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NHSYNC |
++			    DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NVSYNC) ||
++	    mode->hdisplay < 640 || mode->hdisplay > 3840 ||
++	    mode->vdisplay < 480 || mode->vdisplay > 2160 ||
++	    mode->clock < 25000 || mode->clock > 600000)
++		return false;
++	if (hdmi_mode_is_preset(mode))
  		return true;
-+	case 118: /* 2160p120, FRL */
-+		return ps5_mode_frl(vic) && frl_offer_ok();
- 	}
- 
- 	return false;
+-	}
+-
+-	return false;
++	/* other 1440p timings only above 340 MHz, as in rmux's tree; below, the bridge's own (2720 total) */
++	if (mode->hdisplay == 2560 && mode->vdisplay == 1440 && !hdmi_mode_is_hi_rate(mode))
++		return false;
++	/* manual: no standard (CTA) format, sync pulses the registers can hold, scrambling the sink takes */
++	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && !vic &&
++	       mode->hsync_end > mode->hsync_start && mode->htotal - mode->hsync_start >= 2 &&
++	       mode->vsync_end > mode->vsync_start &&
++	       (!hdmi_mode_is_hi_rate(mode) || sink_scdc);
  }
 -EXPORT_SYMBOL(isHdmiModeStock);
 +EXPORT_SYMBOL(isHdmiModeValid);
-+
+ 
+-/* Include 4:2:2 capability from every CTA block. */
+-bool isHdmiSink422(const struct drm_display_info *info)
+-{
+-	return info->color_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) ||
+-	       READ_ONCE(sink_cta_422);
+-}
+-EXPORT_SYMBOL(isHdmiSink422);
 +/*
-+ * The bridge's own modes in standard timings (1080p60/120, 2160p60, 1440p60, FLAVA3 1440p120), offered
++ * The bridge's own modes in standard timings (1080p, 1440p at 60/100/120 Hz, 2160p60), offered
 + * within the sink's limits even when its EDID doesn't list them; 1080p60 preferred for a first start.
 + */
 +static const struct drm_display_mode ps5_1440p60 = {
@@ -4975,32 +5076,10 @@ index 4ade01ba6..5442d9c8d 100755
 +		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1481, 0,
 +		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
 +};
-+
-+static const struct drm_display_mode ps5_1440p120 = {
-+	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 497750,
-+		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1525, 0,
-+		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
-+};
- 
--/* Include 4:2:2 capability from every CTA block. */
--bool isHdmiSink422(const struct drm_display_info *info)
-+static bool ps5_has_mode(struct drm_connector *connector, const struct drm_display_mode *want)
- {
--	return info->color_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) ||
--	       READ_ONCE(sink_cta_422);
-+	struct drm_display_mode *m;
-+
-+	list_for_each_entry(m, &connector->probed_modes, head)
-+		if (drm_mode_match(m, want, DRM_MODE_MATCH_TIMINGS | DRM_MODE_MATCH_CLOCK))
-+			return true;
-+	return false;
- }
--EXPORT_SYMBOL(isHdmiSink422);
  
 -static bool frl_config_allowed(const struct ps5_hdmi_frl_config *config,
 -			       const struct drm_display_info *info)
-+static int ps5_add_mode(struct drm_connector *connector, struct drm_display_mode *mode)
- {
+-{
 -	struct frl_inputs in = {
 -		.lanes = info->hdmi.max_lanes,
 -		.rate_per_lane = info->hdmi.max_frl_rate_per_lane,
@@ -5058,7 +5137,12 @@ index 4ade01ba6..5442d9c8d 100755
 -		.rate_per_lane = info->hdmi.max_frl_rate_per_lane,
 -		.min_rate = 4,
 -	};
--
++static const struct drm_display_mode ps5_1440p100 = {
++	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 410500,
++		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1510, 0,
++		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
++};
+ 
 -	if (!caps.enabled)
 -		return PS5_HDMI_PLAN_BACKEND;
 -	if (drm_mode_is_420_only(info, mode) && !yuv420)
@@ -5072,12 +5156,7 @@ index 4ade01ba6..5442d9c8d 100755
 -	if (edid_crc != frl_edid_crc) {
 -		mutex_unlock(&frl_state_lock);
 -		return PS5_HDMI_PLAN_STALE;
-+	if (!mode)
-+		return 0;
-+	if (ps5_has_mode(connector, mode)) {
-+		drm_mode_destroy(connector->dev, mode);
-+		return 0;
- 	}
+-	}
 -	caps.generation = frl_sink_generation;
 -	if (READ_ONCE(frl_recovery))
 -		caps.failed_candidates = frl_failure_mask(&frl_failures, mode,
@@ -5104,32 +5183,7 @@ index 4ade01ba6..5442d9c8d 100755
 -	if (!frl_edid_valid) {
 -		mutex_unlock(&frl_state_lock);
 -		return PS5_HDMI_PLAN_SINK;
-+	mode->type = DRM_MODE_TYPE_DRIVER;
-+	drm_mode_probed_add(connector, mode);
-+	return 1;
-+}
-+
-+int ps5_hdmi_add_modes(struct drm_connector *connector)
-+{
-+	struct drm_device *dev = connector->dev;
-+	const struct drm_display_info *info = &connector->display_info;
-+	int tmds = info->max_tmds_clock ? info->max_tmds_clock : 340000;
-+	int max_hz = info->monitor_range.max_vfreq;
-+	bool has_1440 = false, has_2160 = false;
-+	struct drm_display_mode *m;
-+	int added = 0;
-+
-+	if (list_empty(&connector->probed_modes))
-+		return 0;	/* no EDID */
-+
-+	list_for_each_entry(m, &connector->probed_modes, head) {
-+		max_hz = max(max_hz, drm_mode_vrefresh(m));
-+		if (m->vdisplay >= 1440 && m->hdisplay >= 2560)
-+			has_1440 = true;
-+		if (m->vdisplay >= 2160 && m->hdisplay >= 3840)
-+			has_2160 = true;
-+		m->type &= ~DRM_MODE_TYPE_PREFERRED;
- 	}
+-	}
 -	mutex_unlock(&frl_state_lock);
 -	if (policy_reason != FRL_OK)
 -		caps.converter_rate = 0;
@@ -5139,24 +5193,7 @@ index 4ade01ba6..5442d9c8d 100755
 -
 -		if (in.lanes >= lanes[rate] && in.rate_per_lane >= gbps[rate])
 -			caps.sink_rate = rate;
-+
-+	added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 16));
-+	if (max_hz >= 119 && tmds >= 297000)
-+		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 63));
-+	if (has_2160 && tmds >= 594000)
-+		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 97));
-+	if (has_1440 && tmds >= 241500)
-+		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p60));
-+	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && has_1440 && max_hz >= 119 &&
-+	    tmds >= 497750)
-+		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p120));
-+
-+	list_for_each_entry(m, &connector->probed_modes, head) {
-+		if (drm_match_cea_mode(m) == 16) {
-+			m->type |= DRM_MODE_TYPE_PREFERRED;
-+			break;
-+		}
- 	}
+-	}
 -	status = frl_select_plan(mode, &caps, max_bpc, metadata, bt2020, &candidate);
 -	if (status != PS5_HDMI_PLAN_OK)
 -		return status;
@@ -5168,12 +5205,14 @@ index 4ade01ba6..5442d9c8d 100755
 -		return PS5_HDMI_PLAN_STALE;
 -	*plan = candidate;
 -	return PS5_HDMI_PLAN_OK;
-+	pr_info("modes: standard set added %d (max %d Hz, TMDS %d MHz, 1440p %d, 2160p %d), 1080p60 preferred\n",
-+		added, max_hz, tmds / 1000, has_1440, has_2160);
-+	return added;
- }
+-}
 -EXPORT_SYMBOL(ps5_hdmi_select_plan_filtered);
-+EXPORT_SYMBOL(ps5_hdmi_add_modes);
++/* for displays whose own 1440p100 stays below 410.5 MHz (150 kHz line rate limit) */
++static const struct drm_display_mode ps5_1440p100_short = {
++	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 403920,
++		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1485, 0,
++		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
++};
  
 -enum ps5_hdmi_plan_status
 -ps5_hdmi_select_plan(const struct drm_display_mode *mode,
@@ -5187,6 +5226,106 @@ index 4ade01ba6..5442d9c8d 100755
 -					     y420_allowed, 0, plan);
 -}
 -EXPORT_SYMBOL(ps5_hdmi_select_plan);
++static const struct drm_display_mode ps5_1440p120 = {
++	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 497750,
++		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1525, 0,
++		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
++};
+ 
+-int getHdmiExtendedModes(void)
++static bool ps5_has_mode(struct drm_connector *connector, const struct drm_display_mode *want)
+ {
+-	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 ? extended_modes : 0;
++	struct drm_display_mode *m;
++
++	list_for_each_entry(m, &connector->probed_modes, head)
++		if (drm_mode_match(m, want, DRM_MODE_MATCH_TIMINGS | DRM_MODE_MATCH_CLOCK))
++			return true;
++	return false;
+ }
+-EXPORT_SYMBOL(getHdmiExtendedModes);
+ 
+-bool isHdmiModeValid(const struct drm_display_mode *mode,
+-		     const struct drm_display_info *info, int force_1080p)
++static int ps5_add_mode(struct drm_connector *connector, struct drm_display_mode *mode)
+ {
+-	struct ps5_hdmi_frl_config config;
+-	struct ps5_hdmi_plan plan;
++	if (!mode)
++		return 0;
++	if (ps5_has_mode(connector, mode)) {
++		drm_mode_destroy(connector->dev, mode);
++		return 0;
++	}
++	mode->type = DRM_MODE_TYPE_DRIVER;
++	drm_mode_probed_add(connector, mode);
++	return 1;
++}
++
++int ps5_hdmi_add_modes(struct drm_connector *connector)
++{
++	struct drm_device *dev = connector->dev;
++	const struct drm_display_info *info = &connector->display_info;
++	int tmds = info->max_tmds_clock ? info->max_tmds_clock : 340000;
++	int max_hz = info->monitor_range.max_vfreq;
++	bool has_1440 = false, has_2160 = false;
++	int edid_1440p100 = 0;
++	struct drm_display_mode *m;
++	int added = 0;
++
++	if (list_empty(&connector->probed_modes))
++		return 0;	/* no EDID */
++
++	list_for_each_entry(m, &connector->probed_modes, head) {
++		max_hz = max(max_hz, drm_mode_vrefresh(m));
++		if (m->vdisplay >= 1440 && m->hdisplay >= 2560)
++			has_1440 = true;
++		if (m->hdisplay == 2560 && m->vdisplay == 1440 && drm_mode_vrefresh(m) == 100)
++			edid_1440p100 = m->clock;
++		if (m->vdisplay >= 2160 && m->hdisplay >= 3840)
++			has_2160 = true;
++		m->type &= ~DRM_MODE_TYPE_PREFERRED;
++	}
+ 
+-	if (force_1080p)
+-		return drm_match_cea_mode(mode) == 16; /* 1080p60 */
++	added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 16));
++	if (max_hz >= 119 && tmds >= 297000)
++		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 63));
++	if (has_2160 && tmds >= 594000)
++		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 97));
++	if (has_1440 && tmds >= 241500)
++		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p60));
++	if (has_1440 && max_hz >= 119 && tmds >= 497750)
++		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p120));
++	if (max_hz >= 100) {
++		if (tmds >= 297000)
++			added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 64));
++		if (has_1440 && edid_1440p100 && edid_1440p100 < 410500)
++			added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p100_short));
++		else if (has_1440 && tmds >= 410500)
++			added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p100));
++	}
+ 
+-	/* Native 4:2:0 needs FRL, VERDE keeps the stock check. */
+-	if (drm_mode_is_420_only(info, mode) && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
+-		return ps5_hdmi_select_plan(mode, info, 10, NULL, false, 25920000,
+-				    READ_ONCE(frl_edid_crc), PS5_HDMI_RGB, false, true,
+-				    &plan) == PS5_HDMI_PLAN_OK;
++	list_for_each_entry(m, &connector->probed_modes, head) {
++		if (drm_match_cea_mode(m) == 16) {
++			m->type |= DRM_MODE_TYPE_PREFERRED;
++			break;
++		}
++	}
++	pr_info("modes: standard set added %d (max %d Hz, TMDS %d MHz, 1440p %d, 2160p %d), 1080p60 preferred\n",
++		added, max_hz, tmds / 1000, has_1440, has_2160);
++	return added;
++}
++EXPORT_SYMBOL(ps5_hdmi_add_modes);
+ 
+-	if (isHdmiModeStock(mode))
+-		return true;
 +/*
 + * FLAVA3 places 1440p as if the syncs were the standard +hsync -vsync; the other polarity shifts the
 + * picture by the pulse width (-hsync 32 px left, +vsync 5 lines up). Safety net for sink and desktop modes.
@@ -5195,56 +5334,25 @@ index 4ade01ba6..5442d9c8d 100755
 +#define PS5_FLAVA3_1440P_HBP	80
 +#define PS5_FLAVA3_1440P_VBP	33
  
--int getHdmiExtendedModes(void)
-+static bool ps5_set_sync(int disp, int total, int bp, int width, u16 *start, u16 *end)
- {
--	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 ? extended_modes : 0;
-+	int new_end = total - bp;
-+	int new_start = new_end - width;
-+
-+	if (width <= 0 || new_start <= disp ||
-+	    (new_start == *start && new_end == *end))
-+		return false;
-+	*start = new_start;
-+	*end = new_end;
-+	return true;
- }
--EXPORT_SYMBOL(getHdmiExtendedModes);
- 
--bool isHdmiModeValid(const struct drm_display_mode *mode,
--		     const struct drm_display_info *info, int force_1080p)
-+void ps5_hdmi_fixup_timing(struct drm_display_mode *m)
- {
--	struct ps5_hdmi_frl_config config;
--	struct ps5_hdmi_plan plan;
--
--	if (force_1080p)
--		return drm_match_cea_mode(mode) == 16; /* 1080p60 */
--
--	/* Native 4:2:0 needs FRL, VERDE keeps the stock check. */
--	if (drm_mode_is_420_only(info, mode) && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
--		return ps5_hdmi_select_plan(mode, info, 10, NULL, false, 25920000,
--				    READ_ONCE(frl_edid_crc), PS5_HDMI_RGB, false, true,
--				    &plan) == PS5_HDMI_PLAN_OK;
-+	static u16 last_hs, last_vs;
-+	static u32 last_flags;
-+	bool h, v, pol = false;
- 
--	if (isHdmiModeStock(mode))
--		return true;
--
 -	/* The plan supplies the required FRL rate for this converter timing. */
 -	if (getHdmiFrlConfig(mode, 10, &config))
 -		return (READ_ONCE(frl_yuv420) || frl_config_allowed(&config, info)) &&
 -		       ps5_hdmi_select_plan(mode, info, 10, NULL, false, 25920000,
 -					    READ_ONCE(frl_edid_crc), PS5_HDMI_RGB, false, true,
 -					    &plan) == PS5_HDMI_PLAN_OK;
--
++static bool ps5_set_sync(int disp, int total, int bp, int width, u16 *start, u16 *end)
++{
++	int new_end = total - bp;
++	int new_start = new_end - width;
+ 
 -	if (!getHdmiExtendedModes())
--		return false;
-+	if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3 ||
-+	    m->hdisplay != 2560 || m->vdisplay != 1440)
-+		return;
++	if (width <= 0 || new_start <= disp ||
++	    (new_start == *start && new_end == *end))
+ 		return false;
++	*start = new_start;
++	*end = new_end;
++	return true;
++}
  
 -	/* Use the stock 1440p setup up to 297 MHz. */
 -	if (mode->hdisplay == 2560 && mode->vdisplay == 1440 &&
@@ -5253,6 +5361,22 @@ index 4ade01ba6..5442d9c8d 100755
 -			return false;
 -	} else if (!isManualMode(mode)) {
 -		return false;
+-	}
++void ps5_hdmi_fixup_timing(struct drm_display_mode *m)
++{
++	static u16 last_hs, last_vs;
++	static u32 last_flags;
++	bool h, v, pol = false;
+ 
+-	/* Default to 165 MHz when the EDID has no HDMI VSDB. */
+-	if (mode->clock > (info->max_tmds_clock ?: 165000))
+-		return false;
++	if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3 ||
++	    m->hdisplay != 2560 || m->vdisplay != 1440)
++		return;
+ 
+-	return mode->clock <= 340000 ||
+-	       (info->hdmi.scdc.supported && info->hdmi.scdc.scrambling.supported);
 +	h = ps5_set_sync(m->hdisplay, m->htotal, PS5_FLAVA3_1440P_HBP,
 +			 PS5_FLAVA3_1440P_HSW, &m->hsync_start, &m->hsync_end);
 +	v = ps5_set_sync(m->vdisplay, m->vtotal, PS5_FLAVA3_1440P_VBP,
@@ -5278,21 +5402,14 @@ index 4ade01ba6..5442d9c8d 100755
 +		pr_info("FLAVA3 1440p: standard syncs (hsync %d-%d +, vsync %d-%d %c)\n",
 +			m->hsync_start, m->hsync_end, m->vsync_start, m->vsync_end,
 +			(m->flags & DRM_MODE_FLAG_PVSYNC) ? '+' : '-');
- 	}
--
--	/* Default to 165 MHz when the EDID has no HDMI VSDB. */
--	if (mode->clock > (info->max_tmds_clock ?: 165000))
--		return false;
--
--	return mode->clock <= 340000 ||
--	       (info->hdmi.scdc.supported && info->hdmi.scdc.scrambling.supported);
++	}
  }
 -EXPORT_SYMBOL(isHdmiModeValid);
 +EXPORT_SYMBOL(ps5_hdmi_fixup_timing);
  
  bool isHdmiHdrSupported(void)
  {
-@@ -2204,12 +2006,6 @@ bool isHdmiHdrSupported(void)
+@@ -2204,12 +2082,6 @@ bool isHdmiHdrSupported(void)
  }
  EXPORT_SYMBOL(isHdmiHdrSupported);
  
@@ -5305,7 +5422,7 @@ index 4ade01ba6..5442d9c8d 100755
  static DEFINE_MUTEX(hdmi_edid_lock);
  static const struct drm_edid *real_edid;
  static struct drm_connector *hdmi_connector;
-@@ -2232,13 +2028,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
+@@ -2232,13 +2104,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
  const struct drm_edid *ps5_hdmi_get_edid(struct drm_connector *connector)
  {
  	guard(mutex)(&hdmi_edid_lock);
@@ -5327,7 +5444,44 @@ index 4ade01ba6..5442d9c8d 100755
  
  static void fix_edid(u8 *edid)
  {
-@@ -2265,15 +2066,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
+@@ -2252,6 +2129,36 @@ static void fix_edid(u8 *edid)
+ 	edid[0x7f] = -sum & 0xff;
+ }
+ 
++/* VERDE has no HDR setup: without the HDR Static Metadata block nothing switches to an HDR output the TV never learns of. */
++static void verde_drop_hdr(u8 *e, int len)
++{
++	int ext = len >= EDID_LENGTH ? e[0x7e] : 0, x, i, j;
++
++	for (x = 1; x <= ext && (x + 1) * EDID_LENGTH <= len; x++) {
++		u8 *b = e + x * EDID_LENGTH;
++		u8 d = b[2];
++		u32 sum = 0;
++
++		if (b[0] != 0x02 || d < 4 || d > 127)
++			continue;
++		for (i = 4; i < d; i += (b[i] & 0x1f) + 1) {
++			int n = (b[i] & 0x1f) + 1;
++
++			if (i + n > d)
++				break;
++			if (b[i] >> 5 != 7 || n < 2 || b[i + 1] != 0x06)
++				continue;
++			memmove(b + i, b + i + n, 127 - i - n);
++			memset(b + 127 - n, 0, n);
++			b[2] = d -= n;
++			for (j = 0; j < 127; j++)
++				sum += b[j];
++			b[127] = -sum & 0xff;
++			break;
++		}
++	}
++}
++
+ static DEFINE_MUTEX(hotplug_lock);
+ static void (*hotplug_handler)(void *data);
+ static void *hotplug_data;
+@@ -2265,15 +2172,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
  }
  EXPORT_SYMBOL(hdmi_set_hotplug_handler);
  
@@ -5344,7 +5498,7 @@ index 4ade01ba6..5442d9c8d 100755
  static DEFINE_MUTEX(cec_lock);
  static void (*cec_handler)(void *data, const struct icc_msg *msg);
  static void *cec_data;
-@@ -2288,129 +2081,250 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
+@@ -2288,129 +2187,252 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
  }
  EXPORT_SYMBOL(hdmi_set_cec_handler);
  
@@ -5645,6 +5799,8 @@ index 4ade01ba6..5442d9c8d 100755
 +				u8 byte0 = msg->data[4];
 +
 +				fix_edid(&msg->data[4]);
++				if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3)
++					verde_drop_hdr(&msg->data[4], length);
 +				frl_note_edid(byte0, &msg->data[4], length);
 +			}
 +			edid = drm_edid_alloc(&msg->data[4], length);
@@ -5652,7 +5808,7 @@ index 4ade01ba6..5442d9c8d 100755
 +			 * A short or broken announcement (display power changes) must not replace the EDID: the next
 +			 * detection would get the bridge's own, a "generic display" with 1080p only.
 +			 */
-+			if (!edid || !drm_edid_valid(edid)) {
++			if (!edid || (READ_ONCE(edid_keep) && !drm_edid_valid(edid))) {
 +				drm_edid_free(edid);
 +				pr_info_ratelimited("ignored an invalid EDID announcement, keeping the previous EDID\n");
 +				goto notify_cec;
@@ -5688,7 +5844,7 @@ index 4ade01ba6..5442d9c8d 100755
 +			if (other) {
 +				cancel_delayed_work(&rearm_work);
 +				pr_info("different display, re-arm skipped\n");
-+			} else {
++			} else if (READ_ONCE(rearm)) {
 +				rearm_announce = ktime_get();
 +				mod_delayed_work(system_dfl_wq, &rearm_work,
 +						 msecs_to_jiffies(REARM_SETTLE_MS));
@@ -5706,7 +5862,7 @@ index 4ade01ba6..5442d9c8d 100755
  	if (cec_handler)
  		cec_handler(cec_data, msg);
 diff --git a/include/linux/ps5.h b/include/linux/ps5.h
-index ef41e56df..1b5e88574 100755
+index ef41e56df..ab8704397 100755
 --- a/include/linux/ps5.h
 +++ b/include/linux/ps5.h
 @@ -3,19 +3,24 @@
@@ -5864,12 +6020,13 @@ index ef41e56df..1b5e88574 100755
  
  int icc_nvs_write(u32 partition, u16 offset, u16 length, const void *data);
  int icc_nvs_read(u32 partition, u16 offset, u16 length, void *data);
-@@ -193,6 +109,12 @@ struct ps5_usbc_state {
+@@ -193,6 +109,13 @@ struct ps5_usbc_state {
  	u8 hpd;
  };
  
 +bool ps5_hdmi_vrr_possible(void);
 +bool ps5_hdmi_ic_is_flava3(void);
++bool ps5_hdmi_sleep_mute(void);
 +int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src);
 +void sceHdmiSetVrrMode(bool on);
 +bool sceHdmiGetVrrMode(void);
@@ -5877,7 +6034,7 @@ index ef41e56df..1b5e88574 100755
  bool ps5_usbc_dp_matches_link(unsigned int aux_index, unsigned int hpd_index,
  			      bool bios_usbc);
  bool ps5_usbc_dp_enabled(void);
-@@ -237,23 +159,26 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
+@@ -237,23 +160,26 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
  
  void mp1_set_pm1_addr(u64 addr);
  int mp1_set_sleep_entry(void);

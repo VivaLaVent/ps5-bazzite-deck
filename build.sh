@@ -7,10 +7,10 @@ PATCHES=$(cd "${PATCHES:-$SRC/patches}" && pwd)
 
 REPO="${REPO:-$HOME/ps5-build-7.3}"
 OLD="${OLD:-$HOME/ps5-linux-image}"
-BUILDER_COMMIT=7ab490a
+BUILDER_COMMIT=03b59ab
 PATCHES_BRANCH=shitshow
 KERNEL_TAG=v7.3.3
-MWIFIEX_COMMIT=dc97cf5
+MWIFIEX_COMMIT=3d81cba
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
 for t in git docker; do command -v $t >/dev/null || { echo "missing tool: $t"; exit 1; }; done
@@ -26,7 +26,17 @@ echo "==> 2. builder fixes"
 B=docker/kernel-builder/build.sh
 sed -i 's/MWIFIEX_REF:-main/MWIFIEX_REF:-'"$MWIFIEX_COMMIT"'/; s/^git -C "$PS5_MW" checkout "$MWIFIEX_REF" 2>\/dev\/null || true$/git -C "$PS5_MW" checkout -q "$MWIFIEX_REF"/' "$B"
 grep -q "checkout -q \"\$MWIFIEX_REF\"" "$B" && grep -q "ps5-iw620-fresh-fw.patch" "$B" && grep -q " ext_scan=2 " "$B" && ! grep -q "CONFIG_OBJTOOL=" "$B" || { echo "wifi driver edit failed"; exit 1; }
-# 2b. video=DP-1:1920x1080@60 is rejected by the kernel on every connector probe ("User-defined mode not supported"); drop it
+# 2b. this repository's own driver patches (patches/mwifiex), after the builder's; they reach the container through
+#     work/ps5-linux-patches, which the builder mounts at /ps5-linux-patches (copied there in step 3)
+#     (each line lands right after the builder's last patch, so going through them in reverse keeps their order)
+DP=("$PATCHES"/mwifiex/*.patch)
+for ((i = ${#DP[@]} - 1; i >= 0; i--)); do
+  p=${DP[i]}; [ -e "$p" ] || continue
+  sed -i '/ps5-iw620-fresh-fw.patch"$/a git -C "$NXP_MW" apply "/ps5-linux-patches/'"$(basename "$p")"'"' "$B"
+  grep -q "/ps5-linux-patches/$(basename "$p")" "$B" || { echo "driver patch $(basename "$p") not wired in"; exit 1; }
+done
+grep -q -- '-v "$PATCHES_DIR":/ps5-linux-patches' build_image.sh || { echo "builder no longer mounts work/ps5-linux-patches"; exit 1; }
+# 2c. video=DP-1:1920x1080@60 is rejected by the kernel on every connector probe ("User-defined mode not supported"); drop it
 sed -i 's/ video=DP-1:1920x1080@60//' boot/cmdline.txt
 grep -q 'video=' boot/cmdline.txt && { echo 'cmdline edit failed'; exit 1; }
 
@@ -34,6 +44,7 @@ echo "==> 3. kernel source: $KERNEL_TAG + $PATCHES_BRANCH patches"
 mkdir -p work
 git clone -q -b "$PATCHES_BRANCH" https://github.com/rmuxnet/ps5-linux-patches-1 work/ps5-linux-patches
 git -C work/ps5-linux-patches checkout -q 8de2aff
+for p in "$PATCHES"/mwifiex/*.patch; do [ ! -e "$p" ] || cp "$p" work/ps5-linux-patches/; done
 sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-viva"/' work/ps5-linux-patches/.config
 sed -i 's/^# CONFIG_SUSPEND is not set/CONFIG_SUSPEND=y/' work/ps5-linux-patches/.config
 sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"/' work/ps5-linux-patches/.config

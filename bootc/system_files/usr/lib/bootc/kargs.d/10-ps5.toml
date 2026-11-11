@@ -1,3 +1,2 @@
-# The deck image's cmdline.txt, minus root=/rw (bootc sets it), plus the IW620 firmware path for its first load;
-# USB autosuspend off: USB SSDs drop off or reset when it suspends them, and the system runs from one
-kargs = ["rootwait", "console=ttyTitania0", "console=tty0", "mitigations=off", "idle=halt", "preempt=full", "firmware_class.path=/etc/firmware", "usbcore.autosuspend=-1"]
+# The deck image's cmdline.txt, minus root=/rw (bootc sets it), plus the IW620 firmware path for its first load
+kargs = ["rootwait", "console=ttyTitania0", "console=tty0", "mitigations=off", "idle=halt", "preempt=full", "firmware_class.path=/etc/firmware"]

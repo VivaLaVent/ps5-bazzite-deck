@@ -4,8 +4,6 @@ Date: Fri, 6 Nov 2026 18:28:03 +0100
 Subject: [PATCH] Also look for the boot files in /data/PS5/Linux
 
 After the USB drives, so a console without a USB drive can start from files copied to its own storage.
-
-Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  source/loader.c | 2 ++
  1 file changed, 2 insertions(+)

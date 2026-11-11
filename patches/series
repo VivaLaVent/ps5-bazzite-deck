@@ -1,12 +1,7 @@
-# Applied in this order on Linux 7.3.3 + rmux's shitshow linux.patch (build.sh)
-ps5-s2idle.patch           # suspend-to-idle (Dasloh, PR #4)
-ps5-display.patch          # display stack of v1.8.9/v2.1: FLAVA3 and Verde, 4K120 over FRL, 1440p, VRR
-ps5-hdmi-modes.patch       # 100 Hz and VERDE 1440p120 modes, FLAVA3 manual timings
-ps5-gpu.patch              # thermal GPU governor
-ps5-fan.patch              # the console's firmware fan control at an 80 °C target by default, kernel curve opt-in
-ps5-pro.patch              # PS5 Pro: Bluetooth and CPU clock as in v2.1.x
-ps5-mt7921-no-iso.patch    # MediaTek Bluetooth: no ISO setup (#71)
-ps5-iw620-bt.patch         # IW620 Bluetooth: repeated link key request, LL privacy (#75)
-ps5-dc-triplebuffer.patch  # display: no stale triple-buffer flags in full updates (#72)
-ps5-gfx1013-kfd-tlb.patch  # GFX1013: TLB flush for KFD compute (#57 path + #77)
-ps5-hdmi-switches.patch    # test switches for the display deltas; VERDE: no HDR offered
+# One patch per feature, applied in this order on Linux 7.3.3 + rmux's shitshow linux.patch (build.sh)
+ps5-s2idle.patch      # suspend-to-idle (Dasloh, PR #4)
+ps5-display.patch     # the FLAVA3/VERDE display stack: modes, 4K120, VRR, HDR, test switches, overlay sensors
+ps5-gpu.patch         # GPU clock governor with a temperature limit; KFD TLB flush (#57, #77)
+ps5-cpufreq.patch     # schedutil rate limit 10 ms; off on the Pro
+ps5-fan.patch         # the console's firmware fan control at an 80 °C target by default, kernel curve opt-in
+ps5-bluetooth.patch   # Pro, MediaTek (#71) and IW620 (#75) Bluetooth; Salina xHCI kept in D0 (#78)

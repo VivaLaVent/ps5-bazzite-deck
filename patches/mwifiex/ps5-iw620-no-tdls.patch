@@ -1,0 +1,31 @@
+PS5 IW620: no TDLS
+
+The console's IW620 firmware rejects TDLS_OPERATION (0x122). A peer on the same network that starts a direct
+link (an Android phone opening a page served by the console) then ends in "CMD_RESP: cmd 0x122 error", a
+disconnect, and a scan command that never returns: Wi-Fi is gone until the driver is rebound. Without the
+TDLS flags wpa_supplicant declines the request and the peer keeps going through the AP.
+Applies after the ps5-linux-mwifiex patches.
+---
+diff --git a/mlinux/moal_sta_cfg80211.c b/mlinux/moal_sta_cfg80211.c
+index 2ec7c88..3d24b52 100644
+--- a/mlinux/moal_sta_cfg80211.c
++++ b/mlinux/moal_sta_cfg80211.c
+@@ -12065,13 +12065,11 @@ mlan_status woal_register_cfg80211(moal_private *priv)
+ #if CFG80211_VERSION_CODE >= KERNEL_VERSION(3, 4, 0)
+ 	wiphy->features |= NL80211_FEATURE_INACTIVITY_TIMER;
+ #endif
+-#if CFG80211_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
+-	wiphy->flags |=
+-		WIPHY_FLAG_SUPPORTS_TDLS | WIPHY_FLAG_TDLS_EXTERNAL_SETUP;
+-#endif
+-#if CFG80211_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
+-	wiphy->features |= NL80211_FEATURE_TDLS_CHANNEL_SWITCH;
+-#endif
++	/*
++	 * PS5: no TDLS. The console's IW620 firmware rejects TDLS_OPERATION (0x122); a peer's setup request then
++	 * ends in a disconnect and a scan command that never returns. Without these flags wpa_supplicant declines
++	 * the request and the peer keeps talking through the AP.
++	 */
+ 
+ #ifdef STA_CFG80211
+ #if CFG80211_VERSION_CODE > KERNEL_VERSION(4, 12, 14)
