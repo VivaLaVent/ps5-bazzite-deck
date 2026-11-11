@@ -1,23 +1,32 @@
-# For rmux's ps5-linux-patches-1
+# For the upstream repositories
 
-Single-topic changes against his tree, not part of our series (ours are in `../series`). Each applies alone on his
-`linux.patch` and compiles there. His README: contributions come as pull requests, and "AI generated slop will not
-be merged", so every pull request states what was measured on which console and that it was prepared with AI
+Single-topic changes that are not part of our series (ours are in `../series`). Each applies alone on its target
+and compiles there. rmux's README: contributions come as pull requests, and "AI generated slop will not be
+merged", so every pull request states what was measured on which console and that it was prepared with AI
 assistance.
 
-| Patch | Status |
-| --- | --- |
-| `hdmi-sdr-metadata.patch` | in PS5 Bazzite Deck v2.4.1 on his display code; ready to send |
-| `cpufreq-not-on-pro.patch` | in our kernel since v2.5.1; ready to send |
-| `cpufreq-rate-limit.patch` | fitamix's finding; send once v2.11 testers confirm the in-driver value |
+| Change | For | Status |
+| --- | --- | --- |
+| `hdmi-sdr-metadata.patch` | rmuxnet/ps5-linux-patches-1 | sent, #8 |
+| `cpufreq-not-on-pro.patch` | rmuxnet/ps5-linux-patches-1 | sent, #9 |
+| `cpufreq-rate-limit.patch` | rmuxnet/ps5-linux-patches-1 | sent, #10 |
+| `bluetooth-pro.patch` | rmuxnet/ps5-linux-patches-1 | mfoster978's Pro setup (our PR #30), in our kernel since v2.5.1 |
+| `mwifiex-no-tdls.patch` | ps5-linux/ps5-linux-mwifiex | in v2.11; the reporter's runtime workaround confirmed the cause, the patch itself not yet |
+| `image-no-tdls.patch` | ps5-linux/ps5-linux-image | the apply line for the one above; to be merged after it |
 
-Dry run first (prints the pull request text and the size of the change to his `linux.patch`), then again with
-`--submit`. Needs `gh` logged in and the kernel checkout `build.sh` made:
+`*.patch` against a `linux.patch` repository go through `tools/upstream-pr.sh`, the others through
+`tools/repo-pr.sh` with their `.md` as the description. Both are dry runs without `--submit` and need `--tested`.
 
-```bash
-bash tools/upstream-pr.sh "hdmi: SDR metadata is not an HDR request" patches/upstream/hdmi-sdr-metadata.patch \
-  --tested "<console, system software, TV; what you saw before and after>"
-```
+When ps5-linux-mwifiex has the TDLS patch and our pins move past it, `../mwifiex/ps5-iw620-no-tdls.patch` goes:
+`build.sh` would otherwise apply it a second time.
 
-Not ours to send: #71, #72, #75, #77, #78 (Slip's and Sergey's, in the official repository), suspend-to-idle
-(Dasloh's), the Pro Bluetooth setup (mfoster978's).
+## Not yet: the display fixes
+
+Re-arm, EDID keep, the SCDC writes, sleep mute and VRR exist for rmux's display code as one 1,345-line patch
+(`patches-next/rmux-display/ps5-display.patch` at commit 1081ebe). Its hunks mix topics, and it last ran on a
+console in v2.4.x. Each topic has to be cut out, compiled alone on his tree and run on a console before it is
+sent; `hdmi.rearm` is the only one with a fresh result (a TV off and on stayed black without it).
+
+## Not ours to send
+
+#71, #72, #75, #77, #78 (Slip's and Sergey's, in the official repository), suspend-to-idle (Dasloh's, his #4).

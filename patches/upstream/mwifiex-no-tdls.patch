@@ -1,0 +1,70 @@
+diff --git a/README.md b/README.md
+index e05da56..89ab7d6 100644
+--- a/README.md
++++ b/README.md
+@@ -20,6 +20,7 @@ generated against the tree the earlier ones produce:
+ | `ps5-iw620-tx-min128.patch` | Pads short IW620 data DMA transfers to 128 bytes while preserving real packet lengths and DMA ownership. |
+ | `ps5-iw620-tx-priority.patch` | Maps IW620 STA TX TIDs 1→2, 3→0 and 5→4 within their access categories before queue selection and BA bookkeeping to avoid priority-triggered stalls. |
+ | `ps5-iw620-fresh-fw.patch` | Resets the IW620 at probe when firmware from an earlier kernel is still running, so it is downloaded fresh (`ps5_fresh_fw=0` reuses it); reports a failure when association gets no response instead of timing out. |
++| `ps5-iw620-no-tdls.patch` | Stops advertising TDLS: the IW620 firmware rejects `TDLS_OPERATION` (0x122), and a peer's setup request then ends in a disconnect and a scan command that never returns. Without the flags `wpa_supplicant` declines the request. |
+ 
+ ### IW620 HE and aggregation
+ 
+diff --git a/install.sh b/install.sh
+index cbb2a0b..20b9705 100755
+--- a/install.sh
++++ b/install.sh
+@@ -20,6 +20,7 @@ HE_PATCH=$script_dir/ps5-iw620-he.patch
+ TX_PATCH=$script_dir/ps5-iw620-tx-min128.patch
+ PRIORITY_PATCH=$script_dir/ps5-iw620-tx-priority.patch
+ FRESH_FW_PATCH=$script_dir/ps5-iw620-fresh-fw.patch
++NO_TDLS_PATCH=$script_dir/ps5-iw620-no-tdls.patch
+ 
+ MODULE_DIR=/lib/modules/$KERNEL_RELEASE/extra/ps5-iw620
+ MODPROBE_CONF=/etc/modprobe.d/ps5-iw620.conf
+@@ -196,6 +197,16 @@ prepare_source() {
+ 	else
+ 		die "fresh-firmware patch does not apply cleanly in $DRIVER_DIR"
+ 	fi
++
++	[ -f "$NO_TDLS_PATCH" ] || die "patch file not found: $NO_TDLS_PATCH"
++	if git_driver apply --check "$NO_TDLS_PATCH" >/dev/null 2>&1; then
++		say "Applying IW620 no-TDLS patch"
++		git_driver apply "$NO_TDLS_PATCH"
++	elif git_driver apply -R --check "$NO_TDLS_PATCH" >/dev/null 2>&1; then
++		say "IW620 no-TDLS patch is already applied"
++	else
++		die "no-TDLS patch does not apply cleanly in $DRIVER_DIR"
++	fi
+ }
+ 
+ build_driver() {
+diff --git a/ps5-iw620-no-tdls.patch b/ps5-iw620-no-tdls.patch
+new file mode 100644
+index 0000000..4a843c7
+--- /dev/null
++++ b/ps5-iw620-no-tdls.patch
+@@ -0,0 +1,23 @@
++diff --git a/mlinux/moal_sta_cfg80211.c b/mlinux/moal_sta_cfg80211.c
++index 2ec7c88..3d24b52 100644
++--- a/mlinux/moal_sta_cfg80211.c
+++++ b/mlinux/moal_sta_cfg80211.c
++@@ -12065,13 +12065,11 @@ mlan_status woal_register_cfg80211(moal_private *priv)
++ #if CFG80211_VERSION_CODE >= KERNEL_VERSION(3, 4, 0)
++ 	wiphy->features |= NL80211_FEATURE_INACTIVITY_TIMER;
++ #endif
++-#if CFG80211_VERSION_CODE >= KERNEL_VERSION(3, 2, 0)
++-	wiphy->flags |=
++-		WIPHY_FLAG_SUPPORTS_TDLS | WIPHY_FLAG_TDLS_EXTERNAL_SETUP;
++-#endif
++-#if CFG80211_VERSION_CODE >= KERNEL_VERSION(3, 19, 0)
++-	wiphy->features |= NL80211_FEATURE_TDLS_CHANNEL_SWITCH;
++-#endif
+++	/*
+++	 * PS5: no TDLS. The console's IW620 firmware rejects TDLS_OPERATION (0x122); a peer's setup request then
+++	 * ends in a disconnect and a scan command that never returns. Without these flags wpa_supplicant declines
+++	 * the request and the peer keeps talking through the AP.
+++	 */
++ 
++ #ifdef STA_CFG80211
++ #if CFG80211_VERSION_CODE > KERNEL_VERSION(4, 12, 14)

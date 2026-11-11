@@ -1,0 +1,12 @@
+diff --git a/docker/kernel-builder/build.sh b/docker/kernel-builder/build.sh
+index b327606..5965622 100644
+--- a/docker/kernel-builder/build.sh
++++ b/docker/kernel-builder/build.sh
+@@ -61,6 +61,7 @@ git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-he.patch"
+ git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-tx-min128.patch"
+ git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-tx-priority.patch"
+ git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-fresh-fw.patch"
++git -C "$NXP_MW" apply "$PS5_MW/ps5-iw620-no-tdls.patch"
+ 
+ # Build against the kernel source we just built (out-of-tree build needs
+ # the in-tree build dir, not just headers; same as install-extmod-build).

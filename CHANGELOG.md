@@ -5,6 +5,7 @@ All notable changes to the images. Exact upstream versions are in each release's
 ## [Unreleased]
 - **`patches/upstream/`:** three single-topic changes for rmux's repository (SDR metadata in his FRL planner, `ps5-cpufreq` rate limit, `ps5-cpufreq` not on the Pro), each applying and compiling on his tree at Linux 7.3.1. `tools/upstream-pr.sh` builds them on upstream's kernel version (`KERNEL_REF` in its `build.cfg`), stops unless upstream's `linux.patch` regenerates byte for byte, needs `--tested` to submit, and states in the pull request that it was prepared with AI assistance
 - `ps5-cpufreq.patch` without the Pro GPU ceiling, which the driver no longer uses once it stays off the Pro
+- `patches/upstream/`: the Pro Bluetooth setup for rmux's repository, and the IW620 TDLS change for ps5-linux-mwifiex with its apply line for ps5-linux-image; `tools/repo-pr.sh` opens a pull request from a change set against a repository without a `linux.patch`
 
 ## [v2.11] – 2026-11-11
 > Pre-release. Starts on PS5 system software 4.x, cooler at idle (CPU and GPU clocks), Wi-Fi no longer dies on a TDLS request; one kernel patch per feature.
