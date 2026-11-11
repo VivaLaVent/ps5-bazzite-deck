@@ -20,12 +20,13 @@ ARG BASE_TAG
 ARG IMAGE_VERSION=dev
 ARG LOADER=unknown
 ARG DECK=unknown
+ARG CHANNEL=stable
 LABEL org.opencontainers.image.version="${IMAGE_VERSION}" \
       org.opencontainers.image.source="https://github.com/VivaLaVent/ps5-bazzite-deck"
 
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
-    BASE_IMAGE="${BASE_IMAGE}:${BASE_TAG}" IMAGE_VERSION="${IMAGE_VERSION}" LOADER="${LOADER}" DECK="${DECK}" \
+    BASE_IMAGE="${BASE_IMAGE}:${BASE_TAG}" IMAGE_VERSION="${IMAGE_VERSION}" LOADER="${LOADER}" DECK="${DECK}" CHANNEL="${CHANNEL}" \
     /ctx/build_files/build.sh
 
 RUN --mount=type=tmpfs,target=/run --network=none \

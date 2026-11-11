@@ -50,7 +50,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
           df -h /
       - name: Test the boot partition sync
-        run: bash tests/ps5-bootc-sync.sh; [ ! -f tests/gpt-first-lba.sh ] || bash tests/gpt-first-lba.sh
+        run: for t in tests/*.sh; do bash "$t"; done
       - name: Kernel RPM from this release's build
         if: inputs.kernel_artifact != ''
         uses: actions/download-artifact@v8
@@ -74,7 +74,16 @@ jobs:
 
       - name: Build
         id: build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ matrix.channel }}
+          TAG: ${{ inputs.tag }}
         run: |
+          # OS Build on Steam's About page: the channel this image is for. A release tag's own image (the one a
+          # disk image installs) goes by whether that release is a pre-release.
+          if [ "$CHANNEL" = release ]; then
+            CHANNEL=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q 'if .isPrerelease then "beta" else "stable" end' 2>/dev/null || echo stable)
+          fi
           # upstream's pairing importer into files/ (the Stable build's tag may predate it)
           [ ! -f ../tools/fetch-bt-sync.sh ] || bash ../tools/fetch-bt-sync.sh
           . ../loader/pins.env
@@ -82,7 +91,7 @@ jobs:
           REF=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$IMAGE
           VERSION=$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER
           podman build --pull=newer --build-arg IMAGE_VERSION="$VERSION" --build-arg LOADER="$LOADER" \
-            --build-arg DECK="$(git describe --tags --always)" -f Containerfile -t "$REF:build" ..
+            --build-arg DECK="$(git describe --tags --always)" --build-arg CHANNEL="$CHANNEL" -f Containerfile -t "$REF:build" ..
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 

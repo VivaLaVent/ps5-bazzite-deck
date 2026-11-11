@@ -138,10 +138,17 @@ if [ -f "$I" ]; then
         | ."image-ref"="ostree-image-signed:docker://ghcr.io/vivalavent/ps5-bazzite-bootc"' "$I" > /tmp/image-info.json
     mv /tmp/image-info.json "$I"
 fi
-sed -i -e 's|^NAME=.*|NAME="PS5 Bazzite Deck"|' -e "s|^PRETTY_NAME=.*|PRETTY_NAME=\"PS5 Bazzite Deck ${DECK%%-*}\"|" \
+case "$CHANNEL" in beta) OSBUILD=Beta;; *) OSBUILD=Stable;; esac
+# the release from git describe (v2.12, or v2.12-3-g1234 between releases); nothing for a build without a tag
+DECKVER=${DECK%%-*}; case "$DECKVER" in v[0-9]*) OSBUILD="$OSBUILD ${DECKVER#v}" ;; esac
+# Steam's About page: OS Variant, and OS Build as channel and release. NAME, PRETTY_NAME and VERSION_ID stay
+# Bazzite's: VERSION_ID is Fedora's release, which toolbox, systemd extensions and package tools read.
+sed -i -e 's|^VARIANT_ID=.*|VARIANT_ID=ps5-bazzite-deck|' -e "s|^BUILD_ID=.*|BUILD_ID=\"${OSBUILD}\"|" \
     -e 's|^HOME_URL=.*|HOME_URL="https://wiki.ps5-linux.eu"|' -e 's|^DOCUMENTATION_URL=.*|DOCUMENTATION_URL="https://wiki.ps5-linux.eu"|' \
     -e 's|^SUPPORT_URL=.*|SUPPORT_URL="https://discord.gg/ps5linux"|' \
     -e 's|^BUG_REPORT_URL=.*|BUG_REPORT_URL="https://github.com/VivaLaVent/ps5-bazzite-deck/issues"|' /usr/lib/os-release
+grep -qx 'VARIANT_ID=ps5-bazzite-deck' /usr/lib/os-release && grep -qx "BUILD_ID=\"${OSBUILD}\"" /usr/lib/os-release ||
+    { echo 'os-release: VARIANT_ID or BUILD_ID not set'; exit 1; }
 [ ! -f /usr/bin/bazzite-steam-brand ] || printf '#!/bin/sh\nexit 0\n' > /usr/bin/bazzite-steam-brand
 # Bazzite's rebase helper moves to ublue-os images, which have no PS5 kernel
 [ ! -f /usr/bin/bazzite-rollback-helper ] || printf '#!/bin/sh\necho "Not on the PS5: use sudo bootc rollback, or Steam\x27s OS Update Channel"\nexit 1\n' > /usr/bin/bazzite-rollback-helper
@@ -153,8 +160,10 @@ O=/usr/libexec/ogc/os-update
 mkdir -p /var/roothome   # /root links here; dracut fails without it
 cp /usr/lib/os-release /tmp/os-release
 sed -Ei '/^((OSTREE_)?(IMAGE_)?VERSION|PRETTY_NAME|BUILD_ID|BOOTLOADER_NAME|IMAGE_ID)=/d' /usr/lib/os-release
-DRACUT_NO_XATTR=1 dracut --no-hostonly --reproducible --zstd --add ostree --add fido2 \
+DRACUT_NO_XATTR=1 dracut --no-hostonly --reproducible --zstd --add ostree --add fido2 --add ps5-ostree-path \
     --kver "$KVER" --force "/usr/lib/modules/$KVER/initramfs.img"
+lsinitrd "/usr/lib/modules/$KVER/initramfs.img" | grep -q 'ostree-prepare-root.service.wants/ps5-ostree-path.service' ||
+    { echo "initramfs without ps5-ostree-path"; exit 1; }
 cp /tmp/os-release /usr/lib/os-release
 chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"
 

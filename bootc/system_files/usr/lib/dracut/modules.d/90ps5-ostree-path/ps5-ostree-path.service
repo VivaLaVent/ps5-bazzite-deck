@@ -1,0 +1,12 @@
+[Unit]
+Description=PS5: the deployment under the other ostree boot version
+DefaultDependencies=no
+ConditionKernelCommandLine=ostree
+ConditionPathExists=/etc/initrd-release
+After=sysroot.mount
+Before=ostree-prepare-root.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/bin/ps5-ostree-path
