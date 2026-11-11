@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.11] – 2026-11-<DD>
+## [v2.11] – 2026-11-11
 > Pre-release. Starts on PS5 system software 4.x, cooler at idle (CPU and GPU clocks), Wi-Fi no longer dies on a TDLS request; one kernel patch per feature.
 - **bootc drives on PS5 system software 4.x** (`bootc/tools/gpt-first-lba.py`, run by `finish-disk-image.sh`; cause found and proven by fitamix, confirmed by numitors): bootc-image-builder writes the GPT with first usable LBA 2048. The 4.x kernel sizes its walk over the partition entries from that field, reads about 8,184 entries where 128 exist, the table fails its check and no partition appears: "unknown format" on the PS5, "Couldn't find bzImage" from the loader. The disk image now has 34, as the Legacy images did. The same tool fixes an image or an already flashed drive (dry run unless `--apply`), and `bootc/tests/gpt-first-lba.sh` runs in CI
 - **Fresh installs of a stable release follow Stable:** the disk image was built while its release was a pre-release, so its installs followed `:beta` for good. Promoting a release now builds its disk image again, for `:stable`
