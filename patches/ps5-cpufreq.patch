@@ -8,10 +8,32 @@ PS5 CPU clock: schedutil rate limit; off on the Pro
   hot. The Pro keeps the CPU clock its firmware sets, as in v2.1.x.
 ---
 diff --git a/drivers/cpufreq/ps5-cpufreq.c b/drivers/cpufreq/ps5-cpufreq.c
-index cfe6d09fd..cb1148d00 100644
+index cfe6d09fd..5da046af7 100644
 --- a/drivers/cpufreq/ps5-cpufreq.c
 +++ b/drivers/cpufreq/ps5-cpufreq.c
-@@ -75,6 +75,11 @@ static int ps5_cpufreq_cpu_init(struct cpufreq_policy *policy)
+@@ -17,12 +17,9 @@
+ 
+ #define PS5_GPU_MHZ_FLOOR		2000
+ #define PS5_GPU_MHZ_CEIL		2230
+-#define PS5PRO_GPU_MHZ_CEIL		2350
+ 
+ #define PS5_TRANSITION_LATENCY_NS	50000
+ 
+-static u32 ps5_gpu_mhz_ceil = PS5_GPU_MHZ_CEIL;
+-
+ static struct cpufreq_frequency_table ps5_freq_table[] = {
+ 	{ .flags = CPUFREQ_BOOST_FREQ, .driver_data = 0xff, .frequency = 3500000 },
+ 	{ .flags = CPUFREQ_BOOST_FREQ, .driver_data = 0xff, .frequency = 3400000 },
+@@ -52,7 +49,7 @@ static int ps5_cpufreq_target_index(struct cpufreq_policy *policy,
+ 
+ 	if (pstate == 0xff)
+ 		return mp1_boost_enter(PS5_CPU_MHZ_FLOOR, PS5_CPU_MHZ_CEIL,
+-					PS5_GPU_MHZ_FLOOR, ps5_gpu_mhz_ceil);
++					PS5_GPU_MHZ_FLOOR, PS5_GPU_MHZ_CEIL);
+ 
+ 	return ps5_cpufreq_set_pstate(pstate);
+ }
+@@ -75,6 +72,11 @@ static int ps5_cpufreq_cpu_init(struct cpufreq_policy *policy)
  	cpumask_copy(policy->cpus, cpu_present_mask);
  	policy->freq_table = ps5_freq_table;
  	policy->cpuinfo.transition_latency = PS5_TRANSITION_LATENCY_NS;
@@ -23,7 +45,7 @@ index cfe6d09fd..cb1148d00 100644
  	policy->boost_supported = true;
  	policy->cur = PS5_CPU_MHZ_FLOOR * 1000;
  
-@@ -96,8 +101,12 @@ static int __init ps5_cpufreq_init(void)
+@@ -96,8 +98,12 @@ static int __init ps5_cpufreq_init(void)
  	struct pci_dev *pdev = NULL;
  
  	while ((pdev = pci_get_class(PCI_CLASS_DISPLAY_VGA << 8, pdev))) {

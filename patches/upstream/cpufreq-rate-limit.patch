@@ -1,0 +1,30 @@
+The driver only declares a 50 us transition latency, from which the cpufreq core derives schedutil's rate limit:
+75 us. Every frequency change is a mailbox request to MP1, so at idle the governor makes about 275 requests a
+second, its kthread (sugov:0) is the busiest task, and the cores sit at 2.3 to 2.6 GHz with nothing running.
+
+Set transition_delay_us to 10 ms, the value the core caps slow drivers at. Found and measured by fitamix
+(https://github.com/fitamix/ps5-bazzite-toolbox#cpufreq), 20 s at idle in Game Mode each:
+
+    rate_limit_us          75 (default)   10000
+    frequency changes/s    ~275           ~91
+    sugov:0 CPU time       ~20 % core     ~9 %
+    average core clock     ~2.4 GHz       ~800 MHz
+
+Games still reach the full clock.
+---
+diff --git a/drivers/cpufreq/ps5-cpufreq.c b/drivers/cpufreq/ps5-cpufreq.c
+index cfe6d09fd..c442e2a7b 100644
+--- a/drivers/cpufreq/ps5-cpufreq.c
++++ b/drivers/cpufreq/ps5-cpufreq.c
+@@ -75,6 +75,11 @@ static int ps5_cpufreq_cpu_init(struct cpufreq_policy *policy)
+ 	cpumask_copy(policy->cpus, cpu_present_mask);
+ 	policy->freq_table = ps5_freq_table;
+ 	policy->cpuinfo.transition_latency = PS5_TRANSITION_LATENCY_NS;
++	/*
++	 * Every change is a mailbox request to MP1. From the latency alone schedutil would re-evaluate every
++	 * 75 us: hundreds of requests a second at idle, its kthread the busiest task, the cores never at the floor.
++	 */
++	policy->transition_delay_us = 10 * USEC_PER_MSEC;
+ 	policy->boost_supported = true;
+ 	policy->cur = PS5_CPU_MHZ_FLOOR * 1000;
+ 

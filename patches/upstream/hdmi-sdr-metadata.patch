@@ -1,0 +1,50 @@
+gamescope attaches HDR output metadata to every commit. In SDR it carries the traditional-gamma EOTF, and the
+FRL planner takes that for an HDR request: it rejects the EOTF and asks for 10 bpc, so 4K gets no picture in
+Game Mode:
+
+    PS5 HDMI plan rejected: depth ceiling or HDR metadata conflict
+
+- SDR metadata counts as no metadata, in the planner and where the connector passes it on.
+- A TMDS timing (4K60) that FRL rejects for depth falls back to TMDS, as it already does when FRL is off.
+---
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+index ade604fd8..3af9e0cb6 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+@@ -973,7 +973,9 @@ dm_ps5_select_frl_plan(const struct drm_display_mode *mode,
+ 	if (state->hdr_output_metadata) {
+ 		if (drm_hdmi_infoframe_set_hdr_metadata(&frame, state))
+ 			return PS5_HDMI_PLAN_DEPTH;
+-		metadata = &frame;
++		/* SDR metadata (gamescope sends it with every commit) is no HDR request */
++		if (frame.eotf != HDMI_EOTF_TRADITIONAL_GAMMA_SDR)
++			metadata = &frame;
+ 	}
+ 	bt2020 = state->colorspace == DRM_MODE_COLORIMETRY_BT2020_RGB ||
+ 		 state->colorspace == DRM_MODE_COLORIMETRY_BT2020_YCC;
+@@ -1008,8 +1010,9 @@ static bool dm_ps5_frl_config_valid(const struct drm_display_mode *mode,
+ 	if (status != PS5_HDMI_PLAN_OK) {
+ 		drm_dbg_kms(state->connector->dev, "PS5 HDMI plan rejected: %s\n",
+ 			    ps5_hdmi_plan_reason(status));
+-		/* Preserve the established TMDS backend when FRL is unavailable. */
+-		return !isHdmiFrlTiming(mode) && status == PS5_HDMI_PLAN_BACKEND;
++		/* A TMDS timing (4K60) keeps the TMDS backend when FRL is off or can't carry it (HDR at 8 bpc) */
++		return !isHdmiFrlTiming(mode) &&
++		       (status == PS5_HDMI_PLAN_BACKEND || status == PS5_HDMI_PLAN_DEPTH);
+ 	}
+ 	dm_state->ps5_hdmi_plan = plan;
+ 	dm_state->ps5_hdmi_plan_valid = true;
+diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
+index 4ade01ba6..52fbf2802 100755
+--- a/drivers/ps5/hdmi.c
++++ b/drivers/ps5/hdmi.c
+@@ -2072,6 +2072,9 @@ ps5_hdmi_select_plan_filtered(const struct drm_display_mode *mode,
+ 		return PS5_HDMI_PLAN_BACKEND;
+ 	if (drm_mode_is_420_only(info, mode) && !yuv420)
+ 		return PS5_HDMI_PLAN_FORMAT;
++	/* SDR metadata (gamescope sends it with every commit) is no HDR request, not a conflict */
++	if (metadata && metadata->eotf == HDMI_EOTF_TRADITIONAL_GAMMA_SDR)
++		metadata = NULL;
+ 	if (metadata && metadata->eotf != HDMI_EOTF_SMPTE_ST2084)
+ 		return PS5_HDMI_PLAN_DEPTH;
+ 	if (metadata && !(info->hdr_sink_metadata.hdmi_type1.eotf & BIT(metadata->eotf)))
