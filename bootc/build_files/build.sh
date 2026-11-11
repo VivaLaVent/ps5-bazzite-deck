@@ -162,7 +162,9 @@ cp /usr/lib/os-release /tmp/os-release
 sed -Ei '/^((OSTREE_)?(IMAGE_)?VERSION|PRETTY_NAME|BUILD_ID|BOOTLOADER_NAME|IMAGE_ID)=/d' /usr/lib/os-release
 DRACUT_NO_XATTR=1 dracut --no-hostonly --reproducible --zstd --add ostree --add fido2 --add ps5-ostree-path \
     --kver "$KVER" --force "/usr/lib/modules/$KVER/initramfs.img"
-lsinitrd "/usr/lib/modules/$KVER/initramfs.img" | grep -q 'ostree-prepare-root.service.wants/ps5-ostree-path.service' ||
+# the listing goes to a file: piped, grep -q closes the pipe at its match and pipefail turns that into a failure
+lsinitrd "/usr/lib/modules/$KVER/initramfs.img" > /tmp/initramfs.list
+grep -q 'ostree-prepare-root.service.wants/ps5-ostree-path.service' /tmp/initramfs.list ||
     { echo "initramfs without ps5-ostree-path"; exit 1; }
 cp /tmp/os-release /usr/lib/os-release
 chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"
