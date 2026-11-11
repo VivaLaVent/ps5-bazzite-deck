@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.12.1] – 2026-11-<DD>
+## [v2.12.1] – 2026-11-11
 > Pre-release. 4K120 is no longer withdrawn by a link check that outlived its link.
 - **The 4K120 link check ends when a modeset begins** (`patches/ps5-display.patch`, `drivers/ps5/hdmi.c`). After a 4K120 setup the driver polls the bridge for up to 5 s and, if the FRL link isn't up, stops offering 4K120 for that display until another EDID arrives or the kernel restarts. That rule is unchanged. The check was only ended by the next video setup, at its end: a modeset that takes the link down without a setup after it (the commit's first block mutes and re-initialises the bridge for the new or the old stream; the setup runs only with a new stream), or an output going down, left it polling a link that was taken down on purpose, and it withdrew 4K120. It also read its sequence number when it started, 1.5 s after being queued, so a modeset inside that time didn't end it either. `sceHdmiDeviceSetVideoMute(1)`, which every modeset begins with and nothing else calls, now cancels a queued check and invalidates a running one; the increment at the end of the setup is gone. Reported after a switch from Game Mode to Desktop: `4K120 link didn't come up (0x7019=00)` 6.7 s after a setup, after eight links that came up, with the output still marked active in 4K120 and no setup logged in between. The case fits; it is not confirmed on the console yet
 
