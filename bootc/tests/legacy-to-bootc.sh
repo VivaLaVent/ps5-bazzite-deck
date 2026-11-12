@@ -14,13 +14,13 @@ printf 'root:x:0:0:root:/root:/bin/bash\nps5:x:1000:1000:PS5:/home/ps5:/bin/bash
 printf 'root:!::0:99999:7:::\nps5:$6$hash:19000:0:99999:7:::\nsddm:!!:19000::::::\n' > "$O/etc/shadow"
 printf 'root:x:0:\nwheel:x:10:ps5\nps5:x:1000:\nsddm:x:971:\ninput:x:104:ps5\n' > "$O/etc/group"
 printf 'ps5:524288:65536\n' > "$O/etc/subuid"; cp "$O/etc/subuid" "$O/etc/subgid"
-printf 'root:x:0:0:root:/root:/bin/bash\n' > "$N/etc/passwd"; printf 'root:!::0:99999:7:::\n' > "$N/etc/shadow"; chmod 000 "$N/etc/shadow"
+printf 'root:x:0:0:root:/root:/bin/bash\n' > "$N/etc/passwd"; printf 'root:!::0:99999:7:::\n' > "$N/etc/shadow"; chmod 600 "$N/etc/shadow"   # 000 on a real system; CI isn't root
 printf 'root:x:0:\n' > "$N/etc/group"; printf 'wheel:x:10:\ninput:x:104:\nvideo:x:39:\n' > "$N/usr/lib/group"
 out=$(carry_accounts "$O" "$N")
 check "the login user is found, system users are not" "$out" "  users: ps5"
 check "passwd: ps5 added, sddm and nobody not" "$(cut -d: -f1 "$N/etc/passwd" | tr '\n' ' ')" "root ps5 "
 check "shadow: ps5's password hash carried over" "$(grep -c '^ps5:\$6\$hash:' "$N/etc/shadow")" 1
-check "shadow keeps its mode" "$(stat -c %a "$N/etc/shadow")" 0
+check "shadow keeps its mode" "$(stat -c %a "$N/etc/shadow")" 600
 check "group: own group added; wheel and input taken from /usr/lib/group with ps5 in them" "$(sort "$N/etc/group" | tr '\n' ' ')" "input:x:104:ps5 ps5:x:1000: root:x:0: wheel:x:10:ps5 "
 check "subuid and subgid carried over" "$(cat "$N/etc/subuid" "$N/etc/subgid" | tr '\n' ' ')" "ps5:524288:65536 ps5:524288:65536 "
 carry_accounts "$O" "$N" >/dev/null
