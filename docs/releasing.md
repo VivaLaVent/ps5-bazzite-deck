@@ -16,11 +16,11 @@ Who tests what before a pre-release is promoted: [testing.md](testing.md).
 
 ## Upstreaming
 
-`tools/upstream-pr.sh` turns a patch into a pull request against rmux's branch.
+`tools/upstream-pr.sh` turns a patch into a pull request against a ps5-linux-patches-style repository (`--repo`). rmux's, the original target, was removed from GitHub in November 2026.
 
 ## X.Y releases rebase
 
-Every X.Y release (not X.Y.Z) starts from rmux's newest kernel branch and the newest upstream loader:
+Every X.Y release (not X.Y.Z) starts from the newest upstream loader, and from rmux's newest kernel branch while it was published. His repository was removed from GitHub in November 2026: `build.sh` takes his branch from our mirror, [VivaLaVent/ps5-linux-patches-rmux](https://github.com/VivaLaVent/ps5-linux-patches-rmux), at the pinned commit, and the kernel base moves only by our own choice now.
 
 1. Run **Upstream audit** (Actions, or `bash tools/audit-upstream.sh`): which of `patches/` and `loader/patches/` still apply, which upstream already has, which conflict.
 2. Drop what upstream has, port what conflicts, move the pins (`build.sh`: branch, commit and `KERNEL_TAG`; `loader/pins.env`).

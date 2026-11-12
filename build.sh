@@ -42,7 +42,8 @@ grep -q 'video=' boot/cmdline.txt && { echo 'cmdline edit failed'; exit 1; }
 
 echo "==> 3. kernel source: $KERNEL_TAG + $PATCHES_BRANCH patches"
 mkdir -p work
-git clone -q -b "$PATCHES_BRANCH" https://github.com/rmuxnet/ps5-linux-patches-1 work/ps5-linux-patches
+# rmux's ps5-linux-patches-1 was removed from GitHub in November 2026: our mirror of his branch, up to the pinned commit
+git clone -q -b "$PATCHES_BRANCH" https://github.com/VivaLaVent/ps5-linux-patches-rmux work/ps5-linux-patches
 git -C work/ps5-linux-patches checkout -q 8de2aff
 for p in "$PATCHES"/mwifiex/*.patch; do [ ! -e "$p" ] || cp "$p" work/ps5-linux-patches/; done
 sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-viva"/' work/ps5-linux-patches/.config

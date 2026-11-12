@@ -7,9 +7,9 @@ assistance.
 
 | Change | For | Status |
 | --- | --- | --- |
-| `hdmi-sdr-metadata.patch` | rmuxnet/ps5-linux-patches-1 | sent, #8 |
-| `cpufreq-not-on-pro.patch` | rmuxnet/ps5-linux-patches-1 | sent, #9 |
-| `cpufreq-rate-limit.patch` | rmuxnet/ps5-linux-patches-1 | sent, #10 |
+| `hdmi-sdr-metadata.patch` | rmuxnet/ps5-linux-patches-1 | sent as #8; lost when the repository was removed (November 2026) |
+| `cpufreq-not-on-pro.patch` | rmuxnet/ps5-linux-patches-1 | sent as #9; lost with the repository |
+| `cpufreq-rate-limit.patch` | rmuxnet/ps5-linux-patches-1 | sent as #10; lost with the repository |
 | `bluetooth-pro.patch` | rmuxnet/ps5-linux-patches-1 | mfoster978's Pro setup (our PR #30), in our kernel since v2.5.1 |
 | `mwifiex-no-tdls.patch` | ps5-linux/ps5-linux-mwifiex | in v2.11; the reporter's runtime workaround confirmed the cause, the patch itself not yet |
 | `image-no-tdls.patch` | ps5-linux/ps5-linux-image | the apply line for the one above; to be merged after it |

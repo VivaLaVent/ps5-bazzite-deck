@@ -1,13 +1,14 @@
 #!/bin/bash
-# Do the patches still apply to upstream's newest work? Kernel: rmux's default branch of ps5-linux-patches-1
-# on the kernel it names; loader: the main branch of the loader in loader/pins.env. Read-only; prints a Markdown report.
+# Do the patches still apply to upstream's newest work? Kernel: rmux's ps5-linux-patches, from our mirror since his
+# repository was removed in November 2026 (so nothing newer to find); loader: the main branch of the loader in
+# loader/pins.env. Read-only; prints a Markdown report.
 #   bash tools/audit-upstream.sh [workdir]
 set -uo pipefail
 SRC=$(cd "$(dirname "$0")/.." && pwd); W=${1:-$(mktemp -d)}; mkdir -p "$W"
 PIN=$(sed -n 's/^git -C work\/ps5-linux-patches checkout -q \([0-9a-f]*\).*/\1/p' "$SRC/build.sh")
 
 echo "## Kernel: patches/ on rmux's newest branch"
-git clone -q https://github.com/rmuxnet/ps5-linux-patches-1 "$W/rmux"
+git clone -q https://github.com/VivaLaVent/ps5-linux-patches-rmux "$W/rmux"
 HEAD=$(git -C "$W/rmux" rev-parse --short HEAD); BR=$(git -C "$W/rmux" branch --show-current)
 REF=$(sed -n 's/^KERNEL_REF=\(.*\)/\1/p' "$W/rmux/build.cfg" 2>/dev/null); REF=${REF:-v7.3.1}
 echo "rmux $BR at $HEAD (built on $PIN), kernel $REF; $(git -C "$W/rmux" rev-list --count "$PIN..HEAD" 2>/dev/null || echo "?") new commits"

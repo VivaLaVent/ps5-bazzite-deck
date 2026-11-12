@@ -34,7 +34,7 @@ def section(text, name):
 
 def files_section(tag, assets):
     known = [
-        (f"ps5-bazzite-deck-bootc-{tag}.sha256", "checksums for the bootc image and its volumes"),
+        (f"ps5-bazzite-deck-bootc-{tag}.img.sha256", "checksums for the bootc image and its volumes"),
         (f"bazzite-bootc-loader-{tag}.elf", "the PS5 Linux loader for this release: soniciso1's ps5-linux-loader, which also hands Linux "
                                             "the PS5 Pro GPU firmware, the Wi-Fi firmware and the console's Bluetooth pairings"),
         (f"bazzite-bootc-loader-{tag}.elf.sha256", "loader checksum"),

@@ -1,13 +1,14 @@
 #!/bin/bash
-# Our kernel patches as a PR against rmux's ps5-linux-patches (its kernel changes live in linux.patch):
+# Our kernel patches as a PR against a ps5-linux-patches-style repository (its kernel changes live in linux.patch).
+# rmux's, the original target, was removed from GitHub in November 2026, so --repo is required:
 #   bash tools/upstream-pr.sh "<title>" patches/a.patch [...] [--submit]       dry run without --submit
-#   --base (build.sh's branch) --repo (rmuxnet/ps5-linux-patches-1) --tested "<what>" --config "<scripts/config args>"
+#   --repo <owner/repo> --base (build.sh's branch) --tested "<what>" --config "<scripts/config args>"
 # Needs gh and the kernel tree build.sh made; list unmerged prerequisite patches too, in order. The kernel version is
 # upstream's (KERNEL_REF in its build.cfg), not ours. --submit needs --tested: what ran on which console, as it was seen.
 set -euo pipefail
 TITLE=${1:?usage: upstream-pr.sh "<title>" patches/x.patch ... [--submit]}; shift
 SRC=$(cd "$(dirname "$0")/.." && pwd)
-REPO=rmuxnet/ps5-linux-patches-1; BASE=$(sed -n 's/^PATCHES_BRANCH=\([^ ]*\).*/\1/p' "$SRC/build.sh"); SUBMIT=0; TESTED=""; CONFIG=""; PATCHES=()
+REPO=; BASE=$(sed -n 's/^PATCHES_BRANCH=\([^ ]*\).*/\1/p' "$SRC/build.sh"); SUBMIT=0; TESTED=""; CONFIG=""; PATCHES=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --submit) SUBMIT=1 ;;
@@ -19,6 +20,7 @@ while [ $# -gt 0 ]; do
   esac; shift
 done
 [ ${#PATCHES[@]} -gt 0 ] || { echo "no patches given"; exit 1; }
+[ -n "$REPO" ] || { echo "STOP: --repo <owner/repo> is required"; exit 1; }
 [ "$SUBMIT" != 1 ] || [ -n "$TESTED" ] || { echo "STOP: --submit needs --tested \"<console, system software, what was seen>\""; exit 1; }
 KSRC=${REPO_DIR:-$HOME/ps5-build-7.3}/work/linux73
 [ -d "$KSRC/.git" ] || { echo "STOP: kernel checkout $KSRC not found"; exit 1; }
