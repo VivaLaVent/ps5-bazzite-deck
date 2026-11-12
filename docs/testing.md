@@ -53,6 +53,10 @@ With a DualSense paired in the PS5 system and the loader of the release:
 - Original PS5 and Pro with the Linux-only address on (default): the import is skipped, `ps5-bt-sync.json` is gone from the boot partition, existing Linux pairings work.
 - After `ps5-bt-address off` and a restart: as on the Slim.
 
+DirectMesh (original PS5 and Slim): a D3D12 game that needs Mesh shaders, with `ps5-directmesh %command%` as its Steam
+launch option; `ps5-directmesh vulkaninfo | grep -i mesh_shader` lists `VK_EXT_mesh_shader`, and without the launch option
+the game and `vulkaninfo` behave as before. A hang with it: `sudo dmesg | grep -iE "amdgpu|ring|timeout" | tail -20`.
+
 What the loader dumps reaches Linux through the initrd (`loader/patches/0005`): `ps5-report` lists it under Wi-Fi as
 "from the loader via the initrd (/run/ps5)", the Wi-Fi firmware and, until it is imported, `ps5-bt-sync.json`. A PS5 Pro
 shows 60 compute units on the first start after installing or updating.

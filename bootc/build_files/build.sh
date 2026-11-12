@@ -60,6 +60,11 @@ for d in lib64 lib; do
     ! ldd -r "/usr/$d/libvulkan_radeon.so" 2>&1 | grep -E "not found|undefined symbol" ||
         { echo "/usr/$d/libvulkan_radeon.so doesn't load against this image"; exit 1; }
 done
+# --- DirectMesh (bootc/mesa): a second RADV with Mesh shaders, only for games started with ps5-directmesh
+install -Dm755 "$CTX/radv/directmesh/libvulkan_radeon.so" /usr/lib64/directmesh/libvulkan_radeon.so
+install -Dm644 "$CTX/radv/directmesh/radeon_icd.x86_64.json" /usr/share/directmesh/icd.d/radeon_icd.x86_64.json
+! ldd -r /usr/lib64/directmesh/libvulkan_radeon.so 2>&1 | grep -E "not found|undefined symbol" ||
+    { echo "the DirectMesh driver doesn't load against this image"; exit 1; }
 
 if [ ! -e /usr/sbin/kexec ]; then
     install -Dm755 "$CTX/deck/files/kexec-shim" /usr/bin/kexec
@@ -120,6 +125,7 @@ kernel=$KVER
 deck=$DECK
 loader=$LOADER
 radv=$(cat "$CTX/radv/VERSION")
+directmesh=$(cat "$CTX/radv/directmesh/VERSION")
 EOF
 echo "$IMAGE_VERSION (bootc, ps5-bazzite-deck $DECK)" > /etc/ps5-bazzite-deck-version   # for ps5-report
 

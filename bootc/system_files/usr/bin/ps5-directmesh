@@ -1,0 +1,11 @@
+#!/bin/sh
+# Runs a game on DirectMesh, the second RADV with Mesh shaders for the original PS5 and Slim (experimental).
+# Steam launch options:  ps5-directmesh %command%
+# 32-bit programs keep the system driver. On a PS5 Pro, whose GPU DirectMesh doesn't cover, nothing changes.
+ICD=/usr/share/directmesh/icd.d/radeon_icd.x86_64.json
+if [ -f "$ICD" ] && grep -qsi '^0x13fb$' /sys/bus/pci/devices/0000:20:00.0/device; then
+    export VK_DRIVER_FILES="$ICD:/usr/share/vulkan/icd.d/radeon_icd.i686.json"
+else
+    echo "ps5-directmesh: not an original PS5 or Slim, or DirectMesh isn't in this image: system driver" >&2
+fi
+exec "$@"

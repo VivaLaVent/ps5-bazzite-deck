@@ -1,0 +1,17 @@
+radv/directmesh: the PS5 and PS5 Slim
+
+Their GPU (Oberon, 1002:13fb) is in the BC-250's chip family, CHIP_GFX1013, which DirectMesh supports; only its
+PCI id is missing from the list DirectMesh turns itself on for.
+---
+diff --git a/src/amd/vulkan/radv_directmesh.h b/src/amd/vulkan/radv_directmesh.h
+index faf3e74..e12cd9d 100644
+--- a/src/amd/vulkan/radv_directmesh.h
++++ b/src/amd/vulkan/radv_directmesh.h
+@@ -23,6 +23,7 @@ radv_directmesh_pci(uint16_t vendor, uint16_t device)
+    if (vendor != 0x1002)
+       return false;
+    switch (device) {
++   case 0x13fb: /* PS5 and PS5 Slim (Oberon) */
+    case 0x13fe:
+    case 0x143f:
+    case 0x7310: case 0x7312: case 0x7318: case 0x7319:

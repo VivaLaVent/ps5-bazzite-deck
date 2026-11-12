@@ -1,5 +1,5 @@
 #!/usr/bin/bash
-# RADV with patches/, 64- and 32-bit, built in the base image against its own libraries.
+# RADV with patches/, 64- and 32-bit, and DirectMesh (64-bit), built in the base image against its own libraries.
 #   build-radv.sh <out dir>
 set -euxo pipefail
 M=$(cd "$(dirname "$0")" && pwd)
@@ -78,4 +78,23 @@ mkdir -p "$OUT/lib64" "$OUT/lib"
 install -m755 -s "$W/b64/src/amd/vulkan/libvulkan_radeon.so" "$OUT/lib64/"
 install -m755 -s "$W/b32/src/amd/vulkan/libvulkan_radeon.so" "$OUT/lib/"
 echo "$MESA_VERSION+$(cat "$M"/patches/*.patch | sha256sum | cut -c1-12)" > "$OUT/VERSION"
+
+# DirectMesh: a second RADV beside the system one, from its own tested tree, for games started with
+# ps5-directmesh. It changes how every GFX1013 draw is submitted, so it does not replace the system driver.
+# Bazzite's three patches apply to it; 0004 is for the Pro, and DirectMesh opens the compute queue itself (0005).
+# 64-bit only: 32-bit programs keep the system driver.
+git clone -q --depth 1 --branch "$DIRECTMESH_TAG" "https://github.com/$DIRECTMESH_REPO" "$W/dm"
+[ "$(git -C "$W/dm" rev-parse HEAD)" = "$DIRECTMESH_COMMIT" ] || { echo "$DIRECTMESH_TAG is not $DIRECTMESH_COMMIT"; exit 1; }
+for p in "$M"/patches/0001-*.patch "$M"/patches/0002-*.patch "$M"/patches/0003-*.patch "$M"/directmesh/*.patch; do
+    patch -d "$W/dm" -p1 -s --no-backup-if-mismatch < "$p"
+done
+meson setup "$W/dm64" "$W/dm" "${opts[@]}"
+ninja -C "$W/dm64" src/amd/vulkan/libvulkan_radeon.so src/amd/vulkan/radeon_icd.x86_64.json
+mkdir -p "$OUT/directmesh"
+install -m755 -s "$W/dm64/src/amd/vulkan/libvulkan_radeon.so" "$OUT/directmesh/"
+sed 's#"library_path": *"[^"]*"#"library_path": "/usr/lib64/directmesh/libvulkan_radeon.so"#' \
+    "$W/dm64/src/amd/vulkan/radeon_icd.x86_64.json" > "$OUT/directmesh/radeon_icd.x86_64.json"
+grep -q '"library_path": "/usr/lib64/directmesh/libvulkan_radeon.so"' "$OUT/directmesh/radeon_icd.x86_64.json" ||
+    { echo "DirectMesh ICD manifest: library_path not set"; exit 1; }
+echo "$DIRECTMESH_TAG+$(cat "$M"/directmesh/*.patch | sha256sum | cut -c1-12)" > "$OUT/directmesh/VERSION"
 rm -rf "$W"
