@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.14] – 2026-11-<DD>
+## [v2.14] – 2026-11-13
 > Pre-release. Mesh shaders per game on the original PS5 and Slim (DirectMesh, experimental); Legacy installs no longer supported, with a converter to bootc; the kernel source from our mirror of rmux's removed repository.
 - **rmux's `ps5-linux-patches-1` was removed from GitHub** (the `rmuxnet` account is gone). `build.sh` clones his branch from our mirror, [VivaLaVent/ps5-linux-patches-rmux](https://github.com/VivaLaVent/ps5-linux-patches-rmux), made from a copy taken before the removal: `shitshow` up to the pinned `8de2aff32314`, 127 commits. Git names a commit by a hash of its whole content, so the pinned commit is the same tree v2.13 was built from; `linux.patch` and `.config` compared byte for byte, and the patch applies to 7.3.3 with `build.sh`'s own steps. `tools/audit-upstream.sh` reads the mirror (nothing newer to find); `tools/upstream-pr.sh` needs `--repo` now. Our pull requests #8 to #10 there are lost with it. The X.Y rebase for this release: the loader's `main` is still at the pin; rmux's branch can't move any more
 - **Release notes list the disk image's checksum file** with its description: `tools/release_notes.py` looked for `…-bootc-vX.Y.sha256`, the workflow names it `…-bootc-vX.Y.img.sha256` (v2.13's notes are rendered again)
