@@ -16,7 +16,7 @@ Every pre-release needs one tester per row of the hardware table, and each of th
 | G | Pro | FLAVA3 | MediaTek MT7925 | 13.20–13.60 | M.2 | 4K60 TV or monitor |
 
 Each slot covers one fresh bootc install from the disk image, and between them at least one update from the previous
-release through Steam's Beta channel (or `sudo bootc upgrade`) and one Legacy in-place update.
+release through Steam's Beta channel (or `sudo bootc upgrade`).
 
 ## Release checks
 

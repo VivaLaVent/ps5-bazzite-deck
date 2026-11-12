@@ -1,6 +1,6 @@
 name: Release
 # A pushed tag vX.Y builds everything from this repo. The pre-release is public with its notes from the
-# start; files are added as they're built: update bundle for existing installs, bootc disk image, loader.
+# start; files are added as they're built: kernel RPM, bootc disk image, loader.
 # After a fix, start a fresh run (re-runs replay the old workflow file):  gh workflow run release.yml -f tag=vX.Y
 on:
   push:
@@ -15,7 +15,7 @@ on:
         type: boolean
         default: false
       resume:
-        description: "reuse the kernel RPM on the release and the :tag image; redo bundle, disk image, loader"
+        description: "reuse the kernel RPM on the release and the :tag image; redo disk image, loader"
         type: boolean
         default: false
 
@@ -129,46 +129,6 @@ jobs:
       tag: ${{ needs.meta.outputs.tag }}
       channel: beta
 
-  bundle:
-    needs: [meta, image]
-    if: always() && needs.meta.result == 'success' && (needs.image.result == 'success' || (inputs.resume && needs.image.result == 'skipped'))
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      packages: read
-    steps:
-      # scripts from the commit that runs this, so a resume run ships fixes made after tagging
-      - uses: actions/checkout@v7
-      # pulling the image unpacks every layer, the base image's own kernel included: more than the runner's free space
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
-          df -h /
-      # the same kernel, initramfs and modules as the bootc image: both start from bazzite-deck + this kernel
-      - name: Kernel parts from the bootc image
-        env:
-          TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          IMG=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ps5-bazzite-bootc:$TAG
-          echo "${{ github.token }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-          podman pull -q "$IMG"
-          K=$(podman run --rm "$IMG" ls /usr/lib/modules)
-          [ "$(echo "$K" | wc -l)" = 1 ] || { echo "expected one kernel, found: $K"; exit 1; }
-          P=$RUNNER_TEMP/kp/parts; mkdir -p "$P/efi" "$P/modules" "$P/files"
-          C=$(podman create "$IMG"); podman cp "$C:/usr/lib/modules/$K" "$P/modules/"; podman rm "$C" >/dev/null
-          mv "$P/modules/$K/vmlinuz" "$P/efi/bzImage"; mv "$P/modules/$K/initramfs.img" "$P/efi/initrd.img"
-          echo "options moal ps_mode=0" > "$P/files/ps5-iw620-modprobe.conf"; echo "$K" > "$P/KERNEL"
-          tar -C "$RUNNER_TEMP/kp" -cJf "$RUNNER_TEMP/parts.tar.xz" parts
-      - name: Bundle and attach
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ needs.meta.outputs.tag }}
-        run: |
-          B="$RUNNER_TEMP/b" FROM_BUNDLE="$RUNNER_TEMP/parts.tar.xz" bash tools/make-update-bundle.sh "$TAG"
-          gh release upload "$TAG" "$RUNNER_TEMP/b/output/ps5-bazzite-deck-$TAG-update.tar.xz" \
-            "$RUNNER_TEMP/b/output/ps5-bazzite-deck-$TAG-update.tar.xz.sha256" --clobber
-          python3 tools/release_notes.py "$TAG"
-
   disk:
     needs: [meta, image]
     if: always() && needs.meta.result == 'success' && (needs.image.result == 'success' || (inputs.resume && needs.image.result == 'skipped'))
@@ -180,7 +140,7 @@ jobs:
       release: ${{ needs.meta.outputs.tag }}
 
   finish:
-    needs: [meta, kernel, loader, image, bundle, disk]
+    needs: [meta, kernel, loader, image, disk]
     if: always() && needs.meta.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
@@ -212,7 +172,7 @@ jobs:
               footer: {text: "\($repo) • \($tag)"}}]}' |
             curl -sSf -H 'Content-Type: application/json' -d @- "$HOOK"
       - name: Report missing parts
-        if: needs.kernel.result != 'success' || needs.loader.result != 'success' || needs.bundle.result != 'success' || needs.disk.result != 'success'
+        if: needs.kernel.result != 'success' || needs.loader.result != 'success' || needs.disk.result != 'success'
         run: |
-          echo "::error::kernel=${{ needs.kernel.result }} image=${{ needs.image.result }} bundle=${{ needs.bundle.result }} disk=${{ needs.disk.result }} loader=${{ needs.loader.result }}"
+          echo "::error::kernel=${{ needs.kernel.result }} image=${{ needs.image.result }} disk=${{ needs.disk.result }} loader=${{ needs.loader.result }}"
           exit 1

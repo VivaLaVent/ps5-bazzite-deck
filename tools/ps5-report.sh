@@ -28,7 +28,7 @@ if [ -e /run/ostree-booted ]; then
   IMGREF=$(sudo bootc status --format=json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"]["booted"]["image"]; print(s["image"]["image"])' 2>/dev/null)
   INSTALL="bootc ${IMGREF:-?} ($(grep -m1 '^version=' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null | cut -d= -f2))"
 else
-  INSTALL="legacy $(cat /etc/ps5-bazzite-deck-version 2>/dev/null || echo '(version unknown)')"
+  INSTALL="legacy $(cat /etc/ps5-bazzite-deck-version 2>/dev/null || echo '(version unknown)'): no longer supported, switch with wiki.ps5-linux.eu/updating/legacy"
 fi
 CON=$(for c in /sys/class/drm/card*-*; do [ "$(cat "$c/status" 2>/dev/null)" = connected ] && echo "${c##*/}" && break; done)
 DNAME=$([ -n "$CON" ] && python3 -c "

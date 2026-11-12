@@ -31,8 +31,10 @@ next start; `sudo bootc rollback` goes back to the version before. Steam's OS Up
 the same release, which hands Linux what it reads from the PS5 (the Pro's GPU firmware, the Wi-Fi firmware, the console's
 Bluetooth pairings) on every start. More: [bootc/README.md](bootc/README.md).
 
-Installs from before v2.5 run the older **Legacy** form and update in place with the command in each release's notes.
-Switching to bootc (a reflash) is recommended. `ps5-report` shows which one you run on its Install line.
+Installs from before v2.5 run the older **Legacy** form, which is no longer supported or updated from v2.13 on.
+`tools/legacy-to-bootc.sh` switches such an install to bootc in place, keeping users, games and Flatpaks; flashing the
+bootc image is the other way. Both are on the [wiki](https://wiki.ps5-linux.eu/updating/legacy). `ps5-report` shows
+which one you run on its Install line.
 
 ## Join the PS5 Linux community on Discord
 

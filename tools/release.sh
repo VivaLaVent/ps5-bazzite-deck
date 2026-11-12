@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tag a release. .github/workflows/release.yml then builds everything and publishes a pre-release:
-# kernel RPM, update bundle for existing installs, bazzite-bootc-loader, bootc image and disk image.
+# kernel RPM, bazzite-bootc-loader, bootc image and disk image.
 #   bash tools/release.sh vX.Y[.Z]
 # Promote a tested pre-release:  gh release edit vX.Y --prerelease=false --latest
 set -euo pipefail

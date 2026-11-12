@@ -21,8 +21,8 @@ kernel while that partition holds the default deployment (`ps5-bootc-sync --is-c
 
 ## Differences from ps5-bazzite-deck
 
-`build_files/build.sh` installs the same PS5 scripts, units and rules as the Legacy update bundle,
-straight from `files/` and the FILES list in `tools/make-update-bundle.sh`, and does what
+`build_files/build.sh` installs the PS5 scripts, units and rules listed in `build_files/files.list`
+straight from `files/` and `tools/`, and does what
 ps5-linux-image does for its Bazzite target, with these differences:
 
 - nothing ships in `/usr/local` (it lives in `/var` on bootc, and bootc never updates `/var`):
@@ -96,5 +96,5 @@ In the ps5-bazzite-deck repository:
 
 ## Releases
 
-See [docs/releasing.md](../../docs/releasing.md): one tag builds the kernel, the Legacy update bundle, the bootc
+See [docs/releasing.md](../../docs/releasing.md): one tag builds the kernel, the bootc
 image and disk image, and the loader.

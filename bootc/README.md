@@ -5,9 +5,9 @@
 like any Bazzite image, and a bad update is **undone with one command**. Runs from a USB drive and leaves
 the PS5 itself untouched: restart or power off and the PS5 starts its own system again.
 
-This is how PS5 Bazzite Deck is built and installed from v2.5 on. Consoles still on the older Legacy install keep
-getting in-place updates, but switching is recommended: flash this image to a second drive, or copy off what you want to
-keep first, since flashing erases the drive.
+This is how PS5 Bazzite Deck is built and installed from v2.5 on. The older Legacy install is no longer supported or
+updated from v2.13 on. To switch: `tools/legacy-to-bootc.sh` converts a Legacy install in place and keeps users, games
+and Flatpaks, or flash this image to a drive (flashing erases it).
 
 ## Not affiliated with Bazzite
 
@@ -19,9 +19,8 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 You need a PS5 that runs the PS5 Linux loader (firmware 3.00 to 13.60), **bazzite-bootc-loader** from the same release
 (soniciso1's loader with our patches: it reads the PS5 Pro's GPU firmware, the Wi-Fi firmware and the console's
 Bluetooth pairings and hands them to Linux in the initrd, so they arrive on the first start, also without a USB drive;
-it starts Legacy installs too), and a USB drive or SSD of 64 GB or
-more (the system alone is about 25 GB; an SSD is much faster). When switching from a Legacy install, a second drive lets
-you swap back.
+it starts every other PS5 Linux image too), and a USB drive or SSD of 64 GB or
+more (the system alone is about 25 GB; an SSD is much faster).
 
 1. Download all `ps5-bazzite-deck-bootc-*.img.7z` parts of the newest release from the
    [releases page](https://github.com/VivaLaVent/ps5-bazzite-deck/releases)

@@ -46,10 +46,8 @@ done
 rm -f cyan_skillfish*.xz
 cd /
 
-# --- PS5 files: the Legacy bundle's list, /usr/local moved to /usr (the modprobe conf is in system_files)
-sed -n "/^cat > \"\$OUT\/FILES\" << 'L'/,/^L\$/p" "$CTX/deck/tools/make-update-bundle.sh" | sed '1d;$d' |
-while read -r src dst mode; do
-    [ "$src" = ps5-iw620-modprobe.conf ] && continue
+# --- PS5 files (files.list), /usr/local moved to /usr
+grep -v '^#' "$CTX/build_files/files.list" | while read -r src dst mode; do
     f=$CTX/deck/files/$src; [ -f "$f" ] || f=$CTX/deck/tools/$src
     dst=$(echo "$dst" | sed -e 's#^/usr/local/s\?bin/#/usr/bin/#' -e 's#^/usr/local/share/#/usr/share/#')
     install -Dm"${mode:-644}" "$f" "$dst"
