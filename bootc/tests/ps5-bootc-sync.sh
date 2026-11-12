@@ -29,9 +29,9 @@ check "fresh install boots a" "$(cat "$E/bzImage")" kernel-a
 check "no rollback target yet" "$(ls "$E/ostree" 2>/dev/null | wc -l)" 0
 
 echo " amdgpu.ps5_cu_unlock=3" >> "$E/cmdline.txt"; sed -i ':a;N;s/\n//;ba' "$E/cmdline.txt"
-echo viola >> "$E/initrd.img"; sync
+echo extra >> "$E/initrd.img"; sync
 check "user option kept" "$(grep -c ps5_cu_unlock "$E/cmdline.txt")" 1
-check "PS5 Pro firmware in initrd.img kept" "$(tail -1 "$E/initrd.img")" viola
+check "initrd.img not rewritten while the default is unchanged" "$(tail -1 "$E/initrd.img")" extra
 
 deployment b 2 newkarg=1; sync
 check "upgrade boots b" "$(cat "$E/bzImage")" kernel-b

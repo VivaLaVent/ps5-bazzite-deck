@@ -17,7 +17,9 @@ or Sony. Ask here or on Discord, not in Bazzite's channels.
 ## Install
 
 You need a PS5 that runs the PS5 Linux loader (firmware 3.00 to 13.60), **bazzite-bootc-loader** from the same release
-(soniciso1's loader, which dumps the PS5 Pro's GPU firmware on most firmware versions; it starts Legacy installs too), and a USB drive or SSD of 64 GB or
+(soniciso1's loader with our patches: it reads the PS5 Pro's GPU firmware, the Wi-Fi firmware and the console's
+Bluetooth pairings and hands them to Linux in the initrd, so they arrive on the first start, also without a USB drive;
+it starts Legacy installs too), and a USB drive or SSD of 64 GB or
 more (the system alone is about 25 GB; an SSD is much faster). When switching from a Legacy install, a second drive lets
 you swap back.
 

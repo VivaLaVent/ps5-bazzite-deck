@@ -34,7 +34,7 @@ ps5-linux-image does for its Bazzite target, with these differences:
 - the kernel swap and initramfs follow Bazzite's own build scripts (same packages removed, same
   dracut options), so the image looks to bootc and rpm-ostree like any Bazzite image;
 - `ps5-stage-gpu-firmware` (from the kernel package) is off: it writes to `/usr`, which is
-  read-only. `ps5-stage-viola-fw` does the same job on the boot partition;
+  read-only. On a PS5 Pro the loader appends the Viola GPU firmware to the initrd;
 - no repo.etawen.dev: the kernel comes with the image.
 - the PS5 pairing importer (`ps5-bt-sync`) is upstream's file from ps5-linux-patches, fetched into `files/` at a pinned
   commit and checksum by `tools/fetch-bt-sync.sh` before the build; `ps5-bt-import` runs it only while Linux uses the

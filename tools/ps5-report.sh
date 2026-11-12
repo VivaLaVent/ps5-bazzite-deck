@@ -136,6 +136,7 @@ nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | grep -v -e '^lo' -e p2p | sed
 W=; for n in /sys/class/net/wl* /sys/class/net/mlan*; do [ -e "$n" ] && W=${n##*/} && break; done
 [ -n "$W" ] && echo "  $W: driver $(basename "$(readlink -f "/sys/class/net/$W/device/driver")" 2>/dev/null), $(iw dev "$W" get power_save 2>/dev/null)"
 echo "  firmware: $(ls /etc/firmware/nxp/ /lib/firmware/nxp/pcieuartiw620_combo_v1.bin 2>/dev/null | tr '\n' ' ')"
+echo "  from the loader via the initrd (/run/ps5): $( [ -d /run/ps5 ] && { find /run/ps5 -type f | sed 's#^/run/ps5/##' | tr '\n' ' '; echo; } || echo 'nothing: loader older than v2.13')"
 journalctl -b -u ps5-stage-firmware -u ps5-wifi-repair --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
 k | grep -i -e moal -e mlan -e wlan -e mt79 -e 'firmware' | grep -i -e fail -e error -e timeout -e 'already running' | last 10
 
@@ -156,7 +157,6 @@ if [ "$MODEL" = "PS5 Pro" ]; then
   echo "  compute units: $(k | grep -o -m1 'active_cu_number [0-9]*' | awk '{print $2}')"
   echo "  Viola firmware loaded: $(k | grep -qi 'using Viola firmware' && echo yes || echo no), SMU: $(k | grep -qi 'SMU is initialized successfully' && echo up || echo down)"
   k | grep -i -e 'ps5-gpufreq' -e 'mp1fw_sendmsg' | last 5
-  journalctl -b -u ps5-stage-viola-fw --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
 fi
 k | grep -o -m2 -e 'VRAM: [0-9]*M.*' -e 'GTT: [0-9]*M.*' | sed 's/^/  /'
 journalctl -b -u ps5-console-defaults --no-pager -o cat 2>/dev/null | tail -3 | sed 's/^/  /'

@@ -28,7 +28,10 @@ done
 for u in ps5-stage-firmware ps5-bt-quiet ps5-stage-gpu-firmware; do
     [ -f "/etc/systemd/system/$u.service" ] && sed -i 's#/usr/local/sbin/#/usr/bin/#g' "/etc/systemd/system/$u.service"
 done
-# writes to /usr/lib/firmware, read-only here; ps5-stage-viola-fw does this instead
+# the loader's dumps come in the initrd as /run/ps5 (ps5-dumps), laid out like the boot partition: looked at first
+sed -i 's#for d in /efi /boot/efi /boot; do#for d in /run/ps5 /efi /boot/efi /boot; do#' /usr/bin/ps5-stage-firmware
+grep -q 'for d in /run/ps5 /efi' /usr/bin/ps5-stage-firmware || { echo "ps5-stage-firmware: /run/ps5 not added"; exit 1; }
+# writes to /usr/lib/firmware, read-only here; the loader appends the PS5 Pro GPU firmware to the initrd
 rm -f /etc/systemd/system/multi-user.target.wants/ps5-stage-gpu-firmware.service
 # an RPM built from patches that carry upstream's pairing importer enables it as is; ps5-bt-import gates it here
 rm -f /etc/systemd/system/bluetooth.service.wants/ps5-bt-sync.service
@@ -72,7 +75,7 @@ cp -a "$CTX/system_files/." /
 systemctl enable \
     boot-efi.mount ps5-bootc-sync.service ps5-grow-root.service \
     ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
-    ps5-bt-revive.service ps5-bt-import.service ps5-perf.service ps5-stage-viola-fw.service ps5-console-defaults.service \
+    ps5-bt-revive.service ps5-bt-import.service ps5-perf.service ps5-console-defaults.service \
     ps5-wifi-repair.service ps5-wifi-powersave.timer \
     ps5-bootc-channel.service ps5-session-defaults.service \
     sshd.service
@@ -160,12 +163,13 @@ O=/usr/libexec/ogc/os-update
 mkdir -p /var/roothome   # /root links here; dracut fails without it
 cp /usr/lib/os-release /tmp/os-release
 sed -Ei '/^((OSTREE_)?(IMAGE_)?VERSION|PRETTY_NAME|BUILD_ID|BOOTLOADER_NAME|IMAGE_ID)=/d' /usr/lib/os-release
-DRACUT_NO_XATTR=1 dracut --no-hostonly --reproducible --zstd --add ostree --add fido2 --add ps5-ostree-path \
+DRACUT_NO_XATTR=1 dracut --no-hostonly --reproducible --zstd --add ostree --add fido2 --add ps5-ostree-path --add ps5-dumps \
     --kver "$KVER" --force "/usr/lib/modules/$KVER/initramfs.img"
 # the listing goes to a file: piped, grep -q closes the pipe at its match and pipefail turns that into a failure
 lsinitrd "/usr/lib/modules/$KVER/initramfs.img" > /tmp/initramfs.list
-grep -q 'ostree-prepare-root.service.wants/ps5-ostree-path.service' /tmp/initramfs.list ||
-    { echo "initramfs without ps5-ostree-path"; exit 1; }
+for w in ostree-prepare-root.service.wants/ps5-ostree-path.service initrd.target.wants/ps5-dumps.service; do
+    grep -q "$w" /tmp/initramfs.list || { echo "initramfs without $w"; exit 1; }
+done
 cp /tmp/os-release /usr/lib/os-release
 chmod 0600 "/usr/lib/modules/$KVER/initramfs.img"
 

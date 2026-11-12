@@ -149,7 +149,7 @@ def sync(boot, esp, dry, booted=None):
             if not dry:
                 shutil.rmtree(os.path.join(odir, name))
 
-    # only when the default changes: ps5-stage-viola-fw appends to initrd.img on a Pro
+    # only when the default changes; initrd.img.noviola is left from ps5-stage-viola-fw (v2.12.1 and older)
     if state.get("default") != entry_id(default) or not os.path.exists(os.path.join(esp, "bzImage")):
         put(boot_path(boot, default["linux"]), os.path.join(esp, "bzImage"), dry)
         put(boot_path(boot, default["initrd"].split()[0]), os.path.join(esp, "initrd.img"), dry)

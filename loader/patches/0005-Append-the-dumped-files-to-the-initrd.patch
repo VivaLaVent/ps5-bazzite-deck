@@ -1,0 +1,208 @@
+From 11f306f5578d828c45f471524bb4964777a38093 Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Thu, 12 Nov 2026 08:50:00 +0000
+Subject: [PATCH] Append the dumped files to the initrd
+
+The loader dumps the PS5 Pro GPU firmware, the IW620 Wi-Fi firmware and the
+Bluetooth pairing export next to the initrd it loaded, and Linux had to pick
+them up from that boot partition later. That takes a second start after an
+update for the GPU firmware, and never works when the boot files are on the
+console's own storage, which Linux can't read.
+
+The loader has the initrd in memory and the dumped files at hand: it now
+appends them as a newc archive (4-byte aligned, as the kernel expects for
+concatenated archives). The GPU firmware goes where amdgpu loads it in the
+initramfs; the Wi-Fi firmware and the pairing export go under /ps5 in the
+boot directory's layout, for Linux to copy before leaving the initramfs.
+Each part goes in whole or not at all, and with nothing to add the initrd
+is passed on unchanged. The initrd buffer keeps 8 MiB for it.
+---
+ include/firmware.h |   8 +++
+ source/firmware.c  | 126 +++++++++++++++++++++++++++++++++++++++++++++
+ source/loader.c    |   7 ++-
+ 3 files changed, 140 insertions(+), 1 deletion(-)
+
+diff --git a/include/firmware.h b/include/firmware.h
+index fa79670..7a2ddfb 100644
+--- a/include/firmware.h
++++ b/include/firmware.h
+@@ -1,6 +1,14 @@
+ #ifndef FIRMWARE_H
+ #define FIRMWARE_H
+ 
++#include <stddef.h>
++#include <stdint.h>
++
++// Room kept after the initrd for the archive of dumped files.
++#define INITRD_FIRMWARE_RESERVE (8u << 20)
++
+ int dump_device_firmwares(const char *boot_file_path);
++size_t append_dumps_to_initrd(const char *boot_file_path, uint8_t *initrd,
++                              size_t initrd_size, size_t capacity);
+ 
+ #endif
+diff --git a/source/firmware.c b/source/firmware.c
+index c8bce78..b31abbe 100644
+--- a/source/firmware.c
++++ b/source/firmware.c
+@@ -484,6 +484,132 @@ static int dump_ps5_wifi_firmware(const char *boot_file_path) {
+   return 0;
+ }
+ 
++// One newc entry header and its name, padded to 4 bytes. The archive starts
++// 4-byte aligned in a page-aligned buffer, so absolute alignment is the same.
++static uint8_t *cpio_entry(uint8_t *p, uint32_t ino, uint32_t mode,
++                           uint32_t size, const char *name) {
++  uint32_t namesize = (uint32_t)strlen(name) + 1;
++
++  p += sprintf((char *)p,
++               "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
++               ino, mode, 0, 0, S_ISDIR(mode) ? 2 : 1, 0, size, 0, 0, 0, 0,
++               namesize, 0);
++  memcpy(p, name, namesize);
++  p += namesize;
++  while ((uintptr_t)p & 3)
++    *p++ = 0;
++  return p;
++}
++
++static int read_all(const char *path, uint8_t *buf, size_t len) {
++  int fd = open(path, O_RDONLY);
++  size_t got = 0;
++
++  if (fd < 0)
++    return -1;
++  while (got < len) {
++    ssize_t n = read(fd, buf + got, len - got);
++    if (n <= 0)
++      break;
++    got += (size_t)n;
++  }
++  close(fd);
++  return got == len ? 0 : -1;
++}
++
++// The entry helpers pass NULL on, so a part of the archive fails as a whole.
++static uint8_t *cpio_dir(uint8_t *p, uint8_t *end, uint32_t ino, uint32_t mode,
++                         const char *name) {
++  if (!p || end - p < 256)
++    return NULL;
++  return cpio_entry(p, ino, S_IFDIR | mode, 0, name);
++}
++
++static uint8_t *cpio_file(uint8_t *p, uint8_t *end, uint32_t ino, uint32_t mode,
++                          const char *path, const char *name) {
++  struct stat st;
++
++  if (!p || stat(path, &st) < 0 || st.st_size <= 0 ||
++      end - p < 256 + st.st_size)
++    return NULL;
++  p = cpio_entry(p, ino, S_IFREG | mode, (uint32_t)st.st_size, name);
++  if (read_all(path, p, (size_t)st.st_size) < 0)
++    return NULL;
++  p += st.st_size;
++  while ((uintptr_t)p & 3)
++    *p++ = 0;
++  return p;
++}
++
++// Appends what the loader dumped to the initrd as a cpio archive, so Linux has
++// it on the first start wherever the boot files are: the PS5 Pro GPU firmware
++// where amdgpu loads it, and the Wi-Fi firmware and Bluetooth pairing export
++// under /ps5 in the boot directory's layout. Returns the new initrd size.
++size_t append_dumps_to_initrd(const char *boot_file_path, uint8_t *initrd,
++                              size_t initrd_size, size_t capacity) {
++  static const char *const gpu_dirs[] = {"usr", "usr/lib", "usr/lib/firmware",
++                                         "usr/lib/firmware/amdgpu"};
++  static const char *const ps5_dirs[] = {"ps5", "ps5/lib", "ps5/lib/nxp"};
++  uint8_t *p = initrd + initrd_size, *end = initrd + capacity, *start, *mark;
++  char boot_dir[512], path[640], name[64], wifi[640], bt[640];
++  int have_wifi, have_bt;
++  struct stat st;
++  uint32_t ino = 1;
++
++  if (build_boot_dir(boot_file_path, boot_dir, sizeof(boot_dir)) < 0)
++    return initrd_size;
++  while ((uintptr_t)p & 3) {
++    if (p == end)
++      return initrd_size;
++    *p++ = 0;
++  }
++  start = p;
++
++  if (env_offset.PS5_PRO_GPU_FW_OFFSET != 0) {
++    mark = p;
++    for (size_t i = 0; i < ARRAY_COUNT(gpu_dirs); i++)
++      p = cpio_dir(p, end, ino++, 0755, gpu_dirs[i]);
++    for (size_t i = 0; i < ARRAY_COUNT(gpu_firmware_blobs); i++) {
++      snprintf(path, sizeof(path), "%s/%s_%s.bin", boot_dir,
++               PS5_PRO_GPU_FW_BOOT_PATH_BASE, gpu_firmware_blobs[i].name);
++      snprintf(name, sizeof(name), "usr/lib/firmware/amdgpu/viola_%s.bin",
++               gpu_firmware_blobs[i].name);
++      p = cpio_file(p, end, ino++, 0644, path, name);
++    }
++    if (!p) {
++      p = mark;
++      notify("Could not add the PS5 Pro GPU firmware to the initrd, the GPU "
++             "runs as a base PS5\n");
++    }
++  }
++
++  snprintf(wifi, sizeof(wifi), "%s/%s", boot_dir, PS5_WIFI_FW_BOOT_PATH);
++  snprintf(bt, sizeof(bt), "%s/ps5-bt-sync.json", boot_dir);
++  have_wifi = stat(wifi, &st) == 0;
++  have_bt = stat(bt, &st) == 0;
++  if (have_wifi || have_bt) {
++    mark = p;
++    for (size_t i = 0; i < ARRAY_COUNT(ps5_dirs); i++)
++      p = cpio_dir(p, end, ino++, i ? 0755 : 0700, ps5_dirs[i]);
++    if (have_wifi)
++      p = cpio_file(p, end, ino++, 0644, wifi, "ps5/" PS5_WIFI_FW_BOOT_PATH);
++    if (have_bt)
++      p = cpio_file(p, end, ino++, 0600, bt, "ps5/ps5-bt-sync.json");
++    if (!p) {
++      p = mark;
++      notify("Could not add the Wi-Fi firmware and Bluetooth pairings to the "
++             "initrd\n");
++    }
++  }
++
++  if (p == start || end - p < 256)
++    return initrd_size;
++  p = cpio_entry(p, 0, 0, 0, "TRAILER!!!");
++  notify("Added the dumped files to the initrd (%llu bytes)\n",
++         (unsigned long long)(p - start));
++  return (size_t)(p - initrd);
++}
++
+ int dump_device_firmwares(const char *boot_file_path) {
+   int ret = dump_ps5_wifi_firmware(boot_file_path);
+ 
+diff --git a/source/loader.c b/source/loader.c
+index 1101593..3fa6731 100644
+--- a/source/loader.c
++++ b/source/loader.c
+@@ -199,7 +199,9 @@ int fetch_linux(struct linux_info *info) {
+     return -1;
+   }
+ 
+-  size_t initrd_map = initrd_size ? ALIGN_UP((size_t)initrd_size, PAGE_SIZE)
++  size_t initrd_map = initrd_size ? ALIGN_UP((size_t)initrd_size +
++                                                INITRD_FIRMWARE_RESERVE,
++                                            PAGE_SIZE)
+                                   : (512u << 20);
+   void *initrd = mmap(NULL, initrd_map, PROT_READ | PROT_WRITE,
+                       MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+@@ -228,6 +230,9 @@ int fetch_linux(struct linux_info *info) {
+   if (dump_bluetooth_pairings(initrd_path) < 0)
+     notify("Could not export Bluetooth pairings - Continuing\n");
+ 
++  initrd_size = (ssize_t)append_dumps_to_initrd(
++      initrd_path, initrd, (size_t)initrd_size, initrd_map);
++
+   size_t vram_size;
+   char buf_vram[16] = {};
+   int ret = find_and_read_file("vram.txt", buf_vram, sizeof(buf_vram) - 1);
+-- 
+2.43.0
+

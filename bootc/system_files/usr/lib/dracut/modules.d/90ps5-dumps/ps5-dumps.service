@@ -1,0 +1,10 @@
+[Unit]
+Description=PS5: the files the loader dumped, from the initrd to /run/ps5
+DefaultDependencies=no
+ConditionPathExists=/etc/initrd-release
+Before=initrd.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/ps5-dumps

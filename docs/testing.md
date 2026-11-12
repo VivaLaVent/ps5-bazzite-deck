@@ -25,7 +25,7 @@ release through Steam's Beta channel (or `sudo bootc upgrade`) and one Legacy in
 | Install | Image extracted with 7-Zip, `.img` checksum matches, flashed with balenaEtcher, first start reaches the desktop |
 | Update | Beta channel or `bootc switch` reaches the release; `sudo bootc rollback` and a power off bring the previous one back; with `ps5-warm-reboot on`, a restart after the rollback goes through the PS5 system instead of straight back into Linux |
 | Display | Desktop and Game Mode at the display's best mode; 4K120 over FRL where offered; VRR in a game; 100 Hz modes on 100 Hz displays; VERDE 1440p100/120; on FLAVA3 a non-standard EDID mode (e.g. 1080p144, ultrawide) |
-| GPU | A D3D12 game (Dragon's Dogma 2), a D3D9 game, a Vulkan game for 30 minutes each; `active_cu_number` 36, or 60 on a Pro from the second start; on a Pro, FSR4 INT8 through OptiScaler, with and without `RADV_VIOLA_ML=0` |
+| GPU | A D3D12 game (Dragon's Dogma 2), a D3D9 game, a Vulkan game for 30 minutes each; `active_cu_number` 36, or 60 on a Pro; on a Pro, FSR4 INT8 through OptiScaler, with and without `RADV_VIOLA_ML=0` |
 | Memory | `vram.txt` 6 GB in the log (`VRAM: 6144M`); a browser and a game together without OOM |
 | Fan | Idle, game, sleep and shutdown without ramps or cycling; `pwm1_enable` 3 after boot; PS5 Hardware Control curve, full speed and Thermal Guard apply, and the mode survives sleep; the PS5 OS fan behaves as before after a Linux session |
 | Input | DualSense pairs once and reconnects after switching between the PS5 OS and Linux; sleep and wake |
@@ -53,6 +53,10 @@ With a DualSense paired in the PS5 system and the loader of the release:
 - Original PS5 and Pro with the Linux-only address on (default): the import is skipped, `ps5-bt-sync.json` is gone from the boot partition, existing Linux pairings work.
 - After `ps5-bt-address off` and a restart: as on the Slim.
 
+What the loader dumps reaches Linux through the initrd (`loader/patches/0005`): `ps5-report` lists it under Wi-Fi as
+"from the loader via the initrd (/run/ps5)", the Wi-Fi firmware and, until it is imported, `ps5-bt-sync.json`. A PS5 Pro
+shows 60 compute units on the first start after installing or updating.
+
 ## Starting without a USB drive (in progress)
 
 The loader also looks for its files in `/data/PS5/Linux/` on the console's own storage, after the USB drives
@@ -73,3 +77,7 @@ Test 2, `/boot` on the M.2 as well:
 4. Unplug the USB drive and start with the test loader. Report how far it gets, `/data/linuxdebug/loader.log`, and
    from the next start with the USB drive `journalctl -b -1 -p warning --no-pager | head -80`.
 5. The `/data` copies go stale with the next update; with the USB drive plugged in, updates and starts work as before.
+
+From v2.13 the loader also hands Linux the Wi-Fi firmware, the pairing export and the PS5 Pro GPU firmware in the initrd,
+so a start from `/data/PS5/Linux/` gets them without the boot partition: check Wi-Fi, a DualSense paired in the PS5
+system, and on a Pro `active_cu_number 60`.

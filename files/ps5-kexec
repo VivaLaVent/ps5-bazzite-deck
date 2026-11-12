@@ -18,6 +18,32 @@ def boot_dir():
         return d, True
     return None, False
 
+GPU_FW = ("ce", "me", "mec", "mec2", "pfp", "rlc", "sdma", "sdma1")
+
+def with_pro_firmware(ifd):
+    # The loader appends the PS5 Pro GPU firmware to the initrd it starts, and ps5-dumps keeps a copy in /run/ps5. A warm
+    # reboot starts the boot partition's initrd without the loader: append the same newc archive, in memory.
+    files = [f"/run/ps5/lib/firmware/amdgpu/viola_{b}.bin" for b in GPU_FW]
+    if not all(os.path.isfile(f) for f in files):
+        return ifd
+    def entry(ino, name, mode, data=b""):
+        n = name.encode() + b"\0"
+        head = b"070701" + b"".join(b"%08X" % v for v in (ino, mode, 0, 0, 2 if mode & 0o40000 else 1, 0, len(data),
+                                                           0, 0, 0, 0, len(n), 0)) + n
+        return head + b"\0" * (-len(head) % 4) + data + b"\0" * (-len(data) % 4)
+    dirs = ("usr", "usr/lib", "usr/lib/firmware", "usr/lib/firmware/amdgpu")
+    archive = b"".join(entry(i + 1, d, 0o40755) for i, d in enumerate(dirs))
+    for i, f in enumerate(files):
+        archive += entry(len(dirs) + i + 1, "usr/lib/firmware/amdgpu/" + os.path.basename(f), 0o100644, open(f, "rb").read())
+    archive += entry(0, "TRAILER!!!", 0)
+    with os.fdopen(os.dup(ifd), "rb") as f:
+        base = f.read()
+    os.close(ifd)
+    out = os.memfd_create("initrd")
+    os.write(out, base + b"\0" * (-len(base) % 4) + archive)
+    os.lseek(out, 0, os.SEEK_SET)
+    return out
+
 def load():
     if os.path.exists("/run/ps5-reboot-to-ps5"):
         print("reboot to the PS5 system requested: not loading a kernel")
@@ -35,7 +61,7 @@ def load():
     try:
         cmdline = open(f"{d}/cmdline.txt").read().strip().encode() + b"\0"
         kfd = os.open(f"{d}/bzImage", os.O_RDONLY)
-        ifd = os.open(f"{d}/initrd.img", os.O_RDONLY)
+        ifd = with_pro_firmware(os.open(f"{d}/initrd.img", os.O_RDONLY))
         r = libc.syscall(SYS_kexec_file_load, ctypes.c_int(kfd), ctypes.c_int(ifd),
                          ctypes.c_ulong(len(cmdline)), ctypes.c_char_p(cmdline), ctypes.c_ulong(0))
         if r != 0:

@@ -41,8 +41,6 @@ ps5-report.sh /usr/local/bin/ps5-report 755
 ps5-m2-install.sh /usr/local/bin/ps5-m2-install 755
 ps5-perf /usr/local/sbin/ps5-perf 755
 ps5-perf.service /etc/systemd/system/ps5-perf.service
-ps5-stage-viola-fw /usr/local/sbin/ps5-stage-viola-fw 755
-ps5-stage-viola-fw.service /etc/systemd/system/ps5-stage-viola-fw.service
 ps5-console-defaults /usr/local/sbin/ps5-console-defaults 755
 ps5-console-defaults.service /etc/systemd/system/ps5-console-defaults.service
 ps5-session-defaults /usr/local/sbin/ps5-session-defaults 755
