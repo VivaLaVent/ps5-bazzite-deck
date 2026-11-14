@@ -1,0 +1,42 @@
+PS5: scan a frame out of system memory when VRAM has no room for it
+
+amdgpu pins every frame it shows as one contiguous block of VRAM, unless the buffer was created write-combined, which a
+game's swapchain is not. On a PS5 the VRAM is a fixed carve-out (vram.txt): a game that fills it leaves no room for the
+next frame, the pin fails ("Failed to pin framebuffer: -ENOMEM"), gamescope aborts and the session falls back to the
+desktop. Seen with Predecessor and Expedition 33, most often with 4 GB of VRAM (issues #63 and #64).
+
+The PS5's GPU is an APU with S/G display on, so the display can read a frame from system memory. When the VRAM pin
+fails with -ENOMEM, pin the frame in GTT instead. amdgpu_bo_pin() narrows a VRAM|GTT request to the buffer's preferred
+VRAM, so the retry asks for GTT alone. Only for CHIP_CYAN_SKILLFISH, never for the cursor, and only with S/G display
+on: amdgpu.sg_display=0 turns it off. Logged once.
+
+Compiled; not run on a PS5. It needs system memory to be available: when RAM and swap are exhausted as well, the pin
+still fails.
+---
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_plane.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_plane.c
+index a2b8f7033..7062a5127 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_plane.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_plane.c
+@@ -1243,6 +1243,22 @@ static int amdgpu_dm_plane_helper_prepare_fb(struct drm_plane *plane,
+ 
+ 	rbo->flags |= AMDGPU_GEM_CREATE_VRAM_CONTIGUOUS;
+ 	r = amdgpu_bo_pin(rbo, domain);
++	/*
++	 * PS5: a frame has to be one contiguous block of VRAM, and a game that
++	 * fills the VRAM carve-out leaves none, which ends the compositor. The
++	 * display can scan out of system memory here (S/G display), so pin the
++	 * frame there instead. amdgpu_bo_pin() narrows a VRAM|GTT request to
++	 * the buffer's preferred VRAM, so ask for GTT alone. amdgpu.sg_display=0
++	 * turns this off with S/G display.
++	 */
++	if (r == -ENOMEM && plane->type != DRM_PLANE_TYPE_CURSOR &&
++	    adev->asic_type == CHIP_CYAN_SKILLFISH &&
++	    adev->mode_info.gpu_vm_support) {
++		r = amdgpu_bo_pin(rbo, AMDGPU_GEM_DOMAIN_GTT);
++		if (!r)
++			drm_info_once(adev_to_drm(adev),
++				      "no room in VRAM for a frame, scanning out of system memory\n");
++	}
+ 	if (unlikely(r != 0)) {
+ 		if (r != -ERESTARTSYS)
+ 			DRM_ERROR("Failed to pin framebuffer: %pe\n", ERR_PTR(r));
