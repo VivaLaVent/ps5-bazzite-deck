@@ -2,7 +2,7 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
-## [v2.14.1] – 2026-11-<DD>
+## [v2.14.1] – 2026-11-15
 > Pre-release. A test fix for games dropping from Game Mode to the desktop when VRAM is full; DirectMesh on every base PS5.
 - **A frame scans out of system memory when VRAM has no room for it** (`patches/ps5-scanout-fallback.patch`). amdgpu pins every frame it shows as one contiguous block of VRAM unless the buffer was created write-combined, which a game's swapchain isn't. With the PS5's fixed VRAM carve-out, a game that fills it leaves no room for the next frame: `Failed to pin framebuffer: -ENOMEM`, gamescope aborts, and the session falls back to the desktop (Predecessor, Expedition 33; most often at 4 GB VRAM; issues #63 and #64). The GPU is an APU with S/G display on, so on `-ENOMEM` the frame is now pinned in GTT, asked for alone because `amdgpu_bo_pin()` narrows a VRAM|GTT request to the buffer's preferred VRAM. Cyan Skillfish only, not for the cursor, off with `amdgpu.sg_display=0`, logged once. Compiled, and the patch applies to the official ps5-linux-patches tree as well; not run on a PS5. When RAM and swap are exhausted too, the pin still fails
 - **DirectMesh on consoles whose GPU reports `1002:13db`:** `ps5-directmesh` and `bootc/mesa/directmesh/0001` accepted only `13fb`, so on those PS5s and Slims the launcher fell back to the system driver and DirectMesh's own detection stayed off (issue #62, rdmrocha; DirectMesh works there when forced). Both ids now, as `patches/ps5-gpu.patch` already does; the Pro's ids stay out
