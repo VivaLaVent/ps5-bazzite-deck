@@ -102,7 +102,14 @@ if [ "${1-}" = --boot ]; then
     exit 0
 fi
 
-[ -b "$NVME" ] || { echo "STOP: $NVME not found. Prepare the M.2 with m2_init from ps5-linux-tools first."; exit 1; }
+[ -b "$NVME" ] || { cat << EOF
+STOP: $NVME not found: the M.2 needs its Linux partition first. Build and run m2_init once:
+  git clone https://github.com/ps5-linux/ps5-linux-tools ~/ps5-linux-tools && make -C ~/ps5-linux-tools m2_init
+  sudo ~/ps5-linux-tools/m2_init
+Not its install.sh: that adds a second fan and CPU control beside PS5 Bazzite Deck's own.
+More: https://wiki.ps5-linux.eu/installation/m2-install
+EOF
+exit 1; }
 [ "$(readlink -f "$ROOTDEV")" != "$(readlink -f "$NVME")" ] || { echo "STOP: the system already runs from $NVME"; exit 1; }
 ! findmnt -rno TARGET -S "$NVME" >/dev/null || { echo "STOP: $NVME is mounted ($(findmnt -rno TARGET -S "$NVME" | head -1)); unmount it first"; exit 1; }
 used=$(df -B1 --output=used "$ROOTMP" | tail -1)

@@ -2,6 +2,11 @@
 
 All notable changes to the images. Exact upstream versions are in each release's `VERSIONS.md`.
 
+## [Unreleased]
+- **DirectMesh on consoles whose GPU reports `1002:13db`:** `ps5-directmesh` and `bootc/mesa/directmesh/0001` accepted only `13fb`, so on those PS5s and Slims the launcher fell back to the system driver and DirectMesh's own detection stayed off (issue #62, rdmrocha; DirectMesh works there when forced). Both ids now, as `patches/ps5-gpu.patch` already does; the Pro's ids stay out
+- **`ps5-m2-install` says how to prepare the M.2** when it has no Linux partition: the commands to build and run `m2_init`, and not to run `ps5-linux-tools`' `install.sh`, which adds a second fan and CPU control
+- `/usr/lib/modprobe.d/ps5.conf` said "power saving off" for `ps_mode=0`, which is the IW620 firmware's default and has power saving on; the comment now says so and why (`ps_mode=2` put the driver into reset loops under load). The value is unchanged
+
 ## [v2.14] – 2026-11-13
 > Pre-release. Mesh shaders per game on the original PS5 and Slim (DirectMesh, experimental); Legacy installs no longer supported, with a converter to bootc; the kernel source from our mirror of rmux's removed repository.
 - **rmux's `ps5-linux-patches-1` was removed from GitHub** (the `rmuxnet` account is gone). `build.sh` clones his branch from our mirror, [VivaLaVent/ps5-linux-patches-rmux](https://github.com/VivaLaVent/ps5-linux-patches-rmux), made from a copy taken before the removal: `shitshow` up to the pinned `8de2aff32314`, 127 commits. Git names a commit by a hash of its whole content, so the pinned commit is the same tree v2.13 was built from; `linux.patch` and `.config` compared byte for byte, and the patch applies to 7.3.3 with `build.sh`'s own steps. `tools/audit-upstream.sh` reads the mirror (nothing newer to find); `tools/upstream-pr.sh` needs `--repo` now. Our pull requests #8 to #10 there are lost with it. The X.Y rebase for this release: the loader's `main` is still at the pin; rmux's branch can't move any more
