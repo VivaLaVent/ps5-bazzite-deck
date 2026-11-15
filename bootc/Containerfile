@@ -6,8 +6,14 @@ FROM ${BASE_IMAGE}:${BASE_TAG} AS radv
 COPY bootc/mesa/ /mesa/
 RUN --mount=type=tmpfs,dst=/tmp bash /mesa/build-radv.sh /out
 
+FROM ${BASE_IMAGE}:${BASE_TAG} AS kmods
+COPY bootc/kmods/ /kmods/
+COPY bootc/kernel/ /kernel/
+RUN --mount=type=tmpfs,dst=/tmp bash /kmods/build-kmods.sh /out
+
 FROM scratch AS ctx
 COPY --from=radv /out/ /radv/
+COPY --from=kmods /out/ /kmods/
 COPY bootc/build_files/ /build_files/
 COPY bootc/kernel/ /kernel/
 COPY bootc/system_files/ /system_files/

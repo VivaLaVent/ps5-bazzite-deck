@@ -24,18 +24,41 @@ mv "/boot/System.map-$KVER" "/usr/lib/modules/$KVER/System.map"
 for f in /var/usrlocal/sbin/ps5-*; do
     [ -e "$f" ] && mv "$f" /usr/bin/
 done
-# older RPMs don't ship ps5-stage-gpu-firmware
-for u in ps5-stage-firmware ps5-bt-quiet ps5-stage-gpu-firmware; do
-    [ -f "/etc/systemd/system/$u.service" ] && sed -i 's#/usr/local/sbin/#/usr/bin/#g' "/etc/systemd/system/$u.service"
-done
+sed -i 's#/usr/local/sbin/#/usr/bin/#g' /etc/systemd/system/ps5-stage-firmware.service /etc/systemd/system/ps5-bt-quiet.service
 # the loader's dumps come in the initrd as /run/ps5 (ps5-dumps), laid out like the boot partition: looked at first
 sed -i 's#for d in /efi /boot/efi /boot; do#for d in /run/ps5 /efi /boot/efi /boot; do#' /usr/bin/ps5-stage-firmware
 grep -q 'for d in /run/ps5 /efi' /usr/bin/ps5-stage-firmware || { echo "ps5-stage-firmware: /run/ps5 not added"; exit 1; }
+# IW620: the driver's own regulatory defaults (ignore the AP's country, no beacon hints), not the kernel package's
+# country following, which can leave a network on a channel outside the world domain unlisted
+sed -i '/^# Follow the AP country/d; /^options moal country_ie_ignore=0 beacon_hints=0$/d' /etc/modprobe.d/moal.conf
+! grep -qE 'country_ie_ignore|beacon_hints' /etc/modprobe.d/moal.conf || { echo "moal.conf: country options still set"; exit 1; }
 # writes to /usr/lib/firmware, read-only here; the loader appends the PS5 Pro GPU firmware to the initrd
-rm -f /etc/systemd/system/multi-user.target.wants/ps5-stage-gpu-firmware.service
+rm -f /etc/systemd/system/ps5-stage-gpu-firmware.service /etc/systemd/system/multi-user.target.wants/ps5-stage-gpu-firmware.service \
+      /usr/bin/ps5-stage-gpu-firmware
 # an RPM built from patches that carry upstream's pairing importer enables it as is; ps5-bt-import gates it here
 rm -f /etc/systemd/system/bluetooth.service.wants/ps5-bt-sync.service
 
+# out-of-tree modules built for this kernel (bootc/kmods/modules.list): Bazzite's own went with its kernel.
+# Their udev rules and options come with Bazzite's packages, which are not kmod-*; xpadneo, not in Bazzite, brings its own.
+for d in "$CTX"/kmods/*/; do
+    [ -d "$d" ] || continue
+    install -Dm644 -t "/usr/lib/modules/$KVER/extra/$(basename "$d")" "$d"*.ko
+done
+if [ -d "$CTX/kmods/xpadneo" ]; then
+    install -Dm644 -t /usr/lib/udev/rules.d "$CTX"/kmods/xpadneo/*.rules
+    install -Dm644 -t /usr/lib/modprobe.d "$CTX"/kmods/xpadneo/*.conf
+fi
+# Bazzite blacklists the kernel's hid_logitech for new-lg4ff: keep the two together, or Logitech wheels have no driver
+if [ -d "$CTX/kmods/new-lg4ff" ]; then
+    grep -qsx 'blacklist hid_logitech' /usr/lib/modprobe.d/new-lg4ff.conf || echo 'blacklist hid_logitech' > /usr/lib/modprobe.d/new-lg4ff.conf
+else
+    rm -f /usr/lib/modprobe.d/new-lg4ff.conf
+fi
+if [ -d "$CTX/kmods/xone" ]; then
+    # the adapter's firmware comes from Microsoft; Bazzite's xone packages bring it when they do
+    ls /usr/lib/firmware/xone_dongle* /usr/lib/firmware/xow_dongle* 2>/dev/null ||
+        echo "::warning::no Xbox Wireless Adapter firmware (xone_dongle_*.bin) in the base image: the adapter needs it in /etc/firmware"
+fi
 depmod -a "$KVER"
 
 # --- firmware: amdgpu writes into the Oberon buffer, read-only when loaded from .xz; unxz skips links
@@ -61,10 +84,12 @@ for d in lib64 lib; do
         { echo "/usr/$d/libvulkan_radeon.so doesn't load against this image"; exit 1; }
 done
 # --- DirectMesh (bootc/mesa): a second RADV with Mesh shaders, only for games started with ps5-directmesh
-install -Dm755 "$CTX/radv/directmesh/libvulkan_radeon.so" /usr/lib64/directmesh/libvulkan_radeon.so
-install -Dm644 "$CTX/radv/directmesh/radeon_icd.x86_64.json" /usr/share/directmesh/icd.d/radeon_icd.x86_64.json
-! ldd -r /usr/lib64/directmesh/libvulkan_radeon.so 2>&1 | grep -E "not found|undefined symbol" ||
-    { echo "the DirectMesh driver doesn't load against this image"; exit 1; }
+if [ -f "$CTX/radv/directmesh/libvulkan_radeon.so" ]; then
+    install -Dm755 "$CTX/radv/directmesh/libvulkan_radeon.so" /usr/lib64/directmesh/libvulkan_radeon.so
+    install -Dm644 "$CTX/radv/directmesh/radeon_icd.x86_64.json" /usr/share/directmesh/icd.d/radeon_icd.x86_64.json
+    ! ldd -r /usr/lib64/directmesh/libvulkan_radeon.so 2>&1 | grep -E "not found|undefined symbol" ||
+        { echo "the DirectMesh driver doesn't load against this image"; exit 1; }
+fi
 
 if [ ! -e /usr/sbin/kexec ]; then
     install -Dm755 "$CTX/deck/files/kexec-shim" /usr/bin/kexec
@@ -77,15 +102,12 @@ cp -a "$CTX/system_files/." /
 # --- services
 systemctl enable \
     boot-efi.mount ps5-bootc-sync.service ps5-grow-root.service \
-    ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
+    ps5-bt-connectable.service \
     ps5-bt-revive.service ps5-bt-import.service ps5-perf.service ps5-console-defaults.service \
     ps5-wifi-repair.service ps5-wifi-powersave.timer \
     ps5-bootc-channel.service ps5-session-defaults.service \
     sshd.service
 systemctl --global enable ps5-user-defaults.service
-mkdir -p /etc/systemd/system/bluetooth.target.wants
-ln -sf /etc/systemd/system/ps5-bt-addr.service /etc/systemd/system/bluetooth.target.wants/
-ln -sf /etc/systemd/system/ps5-bt-connectable.service /etc/systemd/system/bluetooth.target.wants/
 for n in 2 3 4 5 6; do systemctl enable "getty@tty$n.service"; done
 
 # Plasma's wizard would take over the autologin; Bazzite's hardware setup sets x86 kargs
@@ -125,7 +147,8 @@ kernel=$KVER
 deck=$DECK
 loader=$LOADER
 radv=$(cat "$CTX/radv/VERSION")
-directmesh=$(cat "$CTX/radv/directmesh/VERSION")
+directmesh=$(cat "$CTX/radv/directmesh/VERSION" 2>/dev/null || echo none)
+kmods=$(sed -z 's/\n/, /g; s/, $//' "$CTX/kmods/VERSION" 2>/dev/null || echo none)
 EOF
 echo "$IMAGE_VERSION (bootc, ps5-bazzite-deck $DECK)" > /etc/ps5-bazzite-deck-version   # for ps5-report
 

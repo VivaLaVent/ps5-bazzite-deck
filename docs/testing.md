@@ -49,9 +49,8 @@ Report per switch: console, HDMI chip, TV model, and "no difference" or what bro
 ## PS5 pairings in Linux
 
 With a DualSense paired in the PS5 system and the loader of the release:
-- Slim (Linux-only address off by default): the controller connects in Linux without pairing, and in the PS5 system afterwards; `journalctl -b -u ps5-bt-import` reports the pairings.
-- Original PS5 and Pro with the Linux-only address on (default): the import is skipped, `ps5-bt-sync.json` is gone from the boot partition, existing Linux pairings work.
-- After `ps5-bt-address off` and a restart: as on the Slim.
+- Every console: the controller connects in Linux without pairing, and in the PS5 system afterwards; `journalctl -b -u ps5-bt-import` reports the pairings.
+- An original PS5 or Pro that used the Linux-only address before v2.16: after the update, the controller connects with its PS5 profile; the Linux profile is no longer used.
 
 DirectMesh (original PS5 and Slim): a D3D12 game that needs Mesh shaders, with `ps5-directmesh %command%` as its Steam
 launch option; `ps5-directmesh vulkaninfo | grep -i mesh_shader` lists `VK_EXT_mesh_shader`, and without the launch option

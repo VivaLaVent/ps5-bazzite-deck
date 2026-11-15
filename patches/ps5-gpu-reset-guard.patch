@@ -1,0 +1,32 @@
+PS5: keep the full GPU reset off by default
+
+From the official ps5-linux-patches, b33e7c5 (#81), "ps5: keep the full gpu reset off by default":
+
+  the recovery check returns early on gpus without ras, so the existing cyan skillfish exclusion is never reached on
+  ps5. check the ps5 default before that return. per queue recovery stays on, and a failed queue reset no longer falls
+  through to the full reset, which does not work on ps5. explicit gpu_recovery=1 and other gpus are unchanged.
+
+  tested with gpu hangs on a ps5: queue resets cleared every hang without a full reset and kept the desktop, a failed
+  queue reset stopped recovery instead of escalating, and the next ring reset recovered the gpu
+
+Seen here on a PS5 Pro (BeamNG.drive through vkd3d, 15 November): "Ring gfx_0.0.0 reset failed", then "MODE1 reset",
+"ring kiq_0.2.1.0 test failed (-110)", "GPU Recovery Failed: -110", and the display stopped (pageflip timeouts) until a
+restart. The same five lines, which apply to rmux's tree unchanged; amdgpu_device.o compiles.
+---
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+index 52ab4c8d7..c149165a0 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_device.c
+@@ -4933,6 +4933,12 @@ bool amdgpu_device_should_recover_gpu(struct amdgpu_device *adev)
+ 	if (amdgpu_gpu_recovery == 0)
+ 		goto disabled;
+ 
++#ifdef CONFIG_X86_PS5
++	/* No PSP/SMU reset on PS5; only per-queue reset works. */
++	if (amdgpu_gpu_recovery == -1 && adev->asic_type == CHIP_CYAN_SKILLFISH)
++		goto disabled;
++#endif
++
+ 	/* Skip soft reset check in fatal error mode */
+ 	if (!amdgpu_ras_is_poison_mode_supported(adev))
+ 		return true;

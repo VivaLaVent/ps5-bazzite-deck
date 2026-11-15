@@ -46,18 +46,20 @@ mkdir -p work
 git clone -q -b "$PATCHES_BRANCH" https://github.com/VivaLaVent/ps5-linux-patches-rmux work/ps5-linux-patches
 git -C work/ps5-linux-patches checkout -q 8de2aff
 for p in "$PATCHES"/mwifiex/*.patch; do [ ! -e "$p" ] || cp "$p" work/ps5-linux-patches/; done
-sed -i 's/^CONFIG_LOCALVERSION=.*/CONFIG_LOCALVERSION="-viva"/' work/ps5-linux-patches/.config
-sed -i 's/^# CONFIG_SUSPEND is not set/CONFIG_SUSPEND=y/' work/ps5-linux-patches/.config
-sed -i 's/^CONFIG_LSM=.*/CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"/' work/ps5-linux-patches/.config
-sed -i 's/^# CONFIG_DEBUG_INFO_BTF is not set/CONFIG_DEBUG_INFO_BTF=y/' work/ps5-linux-patches/.config
-sed -i 's/^CONFIG_USB_AUTOSUSPEND_DELAY=.*/CONFIG_USB_AUTOSUSPEND_DELAY=-1/' work/ps5-linux-patches/.config
-sed -i 's/^CONFIG_LOG_BUF_SHIFT=.*/CONFIG_LOG_BUF_SHIFT=20/' work/ps5-linux-patches/.config
-grep -q '^CONFIG_DEBUG_INFO_BTF=y' work/ps5-linux-patches/.config || echo 'CONFIG_DEBUG_INFO_BTF=y' >> work/ps5-linux-patches/.config
-sed -i 's/^# CONFIG_MODULE_ALLOW_BTF_MISMATCH is not set/CONFIG_MODULE_ALLOW_BTF_MISMATCH=y/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' work/ps5-linux-patches/.config || echo 'CONFIG_MODULE_ALLOW_BTF_MISMATCH=y' >> work/ps5-linux-patches/.config
-sed -i 's/^# CONFIG_MT7921E is not set/CONFIG_MT7921E=m/' work/ps5-linux-patches/.config; grep -q '^CONFIG_MT7921E=m' work/ps5-linux-patches/.config || echo 'CONFIG_MT7921E=m' >> work/ps5-linux-patches/.config
-sed -i 's/^CONFIG_PS5_GPUFREQ=.*/# CONFIG_PS5_GPUFREQ is not set/' work/ps5-linux-patches/.config   # rmux's GPU clock driver: replaced by upstream's governor (drivers/ps5/gpufreq.c)
-sed -i 's/^# CONFIG_NF_CONNTRACK_NETBIOS_NS is not set/CONFIG_NF_CONNTRACK_NETBIOS_NS=m/' work/ps5-linux-patches/.config   # firewalld's samba-client service
-for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do sed -i "s/^# CONFIG_$o is not set/CONFIG_$o=y/" work/ps5-linux-patches/.config; done   # wheel force feedback, as rmux's meower (36b9828)
+# rmux's config with ours on top, every option set or added the same way (the builder's olddefconfig does the rest)
+C=work/ps5-linux-patches/.config
+cfg() { local o=${1%%=*}; o=${o#\# }; o=${o% is not set}; sed -i "/^$o=/d; /^# $o is not set$/d" "$C"; echo "$1" >> "$C"; }
+cfg 'CONFIG_LOCALVERSION="-viva"'
+cfg CONFIG_SUSPEND=y
+cfg 'CONFIG_LSM="landlock,lockdown,yama,integrity,apparmor,bpf"'
+cfg CONFIG_DEBUG_INFO_BTF=y
+cfg CONFIG_USB_AUTOSUSPEND_DELAY=-1
+cfg CONFIG_LOG_BUF_SHIFT=20
+cfg CONFIG_MODULE_ALLOW_BTF_MISMATCH=y
+cfg CONFIG_MT7921E=m
+cfg '# CONFIG_PS5_GPUFREQ is not set'   # rmux's GPU clock driver: replaced by upstream's governor (drivers/ps5/gpufreq.c)
+cfg CONFIG_NF_CONNTRACK_NETBIOS_NS=m    # firewalld's samba-client service
+for o in LOGITECH_FF LOGIRUMBLEPAD2_FF LOGIG940_FF LOGIWHEELS_FF; do cfg "CONFIG_$o=y"; done   # wheel force feedback
 git clone -q --branch "$KERNEL_TAG" --depth 1 https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git work/linux73
 git -C work/linux73 apply --exclude=Makefile ../ps5-linux-patches/linux.patch
 grep -o '^[^# ]*\.patch' "$PATCHES/series" > work/series

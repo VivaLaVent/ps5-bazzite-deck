@@ -1,0 +1,31 @@
+From fc8eef5c0a150a083613a10a5dcd88c8fbf11f53 Mon Sep 17 00:00:00 2001
+From: Gilles <62951130+VivaLaVent@users.noreply.github.com>
+Date: Sun, 15 Nov 2026 14:12:48 +0000
+Subject: [PATCH] Add the PS5 Pro GPU firmware offset for 13.00
+
+From the official ps5-linux-loader, badfe48 (#104), whose description reads: the table was
+found in the running 13.00 kernel of a retail PS5 Pro and checked against the loader's
+header checks, the per-blob feature versions and the PFP patch bytes at 0x18b8 (13.00 has
+the same viola ucode as 13.20). Tested on a retail PS5 Pro, firmware 13.00: all 8 blobs
+dumped, amdgpu reports "PS5 Pro: using Viola firmware" with 60 CUs.
+
+The rest of that commit (13.00 in the Pro hypervisor adjustment) is already in this tree.
+---
+ source/offsets.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/source/offsets.c b/source/offsets.c
+index 2fd6ac6..1533207 100644
+--- a/source/offsets.c
++++ b/source/offsets.c
+@@ -1795,6 +1795,7 @@ offset_list off_1300 = {
+     .FUN_MP3_INVOKE = 0xA0A6C0,
+     .PS5_WIFI_FW_OFFSET = 0x15050D0,
+     .PS5_WIFI_FW_SIZE = 0x7A248,
++    .PS5_PRO_GPU_FW_OFFSET = 0x1A8F048,
+     .HV_MP_STARTUP_CALL = 0xC0A110,
+     .MP_STARTUP_INIT_VECTOR = 0x269238,
+     .DATA_CAVE = 0x2D29000,
+-- 
+2.43.0
+

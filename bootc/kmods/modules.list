@@ -1,0 +1,12 @@
+# Out-of-tree modules for games and streaming, built for our kernel by build-kmods.sh. Bazzite builds these for
+# its own kernel, and they go with it; xpadneo is the one Bazzite doesn't ship.
+# name        repo                          tag      commit                                    dir              modules installed (others it builds stay out)
+xone          dlundqvist/xone               v0.5.8   f2aa9fe01103d7600553b505b298ff0bd47ff280  .                xone_dongle xone_gip xone_gip_chatpad xone_gip_gamepad xone_gip_headset xone_gip_madcatz_glam xone_gip_madcatz_strat xone_gip_pdp_jaguar
+xpadneo       atar-axis/xpadneo             v0.10.5  e8f103a77f777c2c54536dd947969cf228699c13  hid-xpadneo/src  hid-xpadneo
+new-lg4ff     berarma/new-lg4ff             v0.5.0   2092db19f7b40854e0427a1b2e39eda9f8d0c3cd  .                hid-logitech-new
+hid-tmff2     Kimplul/hid-tmff2             0.83     f004195a73be722f6384ecae7d98161481151dff  .                hid-tmff-new
+t150          scarburato/t150_driver        1.0      f7ecb30c65ee5f7870e921bc0a2354df8e1e8100  hid-t150         hid-t150
+hid-fanatecff gotzl/hid-fanatecff           0.2.3    dd78ef477c0dc90d59291a0197afcea26911fca8  .                hid-fanatec
+gcadapter-oc  hannesmann/gcadapter-oc-kmod  v1.4     b15caee7b39d31402fb768de448e42848c4cd220  .                gcadapter_oc
+v4l2loopback  v4l2loopback/v4l2loopback     v0.15.4  0f9ee86760b7f2bea174b7e3e7a1d38845da0ab4  .                v4l2loopback
+openrazer     openrazer/openrazer           v3.12.4  1ef8a91712906a89fd332a2ed62bbd105315d6d1  driver           razerkbd razermouse razerkraken razeraccessory

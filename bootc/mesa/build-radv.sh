@@ -83,18 +83,23 @@ echo "$MESA_VERSION+$(cat "$M"/patches/*.patch | sha256sum | cut -c1-12)" > "$OU
 # ps5-directmesh. It changes how every GFX1013 draw is submitted, so it does not replace the system driver.
 # Bazzite's three patches apply to it; 0004 is for the Pro, and DirectMesh opens the compute queue itself (0005).
 # 64-bit only: 32-bit programs keep the system driver.
-git clone -q --depth 1 --branch "$DIRECTMESH_TAG" "https://github.com/$DIRECTMESH_REPO" "$W/dm"
-[ "$(git -C "$W/dm" rev-parse HEAD)" = "$DIRECTMESH_COMMIT" ] || { echo "$DIRECTMESH_TAG is not $DIRECTMESH_COMMIT"; exit 1; }
-for p in "$M"/patches/0001-*.patch "$M"/patches/0002-*.patch "$M"/patches/0003-*.patch "$M"/directmesh/*.patch; do
-    patch -d "$W/dm" -p1 -s --no-backup-if-mismatch < "$p"
-done
-meson setup "$W/dm64" "$W/dm" "${opts[@]}"
-ninja -C "$W/dm64" src/amd/vulkan/libvulkan_radeon.so src/amd/vulkan/radeon_icd.x86_64.json
-mkdir -p "$OUT/directmesh"
-install -m755 -s "$W/dm64/src/amd/vulkan/libvulkan_radeon.so" "$OUT/directmesh/"
-sed 's#"library_path": *"[^"]*"#"library_path": "/usr/lib64/directmesh/libvulkan_radeon.so"#' \
-    "$W/dm64/src/amd/vulkan/radeon_icd.x86_64.json" > "$OUT/directmesh/radeon_icd.x86_64.json"
-grep -q '"library_path": "/usr/lib64/directmesh/libvulkan_radeon.so"' "$OUT/directmesh/radeon_icd.x86_64.json" ||
-    { echo "DirectMesh ICD manifest: library_path not set"; exit 1; }
-echo "$DIRECTMESH_TAG+$(cat "$M"/directmesh/*.patch | sha256sum | cut -c1-12)" > "$OUT/directmesh/VERSION"
+# Optional: when its source is gone or its tag no longer names the pinned commit, the image is built without it
+# (ps5-directmesh then falls back to the system driver). A build failure of a source we have still stops the image.
+if git clone -q --depth 1 --branch "$DIRECTMESH_TAG" "https://github.com/$DIRECTMESH_REPO" "$W/dm" &&
+   [ "$(git -C "$W/dm" rev-parse HEAD)" = "$DIRECTMESH_COMMIT" ]; then
+    for p in "$M"/patches/0001-*.patch "$M"/patches/0002-*.patch "$M"/patches/0003-*.patch "$M"/directmesh/*.patch; do
+        patch -d "$W/dm" -p1 -s --no-backup-if-mismatch < "$p"
+    done
+    meson setup "$W/dm64" "$W/dm" "${opts[@]}"
+    ninja -C "$W/dm64" src/amd/vulkan/libvulkan_radeon.so src/amd/vulkan/radeon_icd.x86_64.json
+    mkdir -p "$OUT/directmesh"
+    install -m755 -s "$W/dm64/src/amd/vulkan/libvulkan_radeon.so" "$OUT/directmesh/"
+    sed 's#"library_path": *"[^"]*"#"library_path": "/usr/lib64/directmesh/libvulkan_radeon.so"#' \
+        "$W/dm64/src/amd/vulkan/radeon_icd.x86_64.json" > "$OUT/directmesh/radeon_icd.x86_64.json"
+    grep -q '"library_path": "/usr/lib64/directmesh/libvulkan_radeon.so"' "$OUT/directmesh/radeon_icd.x86_64.json" ||
+        { echo "DirectMesh ICD manifest: library_path not set"; exit 1; }
+    echo "$DIRECTMESH_TAG+$(cat "$M"/directmesh/*.patch | sha256sum | cut -c1-12)" > "$OUT/directmesh/VERSION"
+else
+    echo "::warning::DirectMesh $DIRECTMESH_TAG ($DIRECTMESH_COMMIT) not available from $DIRECTMESH_REPO: image without it"
+fi
 rm -rf "$W"

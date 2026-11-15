@@ -3179,7 +3179,7 @@ index a2b12d65a..000000000
 -	return !rate || (rate <= 4 && permitted & BIT(rate));
 -}
 diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
-index 4ade01ba6..f05944d20 100755
+index 4ade01ba6..1c489231a 100755
 --- a/drivers/ps5/hdmi.c
 +++ b/drivers/ps5/hdmi.c
 @@ -3,51 +3,31 @@
@@ -4904,26 +4904,26 @@ index 4ade01ba6..f05944d20 100755
 -bool isHdmiFrlTiming(const struct drm_display_mode *mode)
 -{
 -	struct ps5_hdmi_frl_config config;
-+/* when the bridge was last set up for a mode (any path); see REARM_QUIET_MS */
-+static ktime_t last_video_setup;
- 
+-
 -	return frl_mode_config(mode, 10, &config);
 -}
 -EXPORT_SYMBOL(isHdmiFrlTiming);
 -
 -bool isHdmiModeFrl(const struct drm_display_mode *mode)
-+void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422)
- {
+-{
 -	struct ps5_hdmi_frl_config config;
 -
 -	return getHdmiFrlConfig(mode, 10, &config);
 -}
 -EXPORT_SYMBOL(isHdmiModeFrl);
--
++/* when the bridge was last set up for a mode (any path); see REARM_QUIET_MS */
++static ktime_t last_video_setup;
+ 
 -#include "frl-plan.inc"
 -
 -const char *ps5_hdmi_plan_reason(enum ps5_hdmi_plan_status status)
--{
++void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422)
+ {
 -	static const char * const reasons[] = {
 -		[PS5_HDMI_PLAN_OK] = "accepted",
 -		[PS5_HDMI_PLAN_BACKEND] = "FRL disabled or unsupported converter/wiring",
@@ -5018,7 +5018,7 @@ index 4ade01ba6..f05944d20 100755
  }
  EXPORT_SYMBOL(sceHdmiDeviceSetVideoMute);
  
-@@ -1980,223 +1884,212 @@ u32 getHdmiDpAudioN(u32 default_n)
+@@ -1980,223 +1884,230 @@ u32 getHdmiDpAudioN(u32 default_n)
  }
  EXPORT_SYMBOL(getHdmiDpAudioN);
  
@@ -5068,27 +5068,57 @@ index 4ade01ba6..f05944d20 100755
  }
 -EXPORT_SYMBOL(isHdmiModeStock);
 +EXPORT_SYMBOL(isHdmiModeValid);
- 
--/* Include 4:2:2 capability from every CTA block. */
--bool isHdmiSink422(const struct drm_display_info *info)
--{
--	return info->color_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) ||
--	       READ_ONCE(sink_cta_422);
--}
--EXPORT_SYMBOL(isHdmiSink422);
++
 +/*
 + * The bridge's own modes in standard timings (1080p, 1440p at 60/100/120 Hz, 2160p60), offered
-+ * within the sink's limits even when its EDID doesn't list them; 1080p60 preferred for a first start.
++ * within the sink's limits even when its EDID doesn't list them. Preferred: the sink's own preferred
++ * resolution at 60 Hz in one of the bridge's setups (1080p, 1440p, 2160p) within its TMDS limit, else
++ * 1080p60; never a manual or FRL timing. amdgpu.force_1080p=1 leaves only 1080p60 if a display stays dark.
 + */
 +static const struct drm_display_mode ps5_1440p60 = {
 +	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 241500,
 +		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1481, 0,
 +		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
 +};
++
++static const struct drm_display_mode ps5_1440p100 = {
++	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 410500,
++		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1510, 0,
++		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
++};
++
++/* for displays whose own 1440p100 stays below 410.5 MHz (150 kHz line rate limit) */
++static const struct drm_display_mode ps5_1440p100_short = {
++	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 403920,
++		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1485, 0,
++		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
++};
++
++static const struct drm_display_mode ps5_1440p120 = {
++	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 497750,
++		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1525, 0,
++		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
++};
+ 
+-/* Include 4:2:2 capability from every CTA block. */
+-bool isHdmiSink422(const struct drm_display_info *info)
++static bool ps5_has_mode(struct drm_connector *connector, const struct drm_display_mode *want)
+ {
+-	return info->color_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422) ||
+-	       READ_ONCE(sink_cta_422);
++	struct drm_display_mode *m;
++
++	list_for_each_entry(m, &connector->probed_modes, head)
++		if (drm_mode_match(m, want, DRM_MODE_MATCH_TIMINGS | DRM_MODE_MATCH_CLOCK))
++			return true;
++	return false;
+ }
+-EXPORT_SYMBOL(isHdmiSink422);
  
 -static bool frl_config_allowed(const struct ps5_hdmi_frl_config *config,
 -			       const struct drm_display_info *info)
--{
++static int ps5_add_mode(struct drm_connector *connector, struct drm_display_mode *mode)
+ {
 -	struct frl_inputs in = {
 -		.lanes = info->hdmi.max_lanes,
 -		.rate_per_lane = info->hdmi.max_frl_rate_per_lane,
@@ -5146,11 +5176,45 @@ index 4ade01ba6..f05944d20 100755
 -		.rate_per_lane = info->hdmi.max_frl_rate_per_lane,
 -		.min_rate = 4,
 -	};
-+static const struct drm_display_mode ps5_1440p100 = {
-+	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 410500,
-+		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1510, 0,
-+		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
-+};
++	if (!mode)
++		return 0;
++	if (ps5_has_mode(connector, mode)) {
++		drm_mode_destroy(connector->dev, mode);
++		return 0;
++	}
++	mode->type = DRM_MODE_TYPE_DRIVER;
++	drm_mode_probed_add(connector, mode);
++	return 1;
++}
++
++int ps5_hdmi_add_modes(struct drm_connector *connector)
++{
++	struct drm_device *dev = connector->dev;
++	const struct drm_display_info *info = &connector->display_info;
++	int tmds = info->max_tmds_clock ? info->max_tmds_clock : 340000;
++	int max_hz = info->monitor_range.max_vfreq;
++	bool has_1440 = false, has_2160 = false;
++	int edid_1440p100 = 0, pref_w = 0, pref_h = 0;
++	struct drm_display_mode *m, *pick = NULL;
++	int added = 0;
++
++	if (list_empty(&connector->probed_modes))
++		return 0;	/* no EDID */
++
++	list_for_each_entry(m, &connector->probed_modes, head) {
++		max_hz = max(max_hz, drm_mode_vrefresh(m));
++		if (m->vdisplay >= 1440 && m->hdisplay >= 2560)
++			has_1440 = true;
++		if (m->hdisplay == 2560 && m->vdisplay == 1440 && drm_mode_vrefresh(m) == 100)
++			edid_1440p100 = m->clock;
++		if (m->vdisplay >= 2160 && m->hdisplay >= 3840)
++			has_2160 = true;
++		if ((m->type & DRM_MODE_TYPE_PREFERRED) && !pref_w) {
++			pref_w = m->hdisplay;
++			pref_h = m->vdisplay;
++		}
++		m->type &= ~DRM_MODE_TYPE_PREFERRED;
++	}
  
 -	if (!caps.enabled)
 -		return PS5_HDMI_PLAN_BACKEND;
@@ -5165,7 +5229,23 @@ index 4ade01ba6..f05944d20 100755
 -	if (edid_crc != frl_edid_crc) {
 -		mutex_unlock(&frl_state_lock);
 -		return PS5_HDMI_PLAN_STALE;
--	}
++	added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 16));
++	if (max_hz >= 119 && tmds >= 297000)
++		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 63));
++	if (has_2160 && tmds >= 594000)
++		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 97));
++	if (has_1440 && tmds >= 241500)
++		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p60));
++	if (has_1440 && max_hz >= 119 && tmds >= 497750)
++		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p120));
++	if (max_hz >= 100) {
++		if (tmds >= 297000)
++			added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 64));
++		if (has_1440 && edid_1440p100 && edid_1440p100 < 410500)
++			added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p100_short));
++		else if (has_1440 && tmds >= 410500)
++			added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p100));
+ 	}
 -	caps.generation = frl_sink_generation;
 -	if (READ_ONCE(frl_recovery))
 -		caps.failed_candidates = frl_failure_mask(&frl_failures, mode,
@@ -5192,7 +5272,14 @@ index 4ade01ba6..f05944d20 100755
 -	if (!frl_edid_valid) {
 -		mutex_unlock(&frl_state_lock);
 -		return PS5_HDMI_PLAN_SINK;
--	}
++
++	list_for_each_entry(m, &connector->probed_modes, head) {
++		if (m->hdisplay == pref_w && m->vdisplay == pref_h && drm_mode_vrefresh(m) == 60 &&
++		    m->clock <= tmds && hdmi_mode_is_preset(m) && isHdmiModeValid(m, 0)) {
++			pick = m;
++			break;
++		}
+ 	}
 -	mutex_unlock(&frl_state_lock);
 -	if (policy_reason != FRL_OK)
 -		caps.converter_rate = 0;
@@ -5202,7 +5289,14 @@ index 4ade01ba6..f05944d20 100755
 -
 -		if (in.lanes >= lanes[rate] && in.rate_per_lane >= gbps[rate])
 -			caps.sink_rate = rate;
--	}
++	if (!pick) {
++		list_for_each_entry(m, &connector->probed_modes, head) {
++			if (drm_match_cea_mode(m) == 16) {
++				pick = m;
++				break;
++			}
++		}
+ 	}
 -	status = frl_select_plan(mode, &caps, max_bpc, metadata, bt2020, &candidate);
 -	if (status != PS5_HDMI_PLAN_OK)
 -		return status;
@@ -5214,14 +5308,15 @@ index 4ade01ba6..f05944d20 100755
 -		return PS5_HDMI_PLAN_STALE;
 -	*plan = candidate;
 -	return PS5_HDMI_PLAN_OK;
--}
++	if (pick)
++		pick->type |= DRM_MODE_TYPE_PREFERRED;
++	pr_info("modes: standard set added %d (max %d Hz, TMDS %d MHz, 1440p %d, 2160p %d), %dx%d@60 preferred (sink prefers %dx%d)\n",
++		added, max_hz, tmds / 1000, has_1440, has_2160, pick ? pick->hdisplay : 0,
++		pick ? pick->vdisplay : 0, pref_w, pref_h);
++	return added;
+ }
 -EXPORT_SYMBOL(ps5_hdmi_select_plan_filtered);
-+/* for displays whose own 1440p100 stays below 410.5 MHz (150 kHz line rate limit) */
-+static const struct drm_display_mode ps5_1440p100_short = {
-+	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 403920,
-+		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1485, 0,
-+		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
-+};
++EXPORT_SYMBOL(ps5_hdmi_add_modes);
  
 -enum ps5_hdmi_plan_status
 -ps5_hdmi_select_plan(const struct drm_display_mode *mode,
@@ -5235,106 +5330,6 @@ index 4ade01ba6..f05944d20 100755
 -					     y420_allowed, 0, plan);
 -}
 -EXPORT_SYMBOL(ps5_hdmi_select_plan);
-+static const struct drm_display_mode ps5_1440p120 = {
-+	DRM_MODE("2560x1440", DRM_MODE_TYPE_DRIVER, 497750,
-+		 2560, 2608, 2640, 2720, 0, 1440, 1443, 1448, 1525, 0,
-+		 DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC)
-+};
- 
--int getHdmiExtendedModes(void)
-+static bool ps5_has_mode(struct drm_connector *connector, const struct drm_display_mode *want)
- {
--	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 ? extended_modes : 0;
-+	struct drm_display_mode *m;
-+
-+	list_for_each_entry(m, &connector->probed_modes, head)
-+		if (drm_mode_match(m, want, DRM_MODE_MATCH_TIMINGS | DRM_MODE_MATCH_CLOCK))
-+			return true;
-+	return false;
- }
--EXPORT_SYMBOL(getHdmiExtendedModes);
- 
--bool isHdmiModeValid(const struct drm_display_mode *mode,
--		     const struct drm_display_info *info, int force_1080p)
-+static int ps5_add_mode(struct drm_connector *connector, struct drm_display_mode *mode)
- {
--	struct ps5_hdmi_frl_config config;
--	struct ps5_hdmi_plan plan;
-+	if (!mode)
-+		return 0;
-+	if (ps5_has_mode(connector, mode)) {
-+		drm_mode_destroy(connector->dev, mode);
-+		return 0;
-+	}
-+	mode->type = DRM_MODE_TYPE_DRIVER;
-+	drm_mode_probed_add(connector, mode);
-+	return 1;
-+}
-+
-+int ps5_hdmi_add_modes(struct drm_connector *connector)
-+{
-+	struct drm_device *dev = connector->dev;
-+	const struct drm_display_info *info = &connector->display_info;
-+	int tmds = info->max_tmds_clock ? info->max_tmds_clock : 340000;
-+	int max_hz = info->monitor_range.max_vfreq;
-+	bool has_1440 = false, has_2160 = false;
-+	int edid_1440p100 = 0;
-+	struct drm_display_mode *m;
-+	int added = 0;
-+
-+	if (list_empty(&connector->probed_modes))
-+		return 0;	/* no EDID */
-+
-+	list_for_each_entry(m, &connector->probed_modes, head) {
-+		max_hz = max(max_hz, drm_mode_vrefresh(m));
-+		if (m->vdisplay >= 1440 && m->hdisplay >= 2560)
-+			has_1440 = true;
-+		if (m->hdisplay == 2560 && m->vdisplay == 1440 && drm_mode_vrefresh(m) == 100)
-+			edid_1440p100 = m->clock;
-+		if (m->vdisplay >= 2160 && m->hdisplay >= 3840)
-+			has_2160 = true;
-+		m->type &= ~DRM_MODE_TYPE_PREFERRED;
-+	}
- 
--	if (force_1080p)
--		return drm_match_cea_mode(mode) == 16; /* 1080p60 */
-+	added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 16));
-+	if (max_hz >= 119 && tmds >= 297000)
-+		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 63));
-+	if (has_2160 && tmds >= 594000)
-+		added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 97));
-+	if (has_1440 && tmds >= 241500)
-+		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p60));
-+	if (has_1440 && max_hz >= 119 && tmds >= 497750)
-+		added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p120));
-+	if (max_hz >= 100) {
-+		if (tmds >= 297000)
-+			added += ps5_add_mode(connector, drm_display_mode_from_cea_vic(dev, 64));
-+		if (has_1440 && edid_1440p100 && edid_1440p100 < 410500)
-+			added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p100_short));
-+		else if (has_1440 && tmds >= 410500)
-+			added += ps5_add_mode(connector, drm_mode_duplicate(dev, &ps5_1440p100));
-+	}
- 
--	/* Native 4:2:0 needs FRL, VERDE keeps the stock check. */
--	if (drm_mode_is_420_only(info, mode) && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
--		return ps5_hdmi_select_plan(mode, info, 10, NULL, false, 25920000,
--				    READ_ONCE(frl_edid_crc), PS5_HDMI_RGB, false, true,
--				    &plan) == PS5_HDMI_PLAN_OK;
-+	list_for_each_entry(m, &connector->probed_modes, head) {
-+		if (drm_match_cea_mode(m) == 16) {
-+			m->type |= DRM_MODE_TYPE_PREFERRED;
-+			break;
-+		}
-+	}
-+	pr_info("modes: standard set added %d (max %d Hz, TMDS %d MHz, 1440p %d, 2160p %d), 1080p60 preferred\n",
-+		added, max_hz, tmds / 1000, has_1440, has_2160);
-+	return added;
-+}
-+EXPORT_SYMBOL(ps5_hdmi_add_modes);
- 
--	if (isHdmiModeStock(mode))
--		return true;
 +/*
 + * FLAVA3 places 1440p as if the syncs were the standard +hsync -vsync; the other polarity shifts the
 + * picture by the pulse width (-hsync 32 px left, +vsync 5 lines up). Safety net for sink and desktop modes.
@@ -5346,25 +5341,56 @@ index 4ade01ba6..f05944d20 100755
 +#define PS5_FLAVA3_1440P_HBP	80
 +#define PS5_FLAVA3_1440P_VBP	33
  
+-int getHdmiExtendedModes(void)
++static bool ps5_set_sync(int disp, int total, int bp, int width, u16 *start, u16 *end)
+ {
+-	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 ? extended_modes : 0;
++	int new_end = total - bp;
++	int new_start = new_end - width;
++
++	if (width <= 0 || new_start <= disp ||
++	    (new_start == *start && new_end == *end))
++		return false;
++	*start = new_start;
++	*end = new_end;
++	return true;
+ }
+-EXPORT_SYMBOL(getHdmiExtendedModes);
+ 
+-bool isHdmiModeValid(const struct drm_display_mode *mode,
+-		     const struct drm_display_info *info, int force_1080p)
++void ps5_hdmi_fixup_timing(struct drm_display_mode *m)
+ {
+-	struct ps5_hdmi_frl_config config;
+-	struct ps5_hdmi_plan plan;
+-
+-	if (force_1080p)
+-		return drm_match_cea_mode(mode) == 16; /* 1080p60 */
++	static u16 last_hs, last_vs;
++	static u32 last_flags;
++	bool h, v, pol = false;
+ 
+-	/* Native 4:2:0 needs FRL, VERDE keeps the stock check. */
+-	if (drm_mode_is_420_only(info, mode) && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
+-		return ps5_hdmi_select_plan(mode, info, 10, NULL, false, 25920000,
+-				    READ_ONCE(frl_edid_crc), PS5_HDMI_RGB, false, true,
+-				    &plan) == PS5_HDMI_PLAN_OK;
+-
+-	if (isHdmiModeStock(mode))
+-		return true;
+-
 -	/* The plan supplies the required FRL rate for this converter timing. */
 -	if (getHdmiFrlConfig(mode, 10, &config))
 -		return (READ_ONCE(frl_yuv420) || frl_config_allowed(&config, info)) &&
 -		       ps5_hdmi_select_plan(mode, info, 10, NULL, false, 25920000,
 -					    READ_ONCE(frl_edid_crc), PS5_HDMI_RGB, false, true,
 -					    &plan) == PS5_HDMI_PLAN_OK;
-+static bool ps5_set_sync(int disp, int total, int bp, int width, u16 *start, u16 *end)
-+{
-+	int new_end = total - bp;
-+	int new_start = new_end - width;
- 
+-
 -	if (!getHdmiExtendedModes())
-+	if (width <= 0 || new_start <= disp ||
-+	    (new_start == *start && new_end == *end))
- 		return false;
-+	*start = new_start;
-+	*end = new_end;
-+	return true;
-+}
+-		return false;
++	if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3 ||
++	    m->hdisplay != 2560 || m->vdisplay != 1440)
++		return;
  
 -	/* Use the stock 1440p setup up to 297 MHz. */
 -	if (mode->hdisplay == 2560 && mode->vdisplay == 1440 &&
@@ -5373,22 +5399,6 @@ index 4ade01ba6..f05944d20 100755
 -			return false;
 -	} else if (!isManualMode(mode)) {
 -		return false;
--	}
-+void ps5_hdmi_fixup_timing(struct drm_display_mode *m)
-+{
-+	static u16 last_hs, last_vs;
-+	static u32 last_flags;
-+	bool h, v, pol = false;
- 
--	/* Default to 165 MHz when the EDID has no HDMI VSDB. */
--	if (mode->clock > (info->max_tmds_clock ?: 165000))
--		return false;
-+	if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3 ||
-+	    m->hdisplay != 2560 || m->vdisplay != 1440)
-+		return;
- 
--	return mode->clock <= 340000 ||
--	       (info->hdmi.scdc.supported && info->hdmi.scdc.scrambling.supported);
 +	h = v = false;
 +	if (m->clock <= 340000) {
 +		h = ps5_set_sync(m->hdisplay, m->htotal, PS5_FLAVA3_1440P_HBP,
@@ -5417,14 +5427,21 @@ index 4ade01ba6..f05944d20 100755
 +		pr_info("FLAVA3 1440p: standard syncs (hsync %d-%d +, vsync %d-%d %c)\n",
 +			m->hsync_start, m->hsync_end, m->vsync_start, m->vsync_end,
 +			(m->flags & DRM_MODE_FLAG_PVSYNC) ? '+' : '-');
-+	}
+ 	}
+-
+-	/* Default to 165 MHz when the EDID has no HDMI VSDB. */
+-	if (mode->clock > (info->max_tmds_clock ?: 165000))
+-		return false;
+-
+-	return mode->clock <= 340000 ||
+-	       (info->hdmi.scdc.supported && info->hdmi.scdc.scrambling.supported);
  }
 -EXPORT_SYMBOL(isHdmiModeValid);
 +EXPORT_SYMBOL(ps5_hdmi_fixup_timing);
  
  bool isHdmiHdrSupported(void)
  {
-@@ -2204,12 +2097,6 @@ bool isHdmiHdrSupported(void)
+@@ -2204,12 +2115,6 @@ bool isHdmiHdrSupported(void)
  }
  EXPORT_SYMBOL(isHdmiHdrSupported);
  
@@ -5437,7 +5454,7 @@ index 4ade01ba6..f05944d20 100755
  static DEFINE_MUTEX(hdmi_edid_lock);
  static const struct drm_edid *real_edid;
  static struct drm_connector *hdmi_connector;
-@@ -2232,13 +2119,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
+@@ -2232,13 +2137,18 @@ EXPORT_SYMBOL_GPL(ps5_hdmi_clear_connector);
  const struct drm_edid *ps5_hdmi_get_edid(struct drm_connector *connector)
  {
  	guard(mutex)(&hdmi_edid_lock);
@@ -5459,7 +5476,7 @@ index 4ade01ba6..f05944d20 100755
  
  static void fix_edid(u8 *edid)
  {
-@@ -2252,6 +2144,36 @@ static void fix_edid(u8 *edid)
+@@ -2252,6 +2162,36 @@ static void fix_edid(u8 *edid)
  	edid[0x7f] = -sum & 0xff;
  }
  
@@ -5496,7 +5513,7 @@ index 4ade01ba6..f05944d20 100755
  static DEFINE_MUTEX(hotplug_lock);
  static void (*hotplug_handler)(void *data);
  static void *hotplug_data;
-@@ -2265,15 +2187,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
+@@ -2265,15 +2205,7 @@ void hdmi_set_hotplug_handler(void (*handler)(void *data), void *data)
  }
  EXPORT_SYMBOL(hdmi_set_hotplug_handler);
  
@@ -5513,7 +5530,7 @@ index 4ade01ba6..f05944d20 100755
  static DEFINE_MUTEX(cec_lock);
  static void (*cec_handler)(void *data, const struct icc_msg *msg);
  static void *cec_data;
-@@ -2288,129 +2202,252 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
+@@ -2288,129 +2220,252 @@ void hdmi_set_cec_handler(void (*handler)(void *data, const struct icc_msg *msg)
  }
  EXPORT_SYMBOL(hdmi_set_cec_handler);
  
