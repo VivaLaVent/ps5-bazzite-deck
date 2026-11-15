@@ -5,7 +5,7 @@ SRC=$(cd "$(dirname "$0")/../.." && pwd)/tools/legacy-to-bootc.sh
 T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
 fail=0; check() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1"; echo "     got:  $2"; echo "     want: $3"; fail=1; fi; }
 # the three functions, without running the script
-sed -n '/^carry_accounts() {$/,/^}$/p; /^append_kargs() {$/,/^}$/p; /^write_firstboot() {$/,/^}$/p' "$SRC" > "$T/fn.sh"
+sed -n '/^carry_accounts() {$/,/^}$/p; /^append_kargs() {$/,/^}$/p; /^write_firstboot() {$/,/^}$/p; /^restore_legacy() {$/,/^}$/p' "$SRC" > "$T/fn.sh"
 # shellcheck disable=SC1091
 . "$T/fn.sh"
 
@@ -49,4 +49,9 @@ check "an existing home in the bootc system is never overwritten" "$(ls "$V/home
 S2=$T/sys2; mkdir -p "$S2/home/ps5" "$S2/ostree/deploy/default/var"; echo a > "$S2/home/ps5/a"
 PS5_SYSROOT=$S2 sh "$N/etc/ps5-legacy-migrate" >/dev/null
 check "a Legacy system with a real /home folder: moved too" "$(cat "$S2/ostree/deploy/default/var/home/ps5/a")" a
+B=$T/esp; mkdir -p "$B/legacy-backup"; echo k > "$B/legacy-backup/bzImage"; echo i > "$B/initrd.img"; echo new > "$B/cmdline.txt"; echo old > "$B/legacy-backup/cmdline.txt"
+restore_legacy "$B"
+check "stopped between the two moves: kernel back, initrd untouched, cmdline.txt the Legacy one" "$(cat "$B/bzImage" "$B/initrd.img" "$B/cmdline.txt" | tr '\n' ' ')" "k i old "
+restore_legacy "$B"
+check "restoring twice changes nothing" "$(cat "$B/bzImage" "$B/initrd.img" | tr '\n' ' ')$(ls "$B/legacy-backup" | tr '\n' ' ')" "k i cmdline.txt "
 exit $fail

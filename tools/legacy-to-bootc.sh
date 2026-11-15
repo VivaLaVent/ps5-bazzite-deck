@@ -76,6 +76,14 @@ for f in glob.glob(f"{entries}/*.conf"):
 PY
 }
 
+# the Legacy kernel and initrd back from legacy-backup/, whatever stopped the switch
+restore_legacy() {
+    for f in bzImage initrd.img; do
+        if [ -f "$1/legacy-backup/$f" ]; then mv -f "$1/legacy-backup/$f" "$1/$f"; fi
+    done
+    if [ -f "$1/legacy-backup/cmdline.txt" ]; then cp "$1/legacy-backup/cmdline.txt" "$1/cmdline.txt"; fi
+}
+
 # moves by rename inside /sysroot (one filesystem), before anything else writes to the new /var
 write_firstboot() {
     install -Dm755 /dev/stdin "$1/etc/ps5-legacy-migrate" << 'SH'
@@ -121,6 +129,8 @@ check|--apply)
     [ -e /run/ostree-booted ] && stop "this is already a bootc install (update with: sudo bootc upgrade)"
     grep -qs '^ID=bazzite' /etc/os-release && [ -e /usr/local/sbin/ps5-bt-addr ] || stop "this is not a Legacy PS5 Bazzite Deck install"
     [ -e "$MARK" ] && stop "already converted: power off and start with bazzite-bootc-loader (or: --undo)"
+    # a second deployment of the same image would be <checksum>.1, and the accounts would go into the first
+    [ -e /ostree/repo ] && stop "an earlier attempt left /ostree behind: run --undo first, then --apply again"
     [ "$(findmnt -no FSTYPE /)" = ext4 ] || stop "the system partition is $(findmnt -no FSTYPE /), not ext4: flash the bootc image instead"
     UUID=$(blkid -s UUID -o value "$(findmnt -no SOURCE /)") && [ -n "$UUID" ] || stop "no UUID for the system partition"
     find_esp || stop "boot partition (label 'boot') not found: is the USB drive plugged in?"
@@ -163,16 +173,15 @@ check|--apply)
     echo "==> boot partition: Legacy files to legacy-backup/, then the bootc ones"
     mkdir -p "$EFI/legacy-backup"
     cp "$EFI/cmdline.txt" "$EFI/legacy-backup/"
+    trap 'restore_legacy "$EFI"; sync' EXIT
     for f in bzImage initrd.img; do mv "$EFI/$f" "$EFI/legacy-backup/$f"; done
     rm -f "$EFI/initrd.img.noviola"
-    if ! python3 "$D/usr/bin/ps5-bootc-sync" --boot /boot --esp "$EFI"; then
-        for f in bzImage initrd.img; do mv -f "$EFI/legacy-backup/$f" "$EFI/$f"; done
-        cp "$EFI/legacy-backup/cmdline.txt" "$EFI/cmdline.txt"
+    python3 "$D/usr/bin/ps5-bootc-sync" --boot /boot --esp "$EFI" ||
         stop "writing the boot partition failed: the Legacy files are back in place, this install still starts"
-    fi
     [ -f "$EFI/vram.txt" ] || echo 0x180000000 > "$EFI/vram.txt"
     date -u +"%F $IMAGE" > "$MARK"
     sync
+    trap - EXIT
     cat << EOF
 
 Done. Power off, and start with bazzite-bootc-loader from the Stable release (not an older loader).

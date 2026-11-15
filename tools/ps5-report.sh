@@ -36,8 +36,12 @@ e=open('/sys/class/drm/$CON/edid','rb').read()
 for i in range(54,126,18):
     if e[i:i+3]==b'\0\0\0' and e[i+3]==0xfc: print(e[i+5:i+18].decode('ascii','replace').strip()); break
 " 2>/dev/null)
-MODE=$(sudo grep -m1 'mode: "' /sys/kernel/debug/dri/0/state 2>/dev/null | awk '{print $2, $3 "Hz"}' | tr -d '"')
-VRR=$(sudo grep -m1 'vrr_enabled' /sys/kernel/debug/dri/0/state 2>/dev/null | awk -F= '{print $2}')
+# the CRTC that shows a picture: the first one in the list can be switched off (its mode is "", which read as ": 0Hz")
+CRTC=$(sudo cat /sys/kernel/debug/dri/0/state 2>/dev/null | awk '/^crtc\[/ { if (m != "") exit; v = "" }
+    /mode: "[^"]/ { n = $2; gsub(/"/, "", n); m = n " " $3 "Hz" }
+    /vrr_enabled=/ { split($0, a, "="); v = a[2] }
+    END { print m "|" v }')
+MODE=${CRTC%%|*}; VRR=${CRTC#*|}
 ROOT=$(lsblk -no tran "/dev/$(lsblk -no pkname "$(findmnt -no SOURCE /sysroot 2>/dev/null || findmnt -no SOURCE /)" 2>/dev/null | head -1)" 2>/dev/null | head -1)
 WARM=$(journalctl -b -u ps5-wifi-repair --no-pager -o cat 2>/dev/null | grep -c 'after the warm reboot')
 BTA=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || btmgmt info 2>/dev/null < /dev/null | awk '/addr /{print $2; exit}')
@@ -170,6 +174,24 @@ if [ -e /run/ostree-booted ]; then
   sed 's/^/  /' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null
   journalctl -b -u ps5-bootc-sync -u ps5-grow-root --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
 fi
+
+echo; echo "=== Changed on this console"
+# what is not the image's own: it decides whether a problem is ours to find
+python3 - << 'PYEOF' 2>/dev/null
+import glob, tomllib
+base = {k for f in glob.glob("/usr/lib/bootc/kargs.d/*.toml") for k in tomllib.load(open(f, "rb")).get("kargs", [])}
+own = ("root=", "boot=", "ostree=", "console=", "ps5_gpufreq.temp_limit=")
+extra = [t for t in open("/proc/cmdline").read().split() if t not in base and t != "rw" and not t.startswith(own)]
+print("  kernel options added: " + (" ".join(extra) or "none"))
+PYEOF
+FOREIGN=$(for m in $(cut -d' ' -f1 /proc/modules); do modinfo -n "$m" > /dev/null 2>&1 || printf '%s ' "$m"; done)
+echo "  kernel modules from outside the image: ${FOREIGN:-none}  (taint $(cat /proc/sys/kernel/tainted 2>/dev/null))"
+SVC=$(for u in ps5fan.service ps5boost.service; do [ "$(systemctl is-enabled "$u" 2>/dev/null)" = enabled ] && printf '%s ' "$u"; done)
+echo "  ps5-linux-tools services (a second fan and CPU control): ${SVC:-none}"
+LAYERED=$(rpm-ostree status -b 2>/dev/null | grep -iE 'LayeredPackages|LocalPackages' | sed 's/^ *//' | tr '\n' ' ')
+echo "  packages added with rpm-ostree: ${LAYERED:-none}"
+ETC=$(for f in /etc/modprobe.d/*.conf /etc/NetworkManager/conf.d/*.conf; do [ -f "$f" ] && ! cmp -s "$f" "/usr$f" && printf '%s ' "$f"; done)
+echo "  driver and network settings changed in /etc: ${ETC:-none}"
 
 echo; echo "=== System"
 echo "  cmdline: $(cat /proc/cmdline)"

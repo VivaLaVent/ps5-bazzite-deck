@@ -154,3 +154,4 @@ fi
 sync
 echo "Done. Power off and start with the loader: the system now starts from the M.2."
 echo "Keep the USB drive plugged in. To go back: sudo ps5-m2-install --back"
+echo "Starting without the USB drive needs one more step, sudo ps5-m2-install --boot: https://wiki.ps5-linux.eu/installation/m2-bazzite-deck#usb-free"

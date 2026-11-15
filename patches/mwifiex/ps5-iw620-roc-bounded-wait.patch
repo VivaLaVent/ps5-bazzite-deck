@@ -1,0 +1,42 @@
+IW620: a remain-on-channel request no longer waits for ever on a firmware that stopped answering
+
+Applies to nxp-imx/mwifiex lf-6.18.2_1.0.0 with ps5-linux-mwifiex's patches (build.sh adds it after theirs).
+
+Issue #60 (ziernaht): "Timeout cmd id 802_11_REMAIN_ON_CHANNEL [0x10d]", "IOCTL: command timeout", then wpa_supplicant
+blocked in woal_wait_ioctl_complete <- woal_set_remain_channel_ioctl <- woal_cfg80211_authenticate, and every process
+that touched the network in D state until the console was restarted.
+
+With host MLME the driver sends authentication frames itself and asks the firmware to stay on the channel first. That
+request waited with MOAL_IOCTL_WAIT. For a command that times out, woal_ioctl_complete() prints "IOCTL: command
+timeout" and leaves a MOAL_IOCTL_WAIT caller asleep, expecting a firmware reload to finish the request; the PS5 runs
+with auto_fw_reload=0. cfg80211 holds the wiphy mutex across the call and NetworkManager holds RTNL while it waits for
+that mutex, so all networking hung behind it.
+
+A MOAL_IOCTL_WAIT_TIMEOUT caller is woken on completion whatever the status, and after 20 s at the latest. The request
+stays allocated while it is pending (the existing "ret != MLAN_STATUS_PENDING" in this function) and its wait queue
+lives in that allocation, so a late completion finds valid memory. The caller gets an error and the connection attempt
+fails, where it used to freeze the console. Same approach as ps5-iw620-rtnl-bounded-wait.patch for the station queries.
+
+moal_ioctl.o compiles against the PS5 kernel tree (7.3.3 + series) without warnings. Not run on a console.
+---
+diff --git a/mlinux/moal_ioctl.c b/mlinux/moal_ioctl.c
+index 22be50b..effcc10 100644
+--- a/mlinux/moal_ioctl.c
++++ b/mlinux/moal_ioctl.c
+@@ -5394,6 +5394,16 @@ mlan_status woal_set_remain_channel_ioctl(moal_private *priv, t_u8 wait_option,
+ 	moal_memcpy_ext(priv->phandle, &radio_cfg->param.remain_chan, pchan,
+ 			sizeof(mlan_ds_remain_chan),
+ 			sizeof(mlan_ds_remain_chan));
++	/* cfg80211 gets here with the wiphy mutex held (authenticate sends its
++	 * frames through remain-on-channel), and NetworkManager can hold RTNL
++	 * while it waits for that mutex. When the firmware stops answering,
++	 * the command times out, and woal_ioctl_complete() does not wake a
++	 * MOAL_IOCTL_WAIT caller for a command timeout: wpa_supplicant stayed
++	 * here for good and every network call on the console blocked behind
++	 * it. A MOAL_IOCTL_WAIT_TIMEOUT caller is woken with the error.
++	 */
++	if (wait_option == MOAL_IOCTL_WAIT)
++		wait_option = MOAL_IOCTL_WAIT_TIMEOUT;
+ 	ret = woal_request_ioctl(priv, req, wait_option);
+ 	if (ret == MLAN_STATUS_SUCCESS) {
+ 		moal_memcpy_ext(priv->phandle, pchan,
