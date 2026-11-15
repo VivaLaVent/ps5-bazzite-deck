@@ -136,7 +136,7 @@ nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | grep -v -e '^lo' -e p2p | sed
 W=; for n in /sys/class/net/wl* /sys/class/net/mlan*; do [ -e "$n" ] && W=${n##*/} && break; done
 [ -n "$W" ] && echo "  $W: driver $(basename "$(readlink -f "/sys/class/net/$W/device/driver")" 2>/dev/null), $(iw dev "$W" get power_save 2>/dev/null)"
 echo "  firmware: $(ls /etc/firmware/nxp/ /lib/firmware/nxp/pcieuartiw620_combo_v1.bin 2>/dev/null | tr '\n' ' ')"
-echo "  from the loader via the initrd (/run/ps5): $( [ -d /run/ps5 ] && { find /run/ps5 -type f | sed 's#^/run/ps5/##' | tr '\n' ' '; echo; } || echo 'nothing: loader older than v2.13')"
+echo "  from the loader via the initrd (/run/ps5): $(if [ -d /run/ps5 ]; then sudo find /run/ps5 -type f 2>/dev/null | sed 's#^/run/ps5/##' | tr '\n' ' '; echo; else echo 'nothing: loader older than v2.13'; fi)"
 journalctl -b -u ps5-stage-firmware -u ps5-wifi-repair --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
 k | grep -i -e moal -e mlan -e wlan -e mt79 -e 'firmware' | grep -i -e fail -e error -e timeout -e 'already running' | last 10
 
