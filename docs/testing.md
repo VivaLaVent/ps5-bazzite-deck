@@ -46,6 +46,22 @@ Four parts of the display code that rmux's tree doesn't have, each with a switch
 
 Report per switch: console, HDMI chip, TV model, and "no difference" or what broke.
 
+## VERDE switches
+
+HDR, the RGB range, deep colour, 4K above 60 Hz and VRR on consoles with the VERDE HDMI chip (`ps5-report` names the chip on its first lines), from the official ps5-linux-patches #81. All off by default; with them off VERDE gets exactly what it got before. They go on the kernel command line (`cmdline.txt`); the two marked live can also be changed at runtime with `echo 1 | sudo tee /sys/module/hdmi/parameters/<switch>`, from the next mode set.
+
+| Switch | What it does | Test with it on |
+|---|---|---|
+| `verde_infoframes` (live) | AVI with the stream's format, BT.2020 and RGB range, the HDR InfoFrame, and HDR offered (the EDID keeps its HDR block) | Steam's HDR switch; the TV's signal info says HDR; an HDR game is not washed out; HDR off again |
+| `verde_avi_game` (live, on by default) | IT content and content type game in the AVI, for the TV's game mode | off and on: does the TV's picture mode or colour change |
+| `verde_deep_colour` | HDR never at 8 bpc: 12 bpc YCbCr 4:2:2 over TMDS (1440p120, 2160p60 and below). SDR stays 8 bpc RGB (the display patch holds max bpc at 8) | `dmesg \| grep 'setup:'` with HDR on at 1440p120 and 2160p60 says `12 bpc YCbCr 4:2:2`; the TV says HDR; a gradient without bands |
+| `verde_frl` | 2160p100/120 over HDMI 2.1 FRL in YCbCr 4:2:2: 10 bpc with HDR, 8 bpc in SDR | 2160p120 from Steam's display settings; `dmesg` says `over VERDE FRL (VIC 118, format 2, 10-bit)` with HDR and "VERDE FRL link up"; picture and sound; a TV that can't do it falls back to 2160p60 |
+| `verde_vrr` | Experimental, do not turn on yet: VRR for TVs with HDMI VRR and a FreeSync range | on an LG C6 the TV drops the picture about 2 s after every VRR setup; over TMDS the screen stays black until Steam's VRR is off. Reports from other TVs: the mode, SDR or HDR, and `dmesg \| grep -E 'VRR\|notify: 0x0[13]'` (the notify lines need `dyndbg="file drivers/ps5/hdmi.c +p"` on the command line) |
+
+Report per switch: console, TV model and its HDMI input, the mode, what the TV's signal info shows, and `ps5-report`'s SUMMARY line.
+
+Game Mode follows the resolution and refresh rate chosen in Steam's display settings. A `-W`, `-H` or `-r` in `GAMESCOPECMD` (`~/.config/environment.d/`) overrides that choice, so 2160p120 can't be picked with one there.
+
 ## PS5 pairings in Linux
 
 With a DualSense paired in the PS5 system and the loader of the release:
