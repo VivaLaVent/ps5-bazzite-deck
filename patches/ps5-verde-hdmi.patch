@@ -37,8 +37,8 @@ Seen here on a PS5 Slim CFI-2115 (VERDE, system software 13.60) with an LG C6, k
 this patch (bzImage and amdgpu.ko swapped; Module.symvers: 0 CRCs changed), switches on the command line,
 16 November (dmesg lines from drivers/ps5/hdmi.c):
 - 1440p120 HDR: "setup: 2560x1440@120 497750 kHz vic 0, 12 bpc YCbCr 4:2:2"; the TV reports HDR.
-- 2160p60 HDR: "setup: 3840x2160@60 594000 kHz vic 97, 12 bpc YCbCr 4:2:2"; games at 60 fps. Before, 4K never
-  came up on this console.
+- 2160p60 HDR: "setup: 3840x2160@60 594000 kHz vic 97, 12 bpc YCbCr 4:2:2"; games at 60 fps. 2160p60 itself
+  needs none of the switches (Game Mode had been pinned to 1440p120 on this console).
 - 2160p120 HDR: "setup: 3840x2160@120 1188000 kHz vic 118, 10 bpc YCbCr 4:2:2", "over VERDE FRL (VIC 118,
   format 2, 10-bit)", "VERDE FRL link up (bridge notification 0x03)"; the TV's game bar shows 3840x2160, 120 Hz
   and HDR; Dusklight and Forza Horizon 2 played at 2160p120. Both 2160p rates chosen from Steam's display
