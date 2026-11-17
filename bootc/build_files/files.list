@@ -5,6 +5,10 @@
 50-ps5-pro-bt-power.rules /etc/udev/rules.d/50-ps5-pro-bt-power.rules
 btusb-ps5.conf /etc/modprobe.d/btusb-ps5.conf
 ps5-stage-firmware-no-default-deps.conf /etc/systemd/system/ps5-stage-firmware.service.d/10-no-default-deps.conf
+ps5-bt-addr /usr/local/sbin/ps5-bt-addr 755
+ps5-bt-addr.service /etc/systemd/system/ps5-bt-addr.service
+ps5-bt-pro-addr /usr/local/sbin/ps5-bt-pro-addr 755
+ps5-bt-pro-addr.service /etc/systemd/system/ps5-bt-pro-addr.service
 ps5-bt-connectable.service /etc/systemd/system/ps5-bt-connectable.service
 bluetooth-ps5-connectable.conf /etc/systemd/system/bluetooth.service.d/10-ps5-connectable.conf
 99-ps5-bt-services.rules /etc/udev/rules.d/99-ps5-bt-services.rules
@@ -13,6 +17,7 @@ ps5-bt-revive.service /etc/systemd/system/ps5-bt-revive.service
 ps5-hidp.conf /etc/modules-load.d/ps5-hidp.conf
 99-ps5-usb-power.rules /etc/udev/rules.d/99-ps5-usb-power.rules
 ps5-warm-reboot /usr/local/sbin/ps5-warm-reboot 755
+ps5-bt-address /usr/local/sbin/ps5-bt-address 755
 ps5-bt-sync /usr/local/sbin/ps5-bt-sync 755
 ps5-bt-import /usr/local/sbin/ps5-bt-import 755
 ps5-bt-import.service /etc/systemd/system/ps5-bt-import.service

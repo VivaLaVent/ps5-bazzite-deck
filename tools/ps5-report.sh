@@ -45,7 +45,10 @@ MODE=${CRTC%%|*}; VRR=${CRTC#*|}
 ROOT=$(lsblk -no tran "/dev/$(lsblk -no pkname "$(findmnt -no SOURCE /sysroot 2>/dev/null || findmnt -no SOURCE /)" 2>/dev/null | head -1)" 2>/dev/null | head -1)
 WARM=$(journalctl -b -u ps5-wifi-repair --no-pager -o cat 2>/dev/null | grep -c 'after the warm reboot')
 BTA=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || btmgmt info 2>/dev/null < /dev/null | awk '/addr /{print $2; exit}')
-BT=${BTA:-no adapter}
+if [ -z "$BTA" ]; then BT="no adapter"
+elif [ -e /etc/ps5-bazzite-deck/bt-address-off ] || { [ ! -e /etc/ps5-bazzite-deck/bt-address-on ] && lsusb 2>/dev/null | grep -q 0e8d:3603; }; then BT="$BTA (Linux-only address off)"
+elif [ $(( 0x${BTA%%:*} & 2 )) -ne 0 ]; then BT="$BTA (Linux-only address applied)"
+else BT="$BTA (Linux-only address NOT applied)"; fi
 WIFI=$(nmcli -t -f TYPE,STATE device 2>/dev/null | grep -m1 '^wifi' | cut -d: -f2)
 VUSE=$(k | grep -o -m1 'VRAM: [0-9]*M' | grep -o '[0-9]*')
 VTXT=$(for d in /efi /boot/efi; do [ -f "$d/vram.txt" ] && { tr -d '[:space:]' < "$d/vram.txt"; break; }; done)
@@ -125,7 +128,7 @@ echo "SUMMARY: $INSTALL | $MODEL | HDMI ${HDMI:-?} | ${WIRELESS%% (*} | ${DNAME:
 
 echo; echo "=== Bluetooth"
 btmgmt info 2>/dev/null | grep -m2 -e 'addr ' -e 'current settings' | sed 's/^\s*/  /'
-for u in ps5-bt-import ps5-bt-revive; do
+for u in ps5-bt-addr ps5-bt-pro-addr ps5-bt-import ps5-bt-revive; do
   s=$(systemctl is-active "$u" 2>/dev/null); [ "$s" = inactive ] && s=$(systemctl show -p Result --value "$u" 2>/dev/null)
   echo "  $u: $s"; journalctl -b -u "$u" --no-pager -o cat 2>/dev/null | tail -3 | sed 's/^/    /'
 done

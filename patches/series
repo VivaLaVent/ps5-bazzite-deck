@@ -6,4 +6,3 @@ ps5-cpufreq.patch     # schedutil rate limit 10 ms; off on the Pro
 ps5-fan.patch         # the console's firmware fan control at an 80 °C target by default, kernel curve opt-in
 ps5-bluetooth.patch   # Pro, MediaTek (#71) and IW620 (#75) Bluetooth; Salina xHCI kept in D0 (#78)
 ps5-gpu-reset-guard.patch   # official #81: no full GPU reset on PS5 (it fails and takes the display down)
-ps5-scanout-fallback.patch   # test switch amdgpu.ps5_scanout_gtt: a frame from system memory when VRAM has no room

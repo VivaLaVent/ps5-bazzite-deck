@@ -102,7 +102,7 @@ cp -a "$CTX/system_files/." /
 # --- services
 systemctl enable \
     boot-efi.mount ps5-bootc-sync.service ps5-grow-root.service \
-    ps5-bt-connectable.service \
+    ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
     ps5-bt-revive.service ps5-bt-import.service ps5-perf.service ps5-console-defaults.service \
     ps5-wifi-repair.service ps5-wifi-powersave.timer \
     ps5-bootc-channel.service ps5-session-defaults.service \
