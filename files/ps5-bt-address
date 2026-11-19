@@ -4,7 +4,8 @@
 #   ps5-bt-address on | off | status | is-on (exit status only)
 OFF=/etc/ps5-bazzite-deck/bt-address-off
 ON=/etc/ps5-bazzite-deck/bt-address-on
-is_on() { [ ! -e "$OFF" ] && { [ -e "$ON" ] || ! lsusb 2>/dev/null | grep -q 0e8d:3603; }; }
+# on by default only on the PS5 Pro, where the pairing imported from the PS5 system doesn't connect (#73)
+is_on() { [ ! -e "$OFF" ] && { [ -e "$ON" ] || lsusb 2>/dev/null | grep -q 0e8d:3605; }; }
 case "$1" in
     on)  sudo mkdir -p "${ON%/*}" && sudo rm -f "$OFF" && sudo touch "$ON" && echo "Linux-only Bluetooth address on from the next boot: pair your controllers with Linux once more afterwards"
          lsusb 2>/dev/null | grep -q 1286:2059 && echo "IW620: restarts go through the PS5 system while this is on (no warm reboots)." ;;

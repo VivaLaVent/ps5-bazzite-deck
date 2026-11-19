@@ -1,0 +1,92 @@
+PS5: Salina xHCI: don't kill the controller after a burst of events; quiet poller
+
+From the official ps5-linux-patches, 1472828 (#83), "ps5: fix hangs, panics and error paths":
+
+  the salina xhci handler marked the host dying after 32 events in one pass, so a normal burst stopped every device
+  on 40:00.6 until reboot. stop the pass after one full event ring and leave the rest to the next poll. also return
+  -ENODEV instead of ENODEV from xhci_salina_init, drop a release of a region that was never requested and make the
+  poller lock busy message pr_debug.
+
+The console's own Bluetooth is on this controller, and a DualSense sends input reports all the time: when the poller
+falls behind, a burst of more than 32 events follows and Bluetooth is gone until a restart. The poller's "lock busy,
+rescheduling" was printed at KERN_INFO on every busy lock, which floods the console (seen on screen after gamescope
+aborted on a flip error), and printing to the console slows the poller further.
+
+The same lines as upstream's, in rmux's files (drivers/usb/host/xhci-ps5.c, xhci-ring.c); both compile without
+warnings in the configured tree. Not run on a console here.
+---
+diff --git a/drivers/usb/host/xhci-ps5.c b/drivers/usb/host/xhci-ps5.c
+index 1b95ed25f..e7be5ccf5 100644
+--- a/drivers/usb/host/xhci-ps5.c
++++ b/drivers/usb/host/xhci-ps5.c
+@@ -58,7 +58,6 @@ static int dev_ioremap_bar(struct pci_dev *dev, int bar_nr, resource_size_t min_
+     *bar = ioremap(start, min_size);
+     if (!*bar) {
+         pr_err("Could not ioremap memory\n");
+-        release_mem_region(start, min_size);
+         return -ENOMEM;
+     }
+ 
+@@ -333,7 +332,7 @@ int xhci_salina_init(struct pci_dev *pdev) {
+     salina_xhci.revision = spcie_get_chip_id();
+     if (salina_xhci.revision!=0x110000 && salina_xhci.revision!=0x120000) {
+         dev_warn(&pdev->dev, "PS5 Salina revision unknown %08x\n", salina_xhci.revision);
+-        return ENODEV;
++        return -ENODEV;
+     }
+ 
+     ret = init_bar(pdev);
+@@ -457,7 +456,7 @@ static void salina_xhci_poll_fn(struct work_struct *w)
+         goto resched;
+ 
+     if (!spin_trylock_irqsave(&xhci->lock, flags)) {
+-        printk(KERN_INFO "Salina poller: lock busy, rescheduling\n");
++        pr_debug("Salina poller: lock busy, rescheduling\n");
+         goto resched;
+     }
+ 
+diff --git a/drivers/usb/host/xhci-ring.c b/drivers/usb/host/xhci-ring.c
+index abbef26f4..b8d6a31ca 100644
+--- a/drivers/usb/host/xhci-ring.c
++++ b/drivers/usb/host/xhci-ring.c
+@@ -3097,8 +3097,7 @@ int xhci_handle_events(struct xhci_hcd *xhci, struct xhci_interrupter *ir,
+ 	int event_loop = 0;
+ 	int err = 0;
+ 	u64 temp;
+-	int iters = 0;
+-	const int max_iters = 32;
++	unsigned int iters = 0;
+ 
+ 	xhci_clear_interrupt_pending(ir);
+ 
+@@ -3142,26 +3141,15 @@ int xhci_handle_events(struct xhci_hcd *xhci, struct xhci_interrupter *ir,
+ 		if (err)
+ 			break;
+ 
+-		if (xhci->quirks & XHCI_PS5_SALINA_PHY) {
+-			if (++iters > max_iters) {
+-	            xhci_warn(xhci,
+-	                  "Salina: event ring appears stuck after %d TRBs\n",
+-	                  iters);
+-	            goto salina_stuck;
+-	        }
+-		}
++		/* Salina: leave the rest of a long burst to the next poll. */
++		if ((xhci->quirks & XHCI_PS5_SALINA_PHY) &&
++		    ++iters >= ir->event_ring->num_segs * TRBS_PER_SEGMENT)
++			break;
+ 	}
+ 
+ 	xhci_update_erst_dequeue(xhci, ir, true);
+ 
+ 	return 0;
+-
+-salina_stuck:
+-    /* mark host dying so we don't deadlock future URBs */
+-    xhci->xhc_state |= XHCI_STATE_DYING;
+-
+-    xhci_update_erst_dequeue(xhci, ir, true);
+-    return -EIO;
+ }
+ 
+ /*

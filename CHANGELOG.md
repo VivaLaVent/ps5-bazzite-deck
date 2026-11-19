@@ -2,6 +2,15 @@
 
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
+## [v2.16.2] – 2026-11-19
+Pre-release.
+- Bluetooth: the Linux-only address is the default on the PS5 Pro only; the original PS5 shares the PS5's pairing like the Slim (it works there: Delta, Kurosaki). `ps5-bt-address on|off` still chooses
+- PS5 Pro: CPU boost as an option, `ps5-perf pro-boost on` (the console's own boost on `/dev/mp1`, as `ps5_control --boost`; off by default, it adds heat; at a start it waits for the GPU driver)
+- InputPlumber off by default: with a DualSense over Bluetooth it replayed inputs late in Proton (Sween Wolf). Bazzite Portal switches it back on
+- RADV from Mesa 26.2.7, as Bazzite now ships; `0002-radv-defaults.patch` rebased
+- `ps5-report` no longer hangs while bootc holds its lock (20 s timeout), and shows the Wi-Fi radio switch and rfkill state ("unavailable" is also what a switched-off Wi-Fi shows)
+- Salina xHCI (the console's Bluetooth): a burst of more than 32 events no longer marks the controller dying until a restart; the poller's "lock busy, rescheduling" is `pr_debug` (official #83; `patches/ps5-salina-xhci.patch`)
+
 ## [v2.16.1] – 2026-11-17
 Pre-release.
 - Bluetooth as in v2.15: the original PS5 and the Pro use the Linux-only address again by default; the Slim keeps shared pairing. On a Pro the imported PS5 pairing didn't connect (#73); shared pairing had only been tested on the Slim

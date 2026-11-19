@@ -25,7 +25,8 @@ else
   WIRELESS="MediaTek (Wi-Fi ${WID:-?}, Bluetooth ${BID:-?})"
 fi
 if [ -e /run/ostree-booted ]; then
-  IMGREF=$(sudo bootc status --format=json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"]["booted"]["image"]; print(s["image"]["image"])' 2>/dev/null)
+  # bootc waits for its lock while an update downloads: never longer than this
+  IMGREF=$(sudo timeout 20 bootc status --format=json 2>/dev/null | python3 -c 'import json,sys; s=json.load(sys.stdin)["status"]["booted"]["image"]; print(s["image"]["image"])' 2>/dev/null)
   INSTALL="bootc ${IMGREF:-?} ($(grep -m1 '^version=' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null | cut -d= -f2))"
 else
   INSTALL="legacy $(cat /etc/ps5-bazzite-deck-version 2>/dev/null || echo '(version unknown)'): no longer supported, switch with wiki.ps5-linux.eu/updating/legacy"
@@ -46,7 +47,7 @@ ROOT=$(lsblk -no tran "/dev/$(lsblk -no pkname "$(findmnt -no SOURCE /sysroot 2>
 WARM=$(journalctl -b -u ps5-wifi-repair --no-pager -o cat 2>/dev/null | grep -c 'after the warm reboot')
 BTA=$(cat /sys/class/bluetooth/hci0/address 2>/dev/null || btmgmt info 2>/dev/null < /dev/null | awk '/addr /{print $2; exit}')
 if [ -z "$BTA" ]; then BT="no adapter"
-elif [ -e /etc/ps5-bazzite-deck/bt-address-off ] || { [ ! -e /etc/ps5-bazzite-deck/bt-address-on ] && lsusb 2>/dev/null | grep -q 0e8d:3603; }; then BT="$BTA (Linux-only address off)"
+elif [ -e /etc/ps5-bazzite-deck/bt-address-off ] || { [ ! -e /etc/ps5-bazzite-deck/bt-address-on ] && ! lsusb 2>/dev/null | grep -q 0e8d:3605; }; then BT="$BTA (Linux-only address off)"
 elif [ $(( 0x${BTA%%:*} & 2 )) -ne 0 ]; then BT="$BTA (Linux-only address applied)"
 else BT="$BTA (Linux-only address NOT applied)"; fi
 WIFI=$(nmcli -t -f TYPE,STATE device 2>/dev/null | grep -m1 '^wifi' | cut -d: -f2)
@@ -139,6 +140,8 @@ echo; echo "=== Wi-Fi"
 nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | grep -v -e '^lo' -e p2p | sed 's/^/  /'
 W=; for n in /sys/class/net/wl* /sys/class/net/mlan*; do [ -e "$n" ] && W=${n##*/} && break; done
 [ -n "$W" ] && echo "  $W: driver $(basename "$(readlink -f "/sys/class/net/$W/device/driver")" 2>/dev/null), $(iw dev "$W" get power_save 2>/dev/null)"
+# "unavailable" is also what a switched-off Wi-Fi shows
+echo "  radio: $(nmcli radio wifi 2>/dev/null || echo '?'), rfkill: $(rfkill -rn -o TYPE,SOFT,HARD 2>/dev/null | awk '$1 == "wlan" { printf "soft %s, hard %s", $2, $3; f = 1; exit } END { if (!f) printf "no wlan entry" }')"
 echo "  firmware: $(ls /etc/firmware/nxp/ /lib/firmware/nxp/pcieuartiw620_combo_v1.bin 2>/dev/null | tr '\n' ' ')"
 echo "  from the loader via the initrd (/run/ps5): $(if [ -d /run/ps5 ]; then sudo find /run/ps5 -type f 2>/dev/null | sed 's#^/run/ps5/##' | tr '\n' ' '; echo; else echo 'nothing: loader older than v2.13'; fi)"
 journalctl -b -u ps5-stage-firmware -u ps5-wifi-repair --no-pager -o cat 2>/dev/null | tail -4 | sed 's/^/  /'
@@ -168,7 +171,7 @@ command -v ps5-perf >/dev/null && ps5-perf status | sed 's/^/  /'
 
 if [ -e /run/ostree-booted ]; then
   echo; echo "=== bootc"
-  sudo bootc status 2>/dev/null | sed 's/^/  /' | head -20
+  sudo timeout 20 bootc status 2>/dev/null | sed 's/^/  /' | head -20
   [ "$(systemctl is-enabled greenboot-set-rollback-trigger.service 2>/dev/null)" = masked ] &&
     echo "  greenboot-set-rollback-trigger is masked: updates fail to stage, run the fix in the v2.7 notes"
   sed 's/^/  /' /usr/share/ps5-bazzite-bootc/VERSION 2>/dev/null
@@ -190,7 +193,7 @@ FOREIGN=$(for m in $(cut -d' ' -f1 /proc/modules); do modinfo -n "$m" > /dev/nul
 echo "  kernel modules from outside the image: ${FOREIGN:-none}  (taint $(cat /proc/sys/kernel/tainted 2>/dev/null))"
 SVC=$(for u in ps5fan.service ps5boost.service; do [ "$(systemctl is-enabled "$u" 2>/dev/null)" = enabled ] && printf '%s ' "$u"; done)
 echo "  ps5-linux-tools services (a second fan and CPU control): ${SVC:-none}"
-LAYERED=$(rpm-ostree status -b 2>/dev/null | grep -iE 'LayeredPackages|LocalPackages' | sed 's/^ *//' | tr '\n' ' ')
+LAYERED=$(timeout 20 rpm-ostree status -b 2>/dev/null | grep -iE 'LayeredPackages|LocalPackages' | sed 's/^ *//' | tr '\n' ' ')
 echo "  packages added with rpm-ostree: ${LAYERED:-none}"
 # tuned and Steam's Wi-Fi settings rewrite these two themselves
 ETC=$(for f in /etc/modprobe.d/*.conf /etc/NetworkManager/conf.d/*.conf; do

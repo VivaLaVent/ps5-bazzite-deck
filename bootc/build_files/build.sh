@@ -108,6 +108,9 @@ systemctl enable \
     ps5-bootc-channel.service ps5-session-defaults.service \
     sshd.service
 systemctl --global enable ps5-user-defaults.service
+# InputPlumber is for handhelds' built-in controls; with a DualSense over Bluetooth it replays inputs late in Proton.
+# Off, as Bazzite's Portal offers for desktops (Troubleshoot → InputPlumber switches it back on)
+[ -e /usr/lib/systemd/system/inputplumber.service ] && systemctl disable inputplumber.service
 for n in 2 3 4 5 6; do systemctl enable "getty@tty$n.service"; done
 
 # Plasma's wizard would take over the autologin; Bazzite's hardware setup sets x86 kargs

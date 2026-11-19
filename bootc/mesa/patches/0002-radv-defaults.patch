@@ -10,11 +10,11 @@ gamescope the game could get stuck in low power states.
  1 file changed, 4 insertions(+)
 
 diff --git a/src/amd/vulkan/00-radv-defaults.conf b/src/amd/vulkan/00-radv-defaults.conf
-index 1cbb2e087c9..43488ada6bc 100644
+index 0ea6593..63f1a4e 100644
 --- a/src/amd/vulkan/00-radv-defaults.conf
 +++ b/src/amd/vulkan/00-radv-defaults.conf
-@@ -313,6 +313,10 @@
-             <option name="radv_app_layer" value="no_mans_sky" />
+@@ -321,6 +321,10 @@ Application bugs worked around in this file:
+             <option name="radv_force_exact_glsl_fma" value="true" />
          </application>
  
 +        <application name="Forza Horizon 5" application_name_match="ForzaHorizon5.exe">
@@ -24,5 +24,3 @@ index 1cbb2e087c9..43488ada6bc 100644
          <application name="Crimson Desert" application_name_match="CrimsonDesert.exe">
              <!-- Using 64 byte descriptors lets vkd3d-proton work around
                   descriptor type mismatches.
---
-2.42.0

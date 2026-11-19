@@ -76,8 +76,9 @@ if [ "$id" != "1286:2059" ]; then
     echo "Bluetooth chip $id is not one the Linux-only address works with, nothing to do"
     exit 0
 fi
-# IW620: on by default ("ps5-bt-address off"); the chip hangs on a warm reboot with it, so ps5-kexec reboots normally
-if [ -e /etc/ps5-bazzite-deck/bt-address-off ]; then
+# IW620: off by default, the pairing shared with the PS5 system works there ("ps5-bt-address on" for a Linux-only
+# address; the chip hangs on a warm reboot with it, so ps5-kexec reboots normally then)
+if [ ! -e /etc/ps5-bazzite-deck/bt-address-on ]; then
     echo "IW620: the Linux-only Bluetooth address is off (ps5-bt-address on to switch it on); the controller keeps one pairing"
     exit 0
 fi
