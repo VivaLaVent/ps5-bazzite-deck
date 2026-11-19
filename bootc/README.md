@@ -6,7 +6,7 @@ like any Bazzite image, and a bad update is **undone with one command**. Runs fr
 the PS5 itself untouched: restart or power off and the PS5 starts its own system again.
 
 This is how PS5 Bazzite Deck is built and installed from v2.5 on. The older Legacy install is no longer supported or
-updated from v2.13 on. To switch: `tools/legacy-to-bootc.sh` converts a Legacy install in place and keeps users, games
+updated from v2.13 on. To switch: the converter from v2.16.2 (`https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/v2.16.2/tools/legacy-to-bootc.sh`) converts a Legacy install in place and keeps users, games
 and Flatpaks, or flash this image to a drive (flashing erases it).
 
 ## Not affiliated with Bazzite

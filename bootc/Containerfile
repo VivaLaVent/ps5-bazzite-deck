@@ -17,7 +17,6 @@ COPY --from=kmods /out/ /kmods/
 COPY bootc/build_files/ /build_files/
 COPY bootc/kernel/ /kernel/
 COPY bootc/system_files/ /system_files/
-COPY files/ /deck/files/
 COPY tools/ /deck/tools/
 
 FROM ${BASE_IMAGE}:${BASE_TAG}

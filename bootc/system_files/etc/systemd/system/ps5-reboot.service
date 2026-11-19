@@ -1,0 +1,16 @@
+[Unit]
+Description=Reboot: warm reboot into Linux when a kernel is loaded, normal reboot otherwise
+DefaultDependencies=no
+Requires=shutdown.target umount.target final.target
+After=shutdown.target umount.target final.target
+# before systemd's own reboot: this unit's SuccessAction/FailureAction ends the system first
+Before=systemd-reboot.service
+# The reboot itself is done by systemd (PID 1), not by systemctl: at this point D-Bus is gone
+# ("Transport endpoint is not connected"). kexec when ps5-kexec-prepare loaded a
+# kernel, a normal reboot otherwise.
+SuccessAction=kexec-force
+FailureAction=reboot-force
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'test "$(cat /sys/kernel/kexec_loaded 2>/dev/null)" = 1'

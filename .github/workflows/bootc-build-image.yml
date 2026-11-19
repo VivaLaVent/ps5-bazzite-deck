@@ -84,7 +84,7 @@ jobs:
           if [ "$CHANNEL" = release ]; then
             CHANNEL=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isPrerelease -q 'if .isPrerelease then "beta" else "stable" end' 2>/dev/null || echo stable)
           fi
-          # upstream's pairing importer into files/ (the Stable build's tag may predate it)
+          # upstream's pairing importer (into the tag's own place: files/ up to v2.16, bootc/build_files/ from v3.0)
           [ ! -f ../tools/fetch-bt-sync.sh ] || bash ../tools/fetch-bt-sync.sh
           . ../loader/pins.env
           LOADER="$LOADER_REPO@${LOADER_COMMIT:0:12}+$(cat ../loader/patches/*.patch | sha256sum | cut -c1-12)"

@@ -13,7 +13,7 @@ and in the release notes.
 | `bzImage` | loader | kernel of the default deployment |
 | `initrd.img` | loader | its initramfs. The loader appends what it dumps (below) to it in memory: the PS5 Pro GPU firmware where amdgpu loads it, the Wi-Fi firmware and the pairing export under `/ps5`. `ps5-dumps` copies all of it to `/run/ps5` before the initramfs ends, in this table's layout; a warm reboot (`ps5-kexec`) appends the GPU firmware from there, since it starts without the loader |
 | `cmdline.txt` | loader | one line: the boot entry's options, then any options you added; yours are kept across updates |
-| `vram.txt` | loader | VRAM size in hex bytes: 6 GB (`0x180000000`), from the disk image and once on existing installs (`ps5-console-defaults`) |
+| `vram.txt` | loader | VRAM size in hex bytes: 6 GB (`0x180000000`), from the disk image and once on existing installs (`ps5-first-boot`) |
 | `ostree/<id>/vmlinuz`, `initramfs.img`, `cmdline.txt` | you, for a manual rollback | the other deployments bootc keeps (normally the previous one); `<id>` is 12 hex characters |
 | `path-override.txt` | loader | absent normally. Its presence means a manual rollback: `bzImage=ostree/<id>/vmlinuz` and `initrd.img=ostree/<id>/initramfs.img`, and `ps5-bootc-sync` leaves the partition alone |
 | `ROLLBACK.txt` | you | how to start the previous deployment from a PC |

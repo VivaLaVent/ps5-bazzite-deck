@@ -1,0 +1,20 @@
+# PS5 Bazzite Deck. gamescope-session-plus sources this after Bazzite's own session file and before it starts gamescope.
+# When gamescope dies and Steam doesn't exit (seen after GPU faults), the session never ends: the screen stays on the
+# console and the mangoapp loop spins. If the session is still there 10 s later, end its programs so it starts again.
+eval "$(declare -f post_gamescope_start | sed '1s/^post_gamescope_start/ps5_session_post_gamescope_start/')"
+declare -F ps5_session_post_gamescope_start >/dev/null || ps5_session_post_gamescope_start() { :; }
+post_gamescope_start() {
+	ps5_session_post_gamescope_start
+	[ -n "${gamescope_pid:-}" ] || return 0
+	(
+		set +x
+		while kill -0 "$gamescope_pid" 2>/dev/null; do sleep 3; done
+		for sig in TERM KILL; do
+			sleep 10
+			kill -0 $$ 2>/dev/null || exit 0
+			for c in $(pgrep -P $$); do
+				[ "$c" = "$BASHPID" ] || kill -"$sig" "$c" 2>/dev/null
+			done
+		done
+	) &
+}

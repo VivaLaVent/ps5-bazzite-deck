@@ -7,3 +7,5 @@ loader/output/
 output/
 work/
 files/ps5-bt-sync
+# fetched at build time by tools/fetch-bt-sync.sh
+bootc/build_files/ps5-bt-sync

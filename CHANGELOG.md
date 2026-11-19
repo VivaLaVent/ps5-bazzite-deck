@@ -2,14 +2,31 @@
 
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
-## [Unreleased]
-- VERDE: HDR at 10/12 bpc, the RGB range and 2160p100/120 over FRL, as switches that are all off by default (`hdmi.verde_infoframes`, `verde_deep_colour`, `verde_frl`; `verde_vrr` experimental), from the official #81 on our display stack; tested on a Slim CFI-2115 with an LG C6 (consultoria-deta, #74). With the switches off VERDE gets the writes it always got; `hdmi.rgb_range` takes effect on VERDE only with `verde_infoframes`
+## [v3.0] – 2026-11-19
+Stable. Everything since v2.13.
+- DirectMesh is the Vulkan driver of the whole session on the original PS5 and Slim, gamescope included (user environment generator `60-ps5-directmesh`; `ps5-directmesh on|off|status`, `--system` per program); confirmed by VivaLaVent's testing
+- VERDE: HDR at 10/12 bpc, the RGB range and 2160p100/120 over FRL, from the official #81 on our display stack (consultoria-deta, #74), on by default (`hdmi.verde_infoframes`, `verde_deep_colour`, `verde_frl` in kargs.d; `=0` appended switches one off; `verde_vrr` stays experimental and off). `hdmi.rgb_range` takes effect on VERDE only with `verde_infoframes`
+- PS5 Pro: CPU boost to 3.5 GHz on by default (`ps5-perf pro-boost off`)
+- Game Mode restarts after a gamescope crash: when gamescope dies and the session is still there 10 s later, its programs are ended (`/etc/gamescope-session-plus/sessions.d/steam`, also as `ogui-steam`; Moonman)
+- `quiet`: kernel messages no longer show on screen at boot or when Game Mode closes
+- IW620: the tx power query waits at most the driver's ioctl timeout instead of forever, so a firmware that stops answering no longer freezes all networking (`patches/mwifiex/ps5-iw620-txpower-bounded-wait.patch`, as the remain-on-channel fix of #60; found by PS5-CachyOS)
+- InputPlumber on again, as Bazzite ships it (Bazzite Portal switches it off)
+- `ps5-report` shows the DirectMesh state; Steam's Force Composite stays a Steam setting
+- Linux 7.3.5 (was 7.3.3): rmux's base and the series apply; `ps5-display.patch` re-anchored in `amdgpu_dm_freesync.c`, where 7.3.4/7.3.5 added lines next to ours (same added and removed lines as before)
+- Kernel built with pahole 1.31 (built in the kernel builder; Debian trixie's 1.30 wrote BTF that Bazzite's LAVD scheduler couldn't load)
+- Bluetooth: the Linux-only address is for the PS5 Pro only; the IW620/MediaTek address script (`ps5-bt-addr`, 177 lines), its service and its warm-reboot guard are gone (`ps5-bt-address on` refuses elsewhere)
+- Wi-Fi power saving: NetworkManager's `wifi.powersave=2` stays the default; the 2-minute timer, its service, the dispatcher and `ps5-perf wifi` are gone, so Steam's and the user's setting is no longer overridden
+- One run-once unit, `ps5-first-boot` (6 GB VRAM and Desktop Mode, each with its old marker), instead of `ps5-console-defaults` and `ps5-session-defaults`
+- Warm reboot: a `reboot.target.d` drop-in orders `ps5-reboot.service` before `systemd-reboot.service`, instead of a copy of systemd's `reboot.target`
+- Legacy removed: the PS5 files live at their final paths in `bootc/system_files` (no `files.list`, no `/usr/local` rewriting; the image is identical, checked file by file); `legacy-to-bootc.sh` stays reachable at v2.16.2
+- Release: the loader is reused from the last release with the same inputs (pins, build script, patches) instead of rebuilt; an out-of-tree driver that doesn't compile stops the image build (a missing source is still skipped with a warning)
+- Tests for `ps5-m2-install`'s boot-file rewriting
 
 ## [v2.16.2] – 2026-11-19
 Pre-release.
 - Bluetooth: the Linux-only address is the default on the PS5 Pro only; the original PS5 shares the PS5's pairing like the Slim (it works there: Delta, Kurosaki). `ps5-bt-address on|off` still chooses
-- PS5 Pro: CPU boost as an option, `ps5-perf pro-boost on` (the console's own boost on `/dev/mp1`, as `ps5_control --boost`; off by default, it adds heat; at a start it waits for the GPU driver)
-- InputPlumber off by default: with a DualSense over Bluetooth it replayed inputs late in Proton (Sween Wolf). Bazzite Portal switches it back on
+- PS5 Pro: CPU boost as an option, `ps5-perf pro-boost on` (the console's own boost on `/dev/mp1`, as `ps5_control --boost`; off by default, it adds heat; at a start it waits for the GPU driver). On by default from v3.0
+- InputPlumber off by default: with a DualSense over Bluetooth it replayed inputs late in Proton (Sween Wolf). Bazzite Portal switches it back on. On again in v3.0
 - RADV from Mesa 26.2.7, as Bazzite now ships; `0002-radv-defaults.patch` rebased
 - `ps5-report` no longer hangs while bootc holds its lock (20 s timeout), and shows the Wi-Fi radio switch and rfkill state ("unavailable" is also what a switched-off Wi-Fi shows)
 - Salina xHCI (the console's Bluetooth): a burst of more than 32 events no longer marks the controller dying until a restart; the poller's "lock busy, rescheduling" is `pr_debug` (official #83; `patches/ps5-salina-xhci.patch`)
@@ -48,7 +65,7 @@ Pre-release. v2.14.1 and v2.14.2 were withdrawn; their changes are here.
 
 ## [v2.14] – 2026-11-13
 Pre-release.
-- Mesh shaders per game on the original PS5 and Slim (DirectMesh, experimental): `ps5-directmesh %command%`
+- Mesh shaders per game on the original PS5 and Slim (DirectMesh, experimental): `ps5-directmesh %command%`. The session's driver from v3.0
 - Legacy installs are no longer supported; `tools/legacy-to-bootc.sh` converts one to bootc in place
 - The kernel source comes from our mirror of rmux's repository, which was removed from GitHub
 - The image's file list is `bootc/build_files/files.list`

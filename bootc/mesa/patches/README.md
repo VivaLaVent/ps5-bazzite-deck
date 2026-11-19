@@ -13,12 +13,12 @@ When Bazzite's Mesa moves to a new version, move `pins.env` and these patches wi
 `build-radv.sh` also builds [DirectMesh](https://github.com/lonewolf0622/Mesh-Shaders-for-Rdna-1-) (MIT, as Mesa), which adds
 `VK_EXT_mesh_shader` to RADV on GFX1013, the chip family of the BC-250 and of the original PS5 and Slim. It is built from
 its own tree at the commit in `pins.env` (Mesa 26.2.1 with its changes), with `0001` to `0003` and `../directmesh/`, and
-installed beside the system driver in `/usr/lib64/directmesh/`. `ps5-directmesh %command%` selects it for one game.
+installed beside the system driver in `/usr/lib64/directmesh/`. From v3.0 it is the Vulkan driver of the whole session on the original PS5 and Slim, gamescope included (user environment generator `60-ps5-directmesh`; `ps5-directmesh on|off|status`, `--system` per program).
 
 - **Not merged into the system driver:** its patch doesn't apply to 26.2.6 (seven files conflict), and it changes how
   every GFX1013 draw is submitted and where buffers go, with or without Mesh shaders.
 - **v1.4, not the newest:** v1.4.1 is withdrawn upstream for GPU hangs on a BC-250. Move the pin only to a version its
   author's installer uses.
-- `0004` isn't applied (PS5 Pro only, a chip DirectMesh doesn't cover), nor `0005` (DirectMesh opens the compute queue itself).
+- `0004` isn't applied (PS5 Pro only, a chip DirectMesh doesn't cover), nor `0005` (DirectMesh opens the compute queue itself, so `AMD_PS5_COMPUTE_QUEUE=0` has no effect on it: users combine it with `ps5-directmesh --system`).
 - Its source asks for a kernel with the GFX1013 PASID TLB invalidation (ours: `patches/ps5-gpu.patch`) and "compute GFXOFF
   fixes" made for the BC-250; whether the PS5 needs the latter is not known.

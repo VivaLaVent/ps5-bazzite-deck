@@ -1,6 +1,0 @@
-[Unit]
-Description=PS5: keep Wi-Fi power saving off (ps5-perf, WIFI_POWERSAVE=0)
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/sbin/ps5-perf wifi

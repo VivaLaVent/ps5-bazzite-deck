@@ -1,4 +1,4 @@
-# One patch per feature, applied in this order on Linux 7.3.3 + rmux's shitshow linux.patch (build.sh)
+# One patch per feature, applied in this order on Linux 7.3.5 + rmux's shitshow linux.patch (build.sh)
 ps5-s2idle.patch      # suspend-to-idle (Dasloh, PR #4)
 ps5-display.patch     # the FLAVA3/VERDE display stack: modes, 4K120, VRR, HDR, test switches, overlay sensors
 ps5-gpu.patch         # GPU clock governor with a temperature limit; KFD TLB flush (#57, #77)

@@ -69,13 +69,12 @@ done
 rm -f cyan_skillfish*.xz
 cd /
 
-# --- PS5 files (files.list), /usr/local moved to /usr
-grep -v '^#' "$CTX/build_files/files.list" | while read -r src dst mode; do
-    f=$CTX/deck/files/$src; [ -f "$f" ] || f=$CTX/deck/tools/$src
-    dst=$(echo "$dst" | sed -e 's#^/usr/local/s\?bin/#/usr/bin/#' -e 's#^/usr/local/share/#/usr/share/#')
-    install -Dm"${mode:-644}" "$f" "$dst"
-    sed -i -e 's#/usr/local/s\?bin/#/usr/bin/#g' -e 's#/usr/local/share/#/usr/share/#g' "$dst"
-done
+# --- the two tools that are also run straight from GitHub (their URLs stay), and upstream's pairing importer,
+#     fetched at build time by tools/fetch-bt-sync.sh; the PS5 files themselves are in system_files
+install -Dm755 "$CTX/deck/tools/ps5-report.sh" /usr/bin/ps5-report
+install -Dm755 "$CTX/deck/tools/ps5-m2-install.sh" /usr/bin/ps5-m2-install
+install -Dm755 "$CTX/build_files/ps5-bt-sync" /usr/bin/ps5-bt-sync
+sed -i -e 's#/usr/local/s\?bin/#/usr/bin/#g' -e 's#/usr/local/share/#/usr/share/#g' /usr/bin/ps5-report /usr/bin/ps5-m2-install /usr/bin/ps5-bt-sync
 # --- RADV with the PS5 Pro's int8 matrix instructions and compute queue (bootc/mesa); other GPUs as Bazzite's
 for d in lib64 lib; do
     [ -e "/usr/$d/libvulkan_radeon.so" ] || continue
@@ -83,7 +82,8 @@ for d in lib64 lib; do
     ! ldd -r "/usr/$d/libvulkan_radeon.so" 2>&1 | grep -E "not found|undefined symbol" ||
         { echo "/usr/$d/libvulkan_radeon.so doesn't load against this image"; exit 1; }
 done
-# --- DirectMesh (bootc/mesa): a second RADV with Mesh shaders, only for games started with ps5-directmesh
+# --- DirectMesh (bootc/mesa): a second RADV with Mesh shaders, the session's Vulkan driver on the original PS5 and Slim
+# (user environment generator 60-ps5-directmesh; ps5-directmesh on|off|status)
 if [ -f "$CTX/radv/directmesh/libvulkan_radeon.so" ]; then
     install -Dm755 "$CTX/radv/directmesh/libvulkan_radeon.so" /usr/lib64/directmesh/libvulkan_radeon.so
     install -Dm644 "$CTX/radv/directmesh/radeon_icd.x86_64.json" /usr/share/directmesh/icd.d/radeon_icd.x86_64.json
@@ -92,8 +92,7 @@ if [ -f "$CTX/radv/directmesh/libvulkan_radeon.so" ]; then
 fi
 
 if [ ! -e /usr/sbin/kexec ]; then
-    install -Dm755 "$CTX/deck/files/kexec-shim" /usr/bin/kexec
-    sed -i 's#/usr/local/s\?bin/#/usr/bin/#g' /usr/bin/kexec
+    install -Dm755 "$CTX/build_files/kexec-shim" /usr/bin/kexec
 fi
 bash "$CTX/deck/tools/bt-mainconf.sh" /etc/bluetooth/main.conf
 
@@ -102,15 +101,16 @@ cp -a "$CTX/system_files/." /
 # --- services
 systemctl enable \
     boot-efi.mount ps5-bootc-sync.service ps5-grow-root.service \
-    ps5-bt-addr.service ps5-bt-connectable.service ps5-bt-pro-addr.service \
-    ps5-bt-revive.service ps5-bt-import.service ps5-perf.service ps5-console-defaults.service \
-    ps5-wifi-repair.service ps5-wifi-powersave.timer \
-    ps5-bootc-channel.service ps5-session-defaults.service \
+    ps5-bt-connectable.service ps5-bt-pro-addr.service \
+    ps5-bt-revive.service ps5-bt-import.service ps5-perf.service ps5-first-boot.service \
+    ps5-wifi-repair.service ps5-bootc-channel.service \
     sshd.service
 systemctl --global enable ps5-user-defaults.service
-# InputPlumber is for handhelds' built-in controls; with a DualSense over Bluetooth it replays inputs late in Proton.
-# Off, as Bazzite's Portal offers for desktops (Troubleshoot → InputPlumber switches it back on)
-[ -e /usr/lib/systemd/system/inputplumber.service ] && systemctl disable inputplumber.service
+# The Game Mode hook (/etc/gamescope-session-plus/sessions.d/steam) relies on these in Bazzite's session script
+for k in CLIENT_CONFIG_DIR_ETC post_gamescope_start gamescope_pid; do
+    grep -qs "$k" /usr/share/gamescope-session-plus/gamescope-session-plus ||
+        echo "::warning::gamescope-session-plus has no $k: Game Mode doesn't restart by itself after a gamescope crash"
+done
 for n in 2 3 4 5 6; do systemctl enable "getty@tty$n.service"; done
 
 # Plasma's wizard would take over the autologin; Bazzite's hardware setup sets x86 kargs

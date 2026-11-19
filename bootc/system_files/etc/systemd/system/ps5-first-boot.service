@@ -1,0 +1,11 @@
+[Unit]
+Description=PS5 Bazzite Deck: defaults, once (6 GB VRAM, Desktop Mode)
+After=local-fs.target boot-efi.mount
+Before=bazzite-autologin.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ps5-first-boot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,5 @@
 #!/bin/bash
-# PS5 kernel RPM: Linux 7.3.3 + rmux's shitshow + patches/series, built with ps5-linux-image's builder
+# PS5 kernel RPM: Linux 7.3.5 + rmux's shitshow + patches/series, built with ps5-linux-image's builder
 set -euo pipefail
 
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,7 +9,7 @@ REPO="${REPO:-$HOME/ps5-build-7.3}"
 OLD="${OLD:-$HOME/ps5-linux-image}"
 BUILDER_COMMIT=03b59ab
 PATCHES_BRANCH=shitshow
-KERNEL_TAG=v7.3.3
+KERNEL_TAG=v7.3.5
 MWIFIEX_COMMIT=3d81cba
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
@@ -26,6 +26,16 @@ echo "==> 2. builder fixes"
 B=docker/kernel-builder/build.sh
 sed -i 's/MWIFIEX_REF:-main/MWIFIEX_REF:-'"$MWIFIEX_COMMIT"'/; s/^git -C "$PS5_MW" checkout "$MWIFIEX_REF" 2>\/dev\/null || true$/git -C "$PS5_MW" checkout -q "$MWIFIEX_REF"/' "$B"
 grep -q "checkout -q \"\$MWIFIEX_REF\"" "$B" && grep -q "ps5-iw620-fresh-fw.patch" "$B" && grep -q " ext_scan=2 " "$B" && ! grep -q "CONFIG_OBJTOOL=" "$B" || { echo "wifi driver edit failed"; exit 1; }
+# 2c. pahole 1.31 instead of Debian trixie's 1.30, whose BTF Bazzite's LAVD scheduler (sched_ext) can't load
+D=docker/kernel-builder/Dockerfile
+sed -i 's/ dwarves / cmake git libdw-dev libelf-dev zlib1g-dev /' "$D"
+cat >> "$D" << 'PAHOLE'
+RUN git clone -q --depth 1 --branch v1.31 https://github.com/acmel/dwarves /tmp/dwarves \
+ && cmake -S /tmp/dwarves -B /tmp/dwarves/build -DCMAKE_INSTALL_PREFIX=/usr -D__LIB=lib -DCMAKE_BUILD_TYPE=Release \
+ && cmake --build /tmp/dwarves/build -j"$(nproc)" && cmake --install /tmp/dwarves/build && ldconfig && rm -rf /tmp/dwarves \
+ && pahole --version | grep -qx v1.31
+PAHOLE
+grep -q "acmel/dwarves" "$D" && ! grep -q " dwarves " "$D" || { echo "pahole edit failed"; exit 1; }
 # 2b. this repository's own driver patches (patches/mwifiex), after the builder's; they reach the container through
 #     work/ps5-linux-patches, which the builder mounts at /ps5-linux-patches (copied there in step 3)
 #     (each line lands right after the builder's last patch, so going through them in reverse keeps their order)

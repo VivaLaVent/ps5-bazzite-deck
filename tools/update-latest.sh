@@ -5,7 +5,7 @@ cat << 'MSG'
 Legacy installs are no longer supported or updated, from v2.13 on.
 
 Switch this install to bootc in place, keeping your users, games and Flatpaks:
-  curl -fsSLO https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/main/tools/legacy-to-bootc.sh
+  curl -fsSLO https://raw.githubusercontent.com/VivaLaVent/ps5-bazzite-deck/v2.16.2/tools/legacy-to-bootc.sh
   sudo bash legacy-to-bootc.sh            # checks only, changes nothing
   sudo bash legacy-to-bootc.sh --apply
 

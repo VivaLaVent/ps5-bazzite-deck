@@ -101,9 +101,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
-          bash loader/build.sh "$TAG"
-          gh release upload "$TAG" "loader/output/bazzite-bootc-loader-$TAG.elf" \
-            "loader/output/bazzite-bootc-loader-$TAG.elf.sha256" --clobber
+          # the loader's inputs; a release whose loader came from the same inputs gives its ELF instead of a rebuild
+          H=$(cat loader/pins.env loader/build.sh loader/patches/*.patch | sha256sum | cut -d' ' -f1)
+          O=loader/output; mkdir -p "$O"; prev=
+          for t in $(gh release list --limit 30 --json tagName -q '.[].tagName'); do
+            [ "$t" != "$TAG" ] || continue
+            if gh release download "$t" -p "bazzite-bootc-loader-$t.elf.inputs" -O - 2>/dev/null | grep -qx "$H"; then prev=$t; break; fi
+          done
+          if [ -n "$prev" ] && gh release download "$prev" -p "bazzite-bootc-loader-$prev.elf*" -D "$O/prev" &&
+             (cd "$O/prev" && sha256sum -c "bazzite-bootc-loader-$prev.elf.sha256"); then
+            echo "loader inputs unchanged since $prev: its ELF is reused"
+            cp "$O/prev/bazzite-bootc-loader-$prev.elf" "$O/bazzite-bootc-loader-$TAG.elf"
+            (cd "$O" && sha256sum "bazzite-bootc-loader-$TAG.elf" > "bazzite-bootc-loader-$TAG.elf.sha256")
+          else
+            bash loader/build.sh "$TAG"
+          fi
+          echo "$H" > "$O/bazzite-bootc-loader-$TAG.elf.inputs"
+          gh release upload "$TAG" "$O/bazzite-bootc-loader-$TAG.elf" "$O/bazzite-bootc-loader-$TAG.elf.sha256" \
+            "$O/bazzite-bootc-loader-$TAG.elf.inputs" --clobber
           python3 tools/release_notes.py "$TAG"
 
   image:

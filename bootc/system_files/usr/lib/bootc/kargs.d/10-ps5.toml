@@ -1,2 +1,2 @@
 # The deck image's cmdline.txt, minus root=/rw (bootc sets it), plus the IW620 firmware path for its first load
-kargs = ["rootwait", "console=ttyTitania0", "console=tty0", "mitigations=off", "idle=halt", "preempt=full", "firmware_class.path=/etc/firmware"]
+kargs = ["rootwait", "console=ttyTitania0", "console=tty0", "quiet", "mitigations=off", "idle=halt", "preempt=full", "firmware_class.path=/etc/firmware", "hdmi.verde_infoframes=1", "hdmi.verde_deep_colour=1", "hdmi.verde_frl=1"]

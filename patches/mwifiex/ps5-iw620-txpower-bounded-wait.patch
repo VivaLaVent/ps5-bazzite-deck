@@ -1,0 +1,23 @@
+PS5 IW620: the tx power query no longer waits forever
+
+When the IW620 firmware stops answering, woal_set_get_tx_power() waited without a limit (MOAL_IOCTL_WAIT) while
+cfg80211 held the wiphy mutex. NetworkManager waits for that mutex while holding RTNL, so every network call on the
+console hung and anything network-related froze. With MOAL_IOCTL_WAIT_TIMEOUT a dead firmware gives a timeout
+instead, as for remain-on-channel (ps5-iw620-roc-bounded-wait.patch, #60) and the station queries in upstream's
+ps5-iw620-rtnl-bounded-wait.patch. The request is freed as before: only a pending one is kept.
+
+Found by PS5-CachyOS (abrocoma), whose patch makes the same change.
+---
+diff --git a/mlinux/moal_ioctl.c b/mlinux/moal_ioctl.c
+index effcc10..66f8af0 100644
+--- a/mlinux/moal_ioctl.c
++++ b/mlinux/moal_ioctl.c
+@@ -1904,7 +1904,7 @@ mlan_status woal_set_get_tx_power(moal_private *priv, t_u32 action,
+ 				power_cfg, sizeof(mlan_power_cfg_t),
+ 				sizeof(mlan_power_cfg_t));
+ 
+-	ret = woal_request_ioctl(priv, req, MOAL_IOCTL_WAIT);
++	ret = woal_request_ioctl(priv, req, MOAL_IOCTL_WAIT_TIMEOUT);
+ 	if (ret != MLAN_STATUS_SUCCESS)
+ 		goto done;
+ 

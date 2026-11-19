@@ -48,7 +48,7 @@ Report per switch: console, HDMI chip, TV model, and "no difference" or what bro
 
 ## VERDE switches
 
-HDR, the RGB range, deep colour, 4K above 60 Hz and VRR on consoles with the VERDE HDMI chip (`ps5-report` names the chip on its first lines), from the official ps5-linux-patches #81. All off by default; with them off VERDE gets exactly what it got before. They go on the kernel command line (`cmdline.txt`); the two marked live can also be changed at runtime with `echo 1 | sudo tee /sys/module/hdmi/parameters/<switch>`, from the next mode set.
+HDR, the RGB range, deep colour, 4K above 60 Hz and VRR on consoles with the VERDE HDMI chip (`ps5-report` names the chip on its first lines), from the official ps5-linux-patches #81. Off in the kernel; from v3.0 the image switches `verde_infoframes`, `verde_deep_colour` and `verde_frl` on with kernel arguments (`=0` appended with `rpm-ostree kargs --append=` switches one off). With them off VERDE gets exactly what it got before. They go on the kernel command line (`cmdline.txt`); the two marked live can also be changed at runtime with `echo 1 | sudo tee /sys/module/hdmi/parameters/<switch>`, from the next mode set.
 
 | Switch | What it does | Test with it on |
 |---|---|---|
@@ -67,11 +67,9 @@ Game Mode follows the resolution and refresh rate chosen in Steam's display sett
 With a DualSense paired in the PS5 system and the loader of the release:
 - Original PS5 and Slim (Linux-only address off by default): the controller connects in Linux without pairing, and in the PS5 system afterwards; `journalctl -b -u ps5-bt-import` reports the pairings.
 - Pro (Linux-only address on by default, #73): the import is skipped, `ps5-bt-sync.json` is gone from the boot partition, a controller paired in Linux on its own profile reconnects.
-- After `ps5-bt-address on` and a restart on an original PS5 or Slim: as on the Pro.
+- Original PS5 or Slim: `ps5-bt-address on` refuses (the Linux-only address is for the Pro only from v3.0).
 
-DirectMesh (original PS5 and Slim): a D3D12 game that needs Mesh shaders, with `ps5-directmesh %command%` as its Steam
-launch option; `ps5-directmesh vulkaninfo | grep -i mesh_shader` lists `VK_EXT_mesh_shader`, and without the launch option
-the game and `vulkaninfo` behave as before. A hang with it: `sudo dmesg | grep -iE "amdgpu|ring|timeout" | tail -20`.
+DirectMesh (original PS5 and Slim, the session's Vulkan driver from v3.0): `ps5-directmesh status` says `on`, and `tr '\0' '\n' < /proc/$(pgrep -of /usr/bin/gamescope)/environ | grep VK_DRIVER` names it in Game Mode; a D3D12 game that needs Mesh shaders starts; games that ran before still run. `vulkaninfo | grep -i mesh_shader` lists `VK_EXT_mesh_shader`; with `ps5-directmesh --system` in front it doesn't. A game that fails: try it with `ps5-directmesh --system %command%` and report both results. On a PS5 Pro nothing changes. A hang: `sudo dmesg | grep -iE "amdgpu|ring|timeout" | tail -20`.
 
 What the loader dumps reaches Linux through the initrd (`loader/patches/0005`): `ps5-report` lists it under Wi-Fi as
 "from the loader via the initrd (/run/ps5)", the Wi-Fi firmware and, until it is imported, `ps5-bt-sync.json`. A PS5 Pro

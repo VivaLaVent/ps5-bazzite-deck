@@ -21,7 +21,7 @@ PS5 display: the FLAVA3/VERDE stack of v1.8.9, in place of rmux's display rework
   work.
 ---
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
-index d83f0e486..23a1e8ce6 100644
+index 1c958848a..3225edd0f 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
 @@ -88,10 +88,9 @@
@@ -254,7 +254,7 @@ index d83f0e486..23a1e8ce6 100644
  	amdgpu_dm_ps5_usbc_stop(&adev->dm);
  #endif
  	amdgpu_dm_hpd_fini(adev);
-@@ -4194,6 +4282,12 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_commit *state,
+@@ -4190,6 +4278,12 @@ static void amdgpu_dm_commit_planes(struct drm_atomic_commit *state,
  			if (acrtc_state->freesync_vrr_info_changed)
  				bundle->stream_update.vrr_infopacket =
  					&acrtc_state->stream->vrr_infopacket;
@@ -267,7 +267,7 @@ index d83f0e486..23a1e8ce6 100644
  		}
  	}
  
-@@ -5061,43 +5155,29 @@ static void amdgpu_dm_update_hdcp(struct drm_atomic_commit *state)
+@@ -5055,43 +5149,29 @@ static void amdgpu_dm_update_hdcp(struct drm_atomic_commit *state)
  }
  
  #ifdef CONFIG_X86_PS5
@@ -329,7 +329,7 @@ index d83f0e486..23a1e8ce6 100644
  
  	for (i = 0; i < stream->audio_info.mode_count; i++) {
  		if (stream->audio_info.modes[i].channel_count > channels)
-@@ -5108,55 +5188,12 @@ static int dm_ps5_hdmi_enable(struct dc_stream_state *stream,
+@@ -5102,55 +5182,12 @@ static int dm_ps5_hdmi_enable(struct dc_stream_state *stream,
  	if (channels == 0)
  		channels = 2;
  
@@ -389,7 +389,7 @@ index d83f0e486..23a1e8ce6 100644
  }
  #endif
  
-@@ -5262,6 +5299,121 @@ STATIC_IFN_KUNIT void dm_enable_per_frame_crtc_master_sync(struct dc_state *cont
+@@ -5256,6 +5293,121 @@ STATIC_IFN_KUNIT void dm_enable_per_frame_crtc_master_sync(struct dc_state *cont
  }
  EXPORT_IF_KUNIT(dm_enable_per_frame_crtc_master_sync);
  
@@ -511,7 +511,7 @@ index d83f0e486..23a1e8ce6 100644
  /**
   * amdgpu_dm_atomic_commit_tail() - AMDgpu DM's commit tail implementation.
   * @state: The atomic state to commit
-@@ -5304,23 +5456,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5298,23 +5450,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		    (old_crtc_state->active &&
  		    (!new_crtc_state->active ||
  		     drm_atomic_crtc_needs_modeset(new_crtc_state)))) {
@@ -550,7 +550,7 @@ index d83f0e486..23a1e8ce6 100644
  			}
  		}
  	}
-@@ -5341,45 +5494,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5335,45 +5488,24 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		if (new_crtc_state->active &&
  		    (!old_crtc_state->active ||
  		     drm_atomic_crtc_needs_modeset(new_crtc_state))) {
@@ -611,7 +611,7 @@ index d83f0e486..23a1e8ce6 100644
  		}
  	}
  #endif
-@@ -5411,15 +5543,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5405,15 +5537,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  		dm_new_crtc_state = to_dm_crtc_state(new_crtc_state);
  		dm_old_crtc_state = to_dm_crtc_state(old_crtc_state);
  
@@ -627,7 +627,7 @@ index d83f0e486..23a1e8ce6 100644
  		scaling_changed = is_scaling_state_different(dm_new_con_state,
  							     dm_old_con_state);
  
-@@ -5451,12 +5574,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5445,12 +5568,6 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  				= amdgpu_dm_get_output_color_space(&dm_new_crtc_state->stream->timing, new_con_state);
  
  			stream_update.output_color_space = &dm_new_crtc_state->stream->output_color_space;
@@ -640,7 +640,7 @@ index d83f0e486..23a1e8ce6 100644
  		}
  
  		if (abm_changed) {
-@@ -5594,6 +5711,18 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
+@@ -5593,6 +5710,18 @@ static void amdgpu_dm_atomic_commit_tail(struct drm_atomic_commit *state)
  
  		if (dm_new_crtc_state->stream)
  			amdgpu_dm_commit_planes(state, dev, dm, crtc, wait_for_vblank);
@@ -659,7 +659,7 @@ index d83f0e486..23a1e8ce6 100644
  	}
  
  	/* Enable writeback */
-@@ -5799,30 +5928,6 @@ static int dm_update_crtc_state(struct amdgpu_display_manager *dm,
+@@ -5798,30 +5927,6 @@ static int dm_update_crtc_state(struct amdgpu_display_manager *dm,
  			goto fail;
  		}
  
@@ -1354,7 +1354,7 @@ index ade604fd8..49b915cfa 100644
  	if (do_mccs) {
  		dm_helpers_read_mccs_caps(adev->dm.dc->ctx, amdgpu_dm_connector->dc_link, sink);
 diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c
-index 7e484adb4..8ec16faed 100644
+index a51cf46d0..e4bc85183 100644
 --- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c
 +++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c
 @@ -37,6 +37,9 @@
@@ -1367,8 +1367,8 @@ index 7e484adb4..8ec16faed 100644
  
  bool amdgpu_dm_is_dc_timing_adjust_needed(struct dm_crtc_state *old_state,
  					  struct dm_crtc_state *new_state)
-@@ -129,7 +132,13 @@ void amdgpu_dm_get_freesync_config_for_crtc(
- 					vrefresh <= aconnector->max_vfreq;
+@@ -137,7 +140,13 @@ void amdgpu_dm_get_freesync_config_for_crtc(
+ 	new_crtc_state->stream->allow_freesync = new_crtc_state->vrr_supported;
  
  	if (new_crtc_state->vrr_supported) {
 +#ifdef CONFIG_X86_PS5
@@ -1381,7 +1381,7 @@ index 7e484adb4..8ec16faed 100644
  		fs_vid_mode = new_crtc_state->freesync_config.state == VRR_STATE_ACTIVE_FIXED;
  
  		config.min_refresh_in_uhz = aconnector->min_vfreq * 1000000;
-@@ -205,6 +214,10 @@ void amdgpu_dm_update_freesync_state_on_stream(
+@@ -226,6 +235,10 @@ void amdgpu_dm_update_freesync_state_on_stream(
  	}
  
  	aconn = (struct amdgpu_dm_connector *)new_stream->dm_stream_context;
@@ -1392,7 +1392,7 @@ index 7e484adb4..8ec16faed 100644
  
  	if (aconn && (aconn->as_type == FREESYNC_TYPE_PCON_IN_WHITELIST || aconn->vsdb_info.replay_mode)) {
  		pack_sdp_v1_3 = aconn->pack_sdp_v1_3;
-@@ -218,6 +231,34 @@ void amdgpu_dm_update_freesync_state_on_stream(
+@@ -239,6 +252,34 @@ void amdgpu_dm_update_freesync_state_on_stream(
  
  		mod_build_adaptive_sync_infopacket(new_stream, aconn->as_type, NULL,
  					&new_stream->adaptive_sync_infopacket);
@@ -1426,9 +1426,9 @@ index 7e484adb4..8ec16faed 100644
 +#endif
  	}
  
- 	mod_freesync_build_vrr_infopacket(
-@@ -228,11 +269,25 @@ void amdgpu_dm_update_freesync_state_on_stream(
- 		TRANSFER_FUNC_UNKNOWN,
+ 	app_tf = dm_dp_in_hdr_mode(new_stream) ?
+@@ -253,11 +294,25 @@ void amdgpu_dm_update_freesync_state_on_stream(
+ 		app_tf,
  		&vrr_infopacket,
  		pack_sdp_v1_3);
 +#ifdef CONFIG_X86_PS5
@@ -2004,7 +2004,7 @@ index 0997e697e..000000000
 -	dm_ps5_recovery_report(recovery);
 -}
 diff --git a/drivers/gpu/drm/amd/display/dc/core/dc.c b/drivers/gpu/drm/amd/display/dc/core/dc.c
-index 519ac878a..cd0575525 100644
+index 60b903edf..af7748661 100644
 --- a/drivers/gpu/drm/amd/display/dc/core/dc.c
 +++ b/drivers/gpu/drm/amd/display/dc/core/dc.c
 @@ -1199,6 +1199,19 @@ static void disable_all_writeback_pipes_for_stream(
@@ -2044,7 +2044,7 @@ index 519ac878a..cd0575525 100644
  		dc->hwss.interdependent_update_lock(dc, context, true);
  		dc->hwss.program_front_end_for_ctx(dc, context);
  
-@@ -4976,6 +4992,9 @@ static void commit_planes_for_stream(struct dc *dc,
+@@ -4980,6 +4996,9 @@ static void commit_planes_for_stream(struct dc *dc,
  	if (dc->hwseq->funcs.wait_for_pipe_update_if_needed)
  		dc->hwseq->funcs.wait_for_pipe_update_if_needed(dc, top_pipe_to_program, update_type < UPDATE_TYPE_FULL);
  
@@ -3179,7 +3179,7 @@ index a2b12d65a..000000000
 -	return !rate || (rate <= 4 && permitted & BIT(rate));
 -}
 diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
-index 4ade01ba6..1c489231a 100755
+index 4ade01ba6..a8c56f116 100755
 --- a/drivers/ps5/hdmi.c
 +++ b/drivers/ps5/hdmi.c
 @@ -3,51 +3,31 @@

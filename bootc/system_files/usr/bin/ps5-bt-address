@@ -1,0 +1,27 @@
+#!/bin/sh
+# PS5 Pro: Linux's own Bluetooth address, so a DualSense keeps one pairing for the PS5 system and one for Linux.
+# On by default on the Pro, where the pairing imported from the PS5 system doesn't connect (#73). The original PS5
+# and the Slim always share the PS5 system's pairing.
+#   ps5-bt-address on | off | status | is-on (exit status only)
+OFF=/etc/ps5-bazzite-deck/bt-address-off
+ON=/etc/ps5-bazzite-deck/bt-address-on
+pro() { lsusb 2>/dev/null | grep -q 0e8d:3605; }
+is_on() { pro && [ ! -e "$OFF" ]; }
+case "$1" in
+    on|off) pro || { echo "the Linux-only Bluetooth address is only for the PS5 Pro; this console shares the PS5 system's pairing"; exit 1; } ;;
+esac
+case "$1" in
+    on)  sudo mkdir -p "${ON%/*}" && sudo rm -f "$OFF" && sudo touch "$ON" && echo "Linux-only Bluetooth address on from the next boot: pair your controllers with Linux once more afterwards"
+ ;;
+    off) sudo mkdir -p "${OFF%/*}" && sudo rm -f "$ON" && sudo touch "$OFF" && echo "Linux-only Bluetooth address off from the next boot: the controller keeps one pairing, shared with the PS5 system" ;;
+    is-on) is_on ;;
+    *)   if is_on; then
+             echo "Linux-only Bluetooth address: on"
+             cur=$(btmgmt --index 0 info 2>/dev/null | awk '$1 == "addr" { print toupper($2); exit }')
+             [ -n "$cur" ] && echo "controller address now: $cur (the second character differs from the PS5 system's address when it's applied)"
+         elif pro; then
+             echo "Linux-only Bluetooth address: off (ps5-bt-address on to switch it on)"
+         else
+             echo "Linux-only Bluetooth address: not used, the pairing is shared with the PS5 system"
+         fi ;;
+esac

@@ -23,7 +23,7 @@ build() {
     git clone -q --depth 1 --branch "$tag" --recurse-submodules --shallow-submodules \
         "https://github.com/$repo" "$src" 2>/dev/null || { echo "$name: $repo $tag not available"; return 1; }
     [ "$(git -C "$src" rev-parse HEAD)" = "$commit" ] || { echo "$name: $tag is no longer $commit"; return 1; }
-    make -C "$B" M="$src/$dir" modules > "$W/$name.log" 2>&1 || { tail -15 "$W/$name.log"; echo "$name: does not build"; return 1; }
+    make -C "$B" M="$src/$dir" modules > "$W/$name.log" 2>&1 || { tail -15 "$W/$name.log"; echo "$name: does not build"; return 2; }
     mkdir -p "$OUT/$name" || return 1
     for m in "$@"; do
         install -m644 "$src/$dir/$m.ko" "$OUT/$name/" || return 1
@@ -40,7 +40,11 @@ grep -v '^[[:space:]]*#' "$M/modules.list" | while read -r name repo tag commit 
     if build "$name" "$repo" "$tag" "$commit" "$dir" $mods; then
         echo "$name $tag" >> "$OUT/VERSION"
     else
+        rc=$?
         rm -rf "${OUT:?}/${name:?}"
-        echo "::warning::$name $tag left out of the image"
+        # a driver whose source is gone is left out; one that no longer compiles stops the build (a kernel change broke it)
+        if [ "$rc" = 2 ]; then echo "::error::$name $tag doesn't build against this kernel"; touch "$W/failed"; continue; fi
+        echo "::warning::$name $tag left out of the image (source not available)"
     fi
 done
+[ ! -e "$W/failed" ] || exit 1

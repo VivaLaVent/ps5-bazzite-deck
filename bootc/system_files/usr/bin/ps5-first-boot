@@ -1,0 +1,30 @@
+#!/bin/bash
+# Once per install, each part with its own marker: 6 GB VRAM on every console, and Desktop Mode as the default session.
+# Later changes by the user are kept (Steam's Game Mode setting for the default session turns the second off again).
+# The PS5 Pro used to get an 80 °C GPU limit here, the same as the fan's target, so the GPU slowed down whenever
+# the fan held its temperature: removed once where this script had added it; the kernel's 85 °C applies, as on
+# the other models. A limit the user chose is kept.
+set -eu
+D=/var/lib/ps5-bazzite-deck
+mkdir -p "$D"
+if [ ! -e "$D/desktop-default" ] && [ -x /usr/libexec/bazzite-autologin ]; then
+    mkdir -p /etc/sddm.conf.d
+    printf '[Autologin]\nSession=plasma.desktop\n' > /etc/sddm.conf.d/zz-holo-autologin.conf
+    touch "$D/desktop-default"
+    echo "Desktop Mode is the default session from now on"
+fi
+E=; for d in /efi /boot/efi; do [ -f "$d/cmdline.txt" ] && { E=$d; break; }; done
+[ -n "$E" ] || exit 0
+if [ ! -e "$D/vram-6g" ]; then
+    echo 0x180000000 > "$E/vram.txt"
+    touch "$D/vram-6g"
+    echo "6 GB VRAM set in $E/vram.txt; used from the next start with the loader"
+fi
+if grep -qsiE '^0x13d[ac]$' /sys/bus/pci/devices/0000:20:00.0/device && [ ! -e "$D/pro-limit-85" ]; then
+    if grep -qE '(^| )ps5_gpufreq\.temp_limit=80( |$)' "$E/cmdline.txt"; then
+        sed -i -E '1s/(^| )ps5_gpufreq\.temp_limit=80( |$)/\1/; 1s/ +$//' "$E/cmdline.txt"
+        echo "PS5 Pro: the 80 °C GPU limit removed; the kernel's 85 °C applies from the next start with the loader"
+    fi
+    touch "$D/pro-limit-85"
+fi
+sync
