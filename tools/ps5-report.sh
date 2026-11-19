@@ -66,6 +66,8 @@ esac
 ST=$(cat "$FH/temp1_input" 2>/dev/null); [ -n "$ST" ] && FAN="$FAN, SoC $((ST / 1000)) °C"
 P=/sys/module/hdmi/parameters; SW=
 for f in rearm edid_keep scdc_writes sleep_mute; do [ "$(cat $P/$f 2>/dev/null)" = N ] && SW="$SW $f=off"; done
+for f in verde_infoframes verde_deep_colour verde_frl verde_vrr; do [ "$(cat $P/$f 2>/dev/null)" = Y ] && SW="$SW $f=on"; done
+[ "$(cat $P/verde_avi_game 2>/dev/null)" = N ] && SW="$SW verde_avi_game=off"
 FIELDS=(
   "󱋩|Install|$INSTALL"  "󰏗|Release|${REL:-?}"  "|Kernel|$(uname -r)"
   "󰅐|Boot|$( [ "$WARM" -gt 0 ] && echo "warm reboot" || echo "cold start"), up $(uptime -p | sed 's/^up //')"  "-"
@@ -153,6 +155,7 @@ k | grep -E 'usb [0-9]+-[0-9.]+:' | grep -i -E 'error|reset|disconnect|-71|descr
 
 echo; echo "=== Display"
 P=/sys/module/hdmi/parameters; [ -e $P/rearm ] && echo "  switches: rearm=$(cat $P/rearm) edid_keep=$(cat $P/edid_keep) scdc_writes=$(cat $P/scdc_writes) sleep_mute=$(cat $P/sleep_mute)"
+[ -e $P/verde_infoframes ] && echo "  VERDE switches: verde_infoframes=$(cat $P/verde_infoframes) verde_avi_game=$(cat $P/verde_avi_game) verde_deep_colour=$(cat $P/verde_deep_colour) verde_frl=$(cat $P/verde_frl) verde_vrr=$(cat $P/verde_vrr 2>/dev/null) rgb_range=$(cat $P/rgb_range)"
 for c in /sys/class/drm/card*-*; do [ -f "$c/status" ] && echo "  ${c##*/}: $(cat "$c/status")$( [ "$(cat "$c/status")" = connected ] && echo ", modes: $(sort "$c/modes" | uniq -c | awk '{printf "%s(%s) ", $2, $1}')")"; done
 k | grep -e 'hdmi' -e 'PS5 VRR' -e 'FRL' -e 'EDID' -e 'ALLM' | grep -v -e 'switched on' | last 25
 echo "  counts: EDID announcements $(k | grep -ciE 'got real (hdmi )?edid'), re-arms $(k | grep -c 're-arm #'), ignored EDIDs $(k | grep -c 'EDID announcement')"

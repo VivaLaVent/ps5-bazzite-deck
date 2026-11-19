@@ -1,0 +1,1565 @@
+PS5: HDR at 10/12 bpc, RGB range and 4K over FRL on VERDE (opt-in, all off by default); VRR switch experimental
+
+The VERDE side of the official ps5-linux-patches b33e7c5 (#81), "ps5: add opt-in hdr, deep colour, frl, vrr and allm
+on verde", on our display stack instead of the official HDMI plan:
+
+  the verde hdmi bridge only gets the 8 bpc tmds set-up, an avi for 1080p60, 1440p and 4k60 and no hdr signalling.
+  sony uses the same bridge for frl, deep colour, vrr and allm. [...] not tested on a verde console. the messages
+  were compared byte for byte with ps5 os captures from two verde consoles
+
+Switches (drivers/ps5/hdmi.c), every one off by default; with all of them off VERDE gets exactly the writes it got
+before (same register sequence, the AVI byte for byte for all 256 VICs) and FLAVA3 is unchanged:
+- hdmi.verde_infoframes (live): the official verde_avi/verde_packets/verde_if_update InfoFrames (AVI with the
+  stream's format, BT.2020 and RGB range from hdmi.rgb_range; the DRM InfoFrame for HDR). The HDR Static Metadata
+  block is kept in the EDID only with it on (verde_drop_hdr() otherwise, as since v2.9), and isHdmiHdrSupported()
+  is true on VERDE with it.
+- hdmi.verde_avi_game (live, default on): IT content and content type game in the AVI, what Bazzite always sent;
+  off sends the official AVI without them.
+- hdmi.verde_deep_colour: HDR never goes out at 8 bpc. Over TMDS (1440p120, 2160p60 and below) HDR is 12 bpc
+  YCbCr 4:2:2, the same TMDS clock as 8 bpc RGB (the official dm_ps5_set_hdr_timing() rule). The RGB 10/12 bpc
+  path (official ps5_hdmi_bpc_limit(), depth in 0x3033) is in but does not run today: ps5-display.patch holds
+  every PS5 connector's max_requested_bpc at 8 (drivers/gpu/drm/drm_atomic.c, "Deeper RGB comes out of the
+  bridges as posterized contours"), so SDR stays 8 bpc RGB, as before.
+- hdmi.verde_frl: 2160p100/120 over HDMI 2.1 FRL in YCbCr 4:2:2 with the official VERDE sequences (0x84 and 0x8a
+  registered with the bridge firmware, then 5/3 02); with HDR at 10 bpc, the most the HBR3 x4 link carries in
+  4:2:2 (12 does not fit; the official planner picks the same), SDR at 8. No 6 bpc on that output. Our addition:
+  VERDE has no 0x7019, so the link counts as up on the bridge's "link / picture up" notification (0x03); without it
+  in frl_check_fn's window the display is marked failed and amdgpu falls back, as on FLAVA3. The HDR InfoFrame is
+  written again after link up, since sequence 0x8a rewrites the AVI and packet enables. 2160p60 RGB deeper than 8
+  bpc over FRL is in for the same future as the RGB path above.
+- hdmi.verde_vrr (experimental, do not turn on yet): the official verde_vrr (0x8000 bit 7, 0x9200, 0x3271/0x326a,
+  0x3261/0x3262 in the TMDS setup and in FRL sequence 0x8a; modes as the official vrr_mode_ok(), including the two
+  1440p timings with Sony's 1440p fields in the timing SDP; SDP and ignore-MSA as the official policy). The
+  register writes match the official byte for byte, and it fails on the one TV tried (below).
+Not ported: ALLM on VERDE.
+
+Seen here on a PS5 Slim CFI-2115 (VERDE, system software 13.60) with an LG C6, kernel 7.3.3-viva of v2.10 with
+this patch (bzImage and amdgpu.ko swapped; Module.symvers: 0 CRCs changed), switches on the command line,
+16 November (dmesg lines from drivers/ps5/hdmi.c):
+- 1440p120 HDR: "setup: 2560x1440@120 497750 kHz vic 0, 12 bpc YCbCr 4:2:2"; the TV reports HDR.
+- 2160p60 HDR: "setup: 3840x2160@60 594000 kHz vic 97, 12 bpc YCbCr 4:2:2"; games at 60 fps. 2160p60 itself
+  needs none of the switches (Game Mode had been pinned to 1440p120 on this console).
+- 2160p120 HDR: "setup: 3840x2160@120 1188000 kHz vic 118, 10 bpc YCbCr 4:2:2", "over VERDE FRL (VIC 118,
+  format 2, 10-bit)", "VERDE FRL link up (bridge notification 0x03)"; the TV's game bar shows 3840x2160, 120 Hz
+  and HDR; Dusklight and Forza Horizon 2 played at 2160p120. Both 2160p rates chosen from Steam's display
+  settings.
+- EDID announces and re-arms per start: 2 and 2 on the first, 1 and 0 on the last; Dolby Digital 5.1 over HDMI
+  unchanged.
+- VRR (hdmi.verde_vrr=1): at 1440p120 (TMDS) and at 2160p120 (FRL) the TV drops the link (bridge notification
+  0x01) about 2 s after every VRR setup and announces its EDID again, never 0x03. Over FRL the link check marks
+  VRR failed and the display comes back at fixed refresh after 17 s; over TMDS there is no such check, the
+  re-arms run out (4 in 120 s) and the screen stays black until VRR is switched off. Not tried: SDR, RGB.
+- Starts: five with these builds. Two, back to back, stopped before any picture (white light, no signal, no
+  journal); the same build started normally the next time, with a network console that the two stops did not
+  have. The other three were normal. Cause not found.
+---
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+index 23a1e8c..13bb182 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c
+@@ -1504,6 +1504,7 @@ static void dm_ps5_hotplug_handler(void *data)
+ static struct drm_device *ps5_frl_fallback_dev;
+ static struct delayed_work ps5_frl_fallback_work;
+ static void dm_ps5_frl_fallback_kick(void);
++static void dm_ps5_vrr_fallback_kick(void);
+ #endif
+ 
+ static int dm_hw_init(struct amdgpu_ip_block *ip_block)
+@@ -1525,6 +1526,7 @@ static int dm_hw_init(struct amdgpu_ip_block *ip_block)
+ 	INIT_DELAYED_WORK(&adev->dm.ps5_hdmi_resetup_work, dm_ps5_hdmi_resetup_work_func);
+ 	ps5_frl_fallback_dev = adev_to_drm(adev);
+ 	hdmi_set_frl_fallback(dm_ps5_frl_fallback_kick);
++	hdmi_set_vrr_fallback(dm_ps5_vrr_fallback_kick);
+ 	adev->dm.ps5_hdmi_resetup_until = jiffies;
+ 	hdmi_set_hotplug_handler(dm_ps5_hotplug_handler, &adev->dm);
+ 	amdgpu_dm_ps5_usbc_init(&adev->dm);
+@@ -1560,11 +1562,13 @@ static int dm_hw_fini(struct amdgpu_ip_block *ip_block)
+ 
+ #ifdef CONFIG_X86_PS5
+ 	hdmi_set_hotplug_handler(NULL, NULL);
++	/* before the cancel: the callback queues the setup work. NULL also waits for a link check that read it. */
++	hdmi_set_vrr_fallback(NULL);
++	WRITE_ONCE(ps5_frl_fallback_dev, NULL);	/* the kick checks it: nothing queues the setup work after this */
+ 	cancel_delayed_work_sync(&adev->dm.ps5_hotplug_work);
+ 	cancel_delayed_work_sync(&adev->dm.ps5_hdmi_resetup_work);
+ 	hdmi_set_frl_fallback(NULL);
+ 	cancel_delayed_work_sync(&ps5_frl_fallback_work);
+-	ps5_frl_fallback_dev = NULL;
+ 	amdgpu_dm_ps5_usbc_stop(&adev->dm);
+ #endif
+ 	amdgpu_dm_hpd_fini(adev);
+@@ -5319,6 +5323,19 @@ static void dm_ps5_frl_fallback_kick(void)
+ 	mod_delayed_work(system_dfl_wq, &ps5_frl_fallback_work, 0);
+ }
+ 
++/*
++ * VERDE VRR failed for the display (hdmi.verde_vrr): the HDMI setup again, the same mode at fixed refresh. The
++ * setup work withdraws the connector's VRR capability first (hdmi.c says VRR is blocked) and forces the commit.
++ */
++static void dm_ps5_vrr_fallback_kick(void)
++{
++	struct drm_device *dev = READ_ONCE(ps5_frl_fallback_dev);
++
++	if (dev)
++		mod_delayed_work(system_dfl_wq, &drm_to_adev(dev)->dm.ps5_hdmi_resetup_work,
++				 msecs_to_jiffies(100));
++}
++
+ static int dm_ps5_commit_mode(struct drm_connector *connector, const struct drm_display_mode *mode)
+ {
+ 	struct drm_device *ddev = connector->dev;
+@@ -5376,7 +5393,9 @@ static void dm_ps5_frl_fallback_work_func(struct work_struct *work)
+ 		    !connector->state->crtc->state->active)
+ 			continue;
+ 		cur = &connector->state->crtc->state->mode;
+-		if (drm_match_cea_mode(cur) != 118 && drm_match_cea_mode(cur) != 117)
++		/* VERDE with verde_frl: 2160p60 deep colour is an FRL setup too; the same mode comes back at 8 bpc */
++		if (drm_match_cea_mode(cur) != 118 && drm_match_cea_mode(cur) != 117 &&
++		    !(drm_match_cea_mode(cur) == 97 && ps5_hdmi_verde_frl()))
+ 			continue;
+ 		changed = true;
+ 		list_for_each_entry(mode, &connector->modes, head) {
+@@ -6126,6 +6145,22 @@ skip_modeset:
+ 	/* Update Freesync settings. */
+ 	amdgpu_dm_get_freesync_config_for_crtc(dm_new_crtc_state,
+ 				     dm_new_conn_state);
++#ifdef CONFIG_X86_PS5
++	/*
++	 * VERDE VRR (hdmi.verde_vrr): only the modes the bridge follows have it, as in the official freesync code;
++	 * the others are fixed refresh. FLAVA3 and VERDE without verde_vrr are not touched.
++	 */
++	if (dm_new_crtc_state->vrr_supported && aconnector && ps5_hdmi_verde_vrr() &&
++	    ps5_dm_is_hdmi_connector(aconnector) &&
++	    !ps5_hdmi_verde_vrr_allowed(&new_crtc_state->mode)) {
++		dm_new_crtc_state->vrr_supported = false;
++		memset(&dm_new_crtc_state->freesync_config, 0, sizeof(dm_new_crtc_state->freesync_config));
++		dm_new_crtc_state->freesync_config.state = VRR_STATE_UNSUPPORTED;
++		dm_new_crtc_state->stream->ignore_msa_timing_param = false;
++		memset(&dm_new_crtc_state->stream->adaptive_sync_infopacket, 0,
++		       sizeof(dm_new_crtc_state->stream->adaptive_sync_infopacket));
++	}
++#endif
+ 
+ 	return ret;
+ 
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+index 49b915c..47b1a72 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_connector.c
+@@ -903,14 +903,35 @@ static void dm_ps5_set_hdr_timing(struct dc_crtc_timing *timing,
+ 	/* Independent of the requested depth: max bpc is 8 here (the bridges' RGB depth), HDR10 is 12 bpc 4:2:2. */
+ 	if (!dm_ps5_is_hdmi_connector(state->connector) ||
+ 	    !isHdmiHdrSupported() || !state->hdr_output_metadata ||
+-	    !(info->color_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422)) ||
+-	    timing->pixel_encoding != PIXEL_ENCODING_RGB)
++	    !(info->color_formats & BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422)))
+ 		return;
+ 	if (state->colorspace != DRM_MODE_COLORIMETRY_BT2020_RGB &&
+ 	    state->colorspace != DRM_MODE_COLORIMETRY_BT2020_YCC)
+ 		return;
+-	if (vic != 16 && vic != 97) /* 1080p60, 2160p60 */
++	/*
++	 * VERDE over FRL (2160p100/120): the stream is already 4:2:2, at the 8 bpc every PS5 connector is held to
++	 * (drm_atomic.c). HDR10 goes out at 10 bpc, the most the HBR3 x4 link carries in 4:2:2 (12 does not fit).
++	 */
++	if (ps5_hdmi_verde_bpc_limited() && timing->pixel_encoding == PIXEL_ENCODING_YCBCR422) {
++		if ((vic == 117 || vic == 118) && timing->display_color_depth < COLOR_DEPTH_101010 &&
++		    !drm_hdmi_infoframe_set_hdr_metadata(&frame, state) &&
++		    frame.eotf == HDMI_EOTF_SMPTE_ST2084)
++			timing->display_color_depth = COLOR_DEPTH_101010;
++		return;
++	}
++	if (timing->pixel_encoding != PIXEL_ENCODING_RGB)
+ 		return;
++	/*
++	 * VERDE with verde_deep_colour: HDR keeps RGB where the TMDS clock carries 10 bpc or more (the stream
++	 * already got that depth), and goes out as 12 bpc 4:2:2 at any mode where it does not (1440p120,
++	 * 2160p60 over TMDS), so HDR is never sent at 8 bpc. Without it, Bazzite's 1080p60/2160p60 rule.
++	 */
++	if (ps5_hdmi_verde_deep_colour()) {
++		if (timing->display_color_depth >= COLOR_DEPTH_101010)
++			return;
++	} else if (vic != 16 && vic != 97) { /* 1080p60, 2160p60 */
++		return;
++	}
+ 	if (drm_hdmi_infoframe_set_hdr_metadata(&frame, state) ||
+ 	    frame.eotf != HDMI_EOTF_SMPTE_ST2084)
+ 		return;
+@@ -1032,10 +1053,36 @@ STATIC_IFN_KUNIT void fill_stream_properties_from_drm_display_mode(
+ 
+ #ifdef CONFIG_X86_PS5
+ 	dm_ps5_set_hdr_timing(timing_out, mode_in, connector_state);
+-	/* Deeper RGB comes out of the bridges as posterized contours; HDR is 4:2:2 at 12 bpc anyway. */
++	/* VERDE with verde_frl, 2160p60: RGB goes over FRL at the depth the sink and the request allow, not clamped to the sink's TMDS clock. */
+ 	if (timing_out->pixel_encoding == PIXEL_ENCODING_RGB &&
+-	    timing_out->display_color_depth > COLOR_DEPTH_888)
+-		timing_out->display_color_depth = COLOR_DEPTH_888;
++	    ps5_hdmi_verde_bpc_limited() && connector_state &&
++	    dm_ps5_is_hdmi_connector(connector_state->connector) &&
++	    ps5_hdmi_verde_frl_deep(mode_in)) {
++		timing_out->display_color_depth = amdgpu_dm_convert_color_depth_from_display_info(
++			connector, false, ps5_hdmi_bpc_limit(mode_in, info, requested_bpc));
++	} else if (timing_out->pixel_encoding == PIXEL_ENCODING_RGB &&
++		   timing_out->display_color_depth > COLOR_DEPTH_888) {
++		/*
++		 * Deeper RGB comes out of the bridges as posterized contours; HDR is 4:2:2 at 12 bpc anyway.
++		 * VERDE with verde_deep_colour: deeper RGB up to what the sink's TMDS clock carries.
++		 */
++		if (ps5_hdmi_verde_bpc_limited() && connector_state &&
++		    dm_ps5_is_hdmi_connector(connector_state->connector)) {
++			unsigned int bpc = ps5_hdmi_bpc_limit(mode_in, info,
++				amdgpu_dm_convert_dc_color_depth_into_bpc(timing_out->display_color_depth));
++
++			if (bpc < 10)
++				timing_out->display_color_depth = COLOR_DEPTH_888;
++			else if (bpc < 12)
++				timing_out->display_color_depth = min(timing_out->display_color_depth,
++								      COLOR_DEPTH_101010);
++			else
++				timing_out->display_color_depth = min(timing_out->display_color_depth,
++								      COLOR_DEPTH_121212);
++		} else {
++			timing_out->display_color_depth = COLOR_DEPTH_888;
++		}
++	}
+ #endif
+ 
+ 	stream->output_color_space = amdgpu_dm_get_output_color_space(timing_out, connector_state);
+@@ -2062,6 +2109,11 @@ void amdgpu_dm_connector_funcs_reset(struct drm_connector *connector)
+ 	state->underscan_hborder = 0;
+ 	state->underscan_vborder = 0;
+ 	state->base.max_requested_bpc = 8;
++#ifdef CONFIG_X86_PS5
++	/* VERDE with verde_deep_colour or verde_frl: the connector offers 8-12 bpc; nothing in userspace raises it. */
++	if (ps5_hdmi_verde_bpc_limited() && dm_ps5_is_hdmi_connector(connector))
++		state->base.max_requested_bpc = 12;
++#endif
+ 	state->vcpi_slots = 0;
+ 	state->pbn = 0;
+ 
+@@ -2466,6 +2518,12 @@ amdgpu_dm_create_validate_stream_for_sink(struct drm_connector *connector,
+ 			encoding_mask |= BIT(PIXEL_ENCODING_YCBCR420);
+ 	}
+ 
++#ifdef CONFIG_X86_PS5
++	/* VERDE with verde_deep_colour or verde_frl: a depth the HDMI side cannot carry gives a black screen. */
++	if (ps5_hdmi_verde_bpc_limited() && dm_ps5_is_hdmi_connector(connector))
++		requested_bpc = ps5_hdmi_bpc_limit(drm_mode, info, requested_bpc);
++#endif
++
+ 	/*
+ 	 * Build the set of bit depths to try, high-to-low. Start from the
+ 	 * atomic-requested cap and clear anything the sink cannot do:
+@@ -2486,6 +2544,11 @@ amdgpu_dm_create_validate_stream_for_sink(struct drm_connector *connector,
+ 
+ 		if (bpc == 6 && is_hdmi_ep)
+ 			continue;
++#ifdef CONFIG_X86_PS5
++		/* VERDE with verde_frl: HDMI has no 6 bpc; without it 2160p100/120 falls through to 4:2:2. */
++		if (bpc == 6 && ps5_hdmi_verde_frl() && dm_ps5_is_hdmi_connector(connector))
++			continue;
++#endif
+ 
+ 		if (info->bpc && bpc > info->bpc)
+ 			continue;
+@@ -3390,11 +3453,22 @@ void amdgpu_dm_connector_init_helper(struct amdgpu_display_manager *dm,
+ 				0);
+ 
+ #ifdef CONFIG_X86_PS5
+-	/* The bridges take 8 bpc RGB only, so the property offers nothing else. */
+-	if (!aconnector->mst_root)
+-		drm_connector_attach_max_bpc_property(&aconnector->base, 8, 8);
++	/*
++	 * The bridges take 8 bpc RGB only, so the property offers nothing else; VERDE with verde_deep_colour
++	 * also takes 10 and 12 bpc, the TMDS clock limit is applied per mode, and with verde_frl 2160p60 does.
++	 */
++	if (ps5_hdmi_verde_bpc_limited() && dm_ps5_is_hdmi_connector(&aconnector->base)) {
++		if (!aconnector->mst_root)
++			drm_connector_attach_max_bpc_property(&aconnector->base, 8, 12);
+ 
+-	aconnector->base.state->max_bpc = 8;
++		aconnector->base.state->max_bpc = 12;
++		aconnector->base.state->max_requested_bpc = 12;
++	} else {
++		if (!aconnector->mst_root)
++			drm_connector_attach_max_bpc_property(&aconnector->base, 8, 8);
++
++		aconnector->base.state->max_bpc = 8;
++	}
+ #else
+ 	if (!aconnector->mst_root)
+ 		drm_connector_attach_max_bpc_property(&aconnector->base, 8, 16);
+@@ -3727,6 +3801,22 @@ void dm_restore_drm_connector_state(struct drm_device *dev,
+ }
+ 
+ #ifdef CONFIG_X86_PS5
++/*
++ * VERDE VRR failed for this display (hdmi.verde_vrr): the connector stops being VRR capable before the same mode is
++ * set up again, so the new stream is fixed refresh; amdgpu_dm_update_freesync_caps() keeps it so until the EDID changes.
++ */
++static void dm_ps5_vrr_withdraw(struct drm_connector *connector)
++{
++	struct amdgpu_dm_connector *aconnector = to_amdgpu_dm_connector(connector);
++
++	to_dm_connector_state(connector->state)->freesync_capable = false;
++	aconnector->min_vfreq = 0;
++	aconnector->max_vfreq = 0;
++	aconnector->as_type = ADAPTIVE_SYNC_TYPE_NONE;
++	if (connector->vrr_capable_property)
++		drm_connector_set_vrr_capable_property(connector, false);
++}
++
+ void dm_ps5_hdmi_resetup_work_func(struct work_struct *work)
+ {
+ 	struct amdgpu_display_manager *dm =
+@@ -3747,6 +3837,9 @@ void dm_ps5_hdmi_resetup_work_func(struct work_struct *work)
+ 		    !connector->state || !connector->encoder)
+ 			continue;
+ 
++		if (ps5_hdmi_vrr_block() == 2)
++			dm_ps5_vrr_withdraw(connector);
++
+ 		acrtc = to_amdgpu_crtc(connector->encoder->crtc);
+ 		/* Nothing to set up again if the link didn't train. */
+ 		if (acrtc && to_dm_crtc_state(acrtc->base.state)->stream &&
+@@ -4109,10 +4202,18 @@ void amdgpu_dm_update_freesync_caps(struct drm_connector *connector,
+ 	if (ps5_dm_is_hdmi_bridge(amdgpu_dm_connector)) {
+ 		static int ps5_vrr_logged = -1;
+ 		const char *src = "none";
+-		int lo = 0, hi = 0, key;
++		int lo = 0, hi = 0, key, block;
+ 
+ 		/* the TV's own VRR range (the generic DP path can't see past the HDMI chip) */
+ 		freesync_capable = !ps5_hdmi_vrr_range(&lo, &hi, &src);
++		/* VERDE (hdmi.verde_vrr): only a sink with HDMI VRR, and not one VRR failed with; FLAVA3 has no block */
++		block = ps5_hdmi_vrr_block();
++		if (block) {
++			freesync_capable = false;
++			lo = hi = 0;
++			src = block == 1 ? "no HDMI VRR in the EDID" :
++			      "a VRR setup failed with this display, fixed refresh until its EDID changes";
++		}
+ 		amdgpu_dm_connector->min_vfreq = freesync_capable ? lo : 0;
+ 		amdgpu_dm_connector->max_vfreq = freesync_capable ? hi : 0;
+ 
+@@ -4127,7 +4228,7 @@ void amdgpu_dm_update_freesync_caps(struct drm_connector *connector,
+ 			amdgpu_dm_connector->as_type = FREESYNC_TYPE_PCON_IN_WHITELIST;
+ 		}
+ 
+-		key = freesync_capable ? lo | hi << 10 : 0;
++		key = freesync_capable ? lo | hi << 10 : block;
+ 		if (key != ps5_vrr_logged) {
+ 			ps5_vrr_logged = key;
+ 			drm_info(connector->dev, "PS5 VRR: %s, range %d-%d Hz (%s)\n",
+@@ -4138,7 +4239,7 @@ void amdgpu_dm_update_freesync_caps(struct drm_connector *connector,
+ 	} else if (ps5_dm_is_hdmi_connector(amdgpu_dm_connector)) {
+ 		static bool ps5_vrr_off_logged;
+ 
+-		/* Only FLAVA3's follow mode is known to work: no VRR on VERDE or with hdmi.vrr=0. */
++		/* No VRR on FLAVA3 with hdmi.vrr=0, nor on VERDE without hdmi.verde_vrr. */
+ 		freesync_capable = false;
+ 		amdgpu_dm_connector->min_vfreq = 0;
+ 		amdgpu_dm_connector->max_vfreq = 0;
+@@ -4147,7 +4248,7 @@ void amdgpu_dm_update_freesync_caps(struct drm_connector *connector,
+ 			ps5_vrr_off_logged = true;
+ 			drm_info(connector->dev, "PS5 VRR: not offered (%s)\n",
+ 				 ps5_hdmi_ic_is_flava3() ? "hdmi.vrr=0" :
+-				 "supported on the FLAVA3 HDMI chip only");
++				 "VERDE: hdmi.verde_vrr=0");
+ 		}
+ 	}
+ #endif
+diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c
+index 8ec16fa..cd1fd7b 100644
+--- a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c
++++ b/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm_freesync.c
+@@ -133,9 +133,13 @@ void amdgpu_dm_get_freesync_config_for_crtc(
+ 
+ 	if (new_crtc_state->vrr_supported) {
+ #ifdef CONFIG_X86_PS5
+-		/* the HDMI chip: ignore the MSA (DRR) only while VRR is on; the DPCD bit stays clear */
++		/*
++		 * the HDMI chip: ignore the MSA (DRR) only while VRR is on; the DPCD bit stays clear. VERDE with
++		 * hdmi.verde_vrr follows the official policy: whenever VRR is supported on the mode.
++		 */
+ 		new_crtc_state->stream->ignore_msa_timing_param =
+-			ps5_dm_is_hdmi_bridge(aconnector) ? new_crtc_state->base.vrr_enabled : true;
++			ps5_dm_is_hdmi_bridge(aconnector) && !ps5_hdmi_verde_vrr() ?
++			new_crtc_state->base.vrr_enabled : true;
+ #else
+ 		new_crtc_state->stream->ignore_msa_timing_param = true;
+ #endif
+@@ -256,6 +260,16 @@ void amdgpu_dm_update_freesync_state_on_stream(
+ 				p->sb[2 * i + 1] = f[i] & 0xff;
+ 			}
+ 			p->sb[10] = 0x01;
++			/* VERDE with hdmi.verde_vrr: Sony's 1440p fields, as the official dm_ps5_set_vrr_sdp() */
++			if (ps5_hdmi_verde_vrr() && t->h_addressable == 2560 && t->v_addressable == 1440) {
++				if (t->pix_clk_100hz >= 2414000 && t->pix_clk_100hz <= 2418000) {
++					p->sb[11] = t->v_front_porch + 1;
++					p->sb[13] = 60;
++				} else if (t->pix_clk_100hz >= 4972000 && t->pix_clk_100hz <= 4978000) {
++					p->sb[11] = t->v_front_porch + 2;
++					p->sb[13] = 120;
++				}
++			}
+ 			p->valid = true;
+ 		}
+ #endif
+@@ -273,7 +287,9 @@ void amdgpu_dm_update_freesync_state_on_stream(
+ 	/* the HDMI chip gets the timing packet instead of the FreeSync one, and only while VRR is on */
+ 	if (ps5_bridge) {
+ 		vrr_infopacket.valid = false;
+-		if (!amdgpu_dm_crtc_vrr_active(new_crtc_state))
++		/* VERDE with hdmi.verde_vrr keeps the timing packet whenever VRR is supported, as official */
++		if (!amdgpu_dm_crtc_vrr_active(new_crtc_state) &&
++		    !(ps5_hdmi_verde_vrr() && new_crtc_state->vrr_supported))
+ 			new_stream->adaptive_sync_infopacket.valid = false;
+ 	}
+ #endif
+diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
+index 84ceac8..bfeefb6 100755
+--- a/drivers/ps5/hdmi.c
++++ b/drivers/ps5/hdmi.c
+@@ -183,6 +183,46 @@ static bool edid_has_scdc(const u8 *e, int len)
+ 	}
+ 	return false;
+ }
++
++/*
++ * HDMI VRR in the HF-VSDB or HF-SCDB: a nonzero VRRmax at +9 and +10 of the block header (the official
++ * edid_hf_vrr(), same checks: the CTA block checksums to zero and its data block collection ends exactly at
++ * the DTD offset).
++ */
++static bool edid_hf_vrr(const u8 *edid, size_t size)
++{
++	size_t off, i;
++
++	if (size < EDID_LENGTH)
++		return false;
++	size = min(size, (size_t)(edid[126] + 1) * EDID_LENGTH);
++	for (off = EDID_LENGTH; off + EDID_LENGTH <= size; off += EDID_LENGTH) {
++		const u8 *blk = edid + off;
++		u8 end = blk[2], sum = 0;
++
++		if (blk[0] != 2 || blk[1] < 3 || end < 4 || end > 127)
++			continue;
++		for (i = 0; i < EDID_LENGTH; i++)
++			sum += blk[i];
++		if (sum)
++			continue;
++		for (i = 4; i < end; i += 1 + (blk[i] & 31))
++			if (i + 1 + (blk[i] & 31) > end)
++				break;
++		if (i != end)
++			continue;
++		for (i = 4; i < end; i += 1 + (blk[i] & 31)) {
++			u8 tag = blk[i] >> 5, len = blk[i] & 31;
++
++			if (((tag == 3 && len >= 3 && blk[i + 1] == 0xd8 &&
++			      blk[i + 2] == 0x5d && blk[i + 3] == 0xc4) ||
++			     (tag == 7 && len >= 1 && blk[i + 1] == 0x79)) &&
++			    len >= 10 && ((blk[i + 9] & 0xc0) || blk[i + 10]))
++				return true;
++		}
++	}
++	return false;
++}
+ static bool hdr_enabled;
+ static bool bt2020_enabled;
+ 
+@@ -836,6 +876,37 @@ module_param(rgb_range, uint, 0644);
+ MODULE_PARM_DESC(rgb_range, "AVI RGB quantization range: 1 full (default), 2 limited, 0 default (TV decides)");
+ static bool avi_rgb;
+ 
++/*
++ * VERDE InfoFrames: AVI (4:2:2, BT.2020, RGB range) and HDR (DRM) the way the PS5 OS writes them, read at
++ * each modeset; off by default, the bridge then gets the fixed AVI it always got. HDR is only offered
++ * once the EDID keeps its HDR block, so switching this live needs the TV to announce itself again
++ * (reconnect it) or the parameter on the kernel command line.
++ */
++static bool verde_infoframes;
++module_param(verde_infoframes, bool, 0644);
++MODULE_PARM_DESC(verde_infoframes, "VERDE: send AVI colour format/colorimetry/range and HDR (DRM) InfoFrames, and offer HDR (default off; live, HDR needs the TV to re-announce)");
++/*
++ * VERDE deep colour: RGB at 10 or 12 bpc where the sink's TMDS clock allows it (ps5_hdmi_bpc_limit()), the
++ * depth goes to 0x3033 and the deep packet flag to 0x3000. Read when the module loads: it decides the
++ * connector's max bpc range in amdgpu. Off, the bridge always gets the 8 bpc setup.
++ */
++static bool verde_deep_colour;
++module_param(verde_deep_colour, bool, 0444);
++MODULE_PARM_DESC(verde_deep_colour, "VERDE: 10 and 12 bpc RGB where the TMDS clock allows, and HDR as RGB instead of 4:2:2 (default off)");
++/* VERDE AVI content: IT content set and content type game, so TVs pick their game mode (what FLAVA3 sends). */
++static bool verde_avi_game = true;
++module_param(verde_avi_game, bool, 0644);
++MODULE_PARM_DESC(verde_avi_game, "VERDE: AVI with IT content and content type game (default on); off sends the PS5 OS AVI without them");
++/*
++ * VERDE over FRL: 2160p100/120 (4:2:2) and 2160p60 RGB deeper than 8 bpc go out on the bridge's FRL setup, the
++ * sequences the PS5 OS uses (sequences 0x84 and 0x8a, then 5/3 02). Needs a sink with Max_FRL_Rate >= 4 and
++ * 4:2:2; the link is checked by the bridge's "picture up" notification. Read when the module loads: it decides
++ * the connector's max bpc range in amdgpu. Off, the bridge gets the TMDS setup it always got.
++ */
++static bool verde_frl;
++module_param(verde_frl, bool, 0444);
++MODULE_PARM_DESC(verde_frl, "VERDE: 2160p100/120 and 2160p60 deep colour over HDMI 2.1 FRL (default off)");
++
+ /*
+  * 4K120 over FRL (Sony's 13.60 setup, mode id 211): VIC 118 gets mode index 0x0b, the chip trains
+  * the link after 5/3 02, event sequence 0x30 updates the InfoFrames once it's up. The DP link (HBR3 x4)
+@@ -845,9 +916,11 @@ static bool frl_4k120 = true;
+ module_param(frl_4k120, bool, 0644);
+ MODULE_PARM_DESC(frl_4k120, "Offer 3840x2160 at 120 Hz over HDMI 2.1 FRL on FLAVA3 consoles (default on; 0 never offers it)");
+ 
++/* 2160p100/120: FLAVA3 unless hdmi.frl_4k120=0, VERDE only with hdmi.verde_frl */
+ static bool ps5_mode_frl(u8 vic)
+ {
+-	return frl_4k120 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && (vic == 118 || vic == 117);
++	return (frl_4k120 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 && (vic == 118 || vic == 117)) ||
++	       (hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_frl) && (vic == 118 || vic == 117));
+ }
+ 
+ /*
+@@ -867,6 +940,24 @@ void hdmi_set_frl_fallback(void (*cb)(void))
+ }
+ EXPORT_SYMBOL(hdmi_set_frl_fallback);
+ 
++/*
++ * VERDE VRR (the official hdmi.verde_vrr): for sinks with HDMI VRR in the HF-VSDB and an AMD VSDB FreeSync range
++ * the bridge follows the DP timing and the VRR packets are sent. It is set up with the video: sceHdmiSetVrrMode() records
++ * what amdgpu wants, the next video setup programs VRR on or off (a VRR switch re-runs the setup, as on FLAVA3).
++ * If a VRR setup fails the same mode is set up again at fixed refresh once, and VRR stays off for that display
++ * until its EDID changes. Off by default: nothing below runs and every bridge write is the one made without it.
++ */
++static bool verde_vrr;
++module_param(verde_vrr, bool, 0444);
++MODULE_PARM_DESC(verde_vrr, "VERDE: HDMI VRR for sinks with HDMI VRR and a FreeSync range (default off)");
++static bool sink_hf_vrr;			/* the sink's EDID has HDMI VRR (edid_hf_vrr()) */
++static bool verde_vrr_want;			/* amdgpu's last sceHdmiSetVrrMode(), VERDE with verde_vrr */
++static bool verde_vrr_bad;			/* a VRR setup failed ... */
++static u32 verde_vrr_bad_crc;			/* ... for the display with this EDID crc */
++static bool verde_frl_vrr;			/* the running FRL setup has VRR on */
++static u32 verde_frl_vrr_crc;
++static void (*verde_vrr_fallback_cb)(void);
++
+ static bool frl_offer_ok(void)
+ {
+ 	u8 rate = READ_ONCE(frl_ic_rate);
+@@ -915,6 +1006,7 @@ static void frl_note_edid(u8 byte0, const u8 *e, int len)
+ 	if (changed) {
+ 		frl_edid_crc = crc;
+ 		WRITE_ONCE(frl_failed, false);	/* another display, or the same one changed */
++		WRITE_ONCE(verde_vrr_bad, false);
+ 	}
+ 	if (changed || ok != READ_ONCE(frl_edid_ok) || rate != READ_ONCE(frl_ic_rate))
+ 		pr_info("hdmi: 4K120 %s (EDID FRL rate %u, YCbCr 4:2:2 %s, chip reports %u%s)\n",
+@@ -974,6 +1066,77 @@ static void frl_check_fn(struct work_struct *work)
+ }
+ static DECLARE_DELAYED_WORK(frl_check_work, frl_check_fn);
+ 
++/*
++ * VERDE has no 0x7019: its FRL link counts as up when the bridge reports "link / picture up" (notification
++ * 0x03, hdmi_notification_handler()) after the setup started. Same window as frl_check_fn: 1.5 s, then 20
++ * polls of 250 ms; without the notification the mode is withheld for this display and amdgpu falls back.
++ */
++static atomic_t verde_link_events = ATOMIC_INIT(0);
++static int verde_link_base;
++static void verde_frl_resend_infoframes(int seq);
++static void verde_vrr_fail(u32 crc, const char *why);
++static bool verde_vrr_kick(void);
++
++static void verde_frl_check_fn(struct work_struct *work)
++{
++	int seq = atomic_read(&frl_check_seq), i;
++	void (*cb)(void);
++
++	for (i = 0; i < 20; i++) {
++		if (atomic_read(&frl_check_seq) != seq)
++			return;		/* a new setup started */
++		if (atomic_read(&verde_link_events) != READ_ONCE(verde_link_base)) {
++			pr_info("hdmi: VERDE FRL link up (bridge notification 0x03)\n");
++			verde_frl_resend_infoframes(seq);
++			return;
++		}
++		msleep(250);
++	}
++	if (atomic_read(&frl_check_seq) != seq)
++		return;
++	/* With VRR on the link is not FRL's failure yet: the same setup again at fixed refresh, once. */
++	if (READ_ONCE(verde_frl_vrr)) {
++		WRITE_ONCE(verde_frl_vrr, false);
++		verde_vrr_fail(READ_ONCE(verde_frl_vrr_crc), "no link with VRR");
++		if (verde_vrr_kick())
++			return;
++	}
++	WRITE_ONCE(frl_failed, true);
++	pr_warn("hdmi: VERDE FRL link didn't come up (no 0x03 notification from the bridge): not offered for this display any more, falling back\n");
++	cb = READ_ONCE(frl_fallback_cb);
++	if (cb)
++		cb();
++}
++static DECLARE_DELAYED_WORK(verde_frl_check_work, verde_frl_check_fn);
++
++/*
++ * amdgpu's callback that withdraws VRR and sets the same mode up again. NULL is the teardown: a link check that
++ * already read the callback is waited for, so nothing queues amdgpu's work after it is cancelled.
++ */
++void hdmi_set_vrr_fallback(void (*cb)(void))
++{
++	WRITE_ONCE(verde_vrr_fallback_cb, cb);
++	if (!cb && READ_ONCE(verde_vrr)) {
++		atomic_inc(&frl_check_seq);	/* the check leaves at its next poll */
++		cancel_delayed_work_sync(&verde_frl_check_work);
++	}
++}
++EXPORT_SYMBOL(hdmi_set_vrr_fallback);
++
++/* a video setup or mute starts: whatever link check is pending belongs to the old one */
++static void verde_frl_check_cancel(void)
++{
++	atomic_inc(&frl_check_seq);
++	cancel_delayed_work(&verde_frl_check_work);
++}
++
++/* 2160p60 RGB deeper than 8 bpc on VERDE goes over FRL: the sink's TMDS clock is not what limits it */
++static bool verde_frl_deep(u8 vic, unsigned int bpc, bool yuv422)
++{
++	return hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_frl) && vic == 97 &&
++	       !yuv422 && bpc > 8 && frl_offer_ok();
++}
++
+ /* Sony's 4K mode index (0x7227 / 0x7070): 0x0a = 4K100, 0x0b = 4K120 */
+ static u8 ps5_frl_index(u8 vic)
+ {
+@@ -1271,10 +1434,17 @@ static void ps5_vrr_save_edid(const struct icc_msg *msg)
+ 	spin_unlock_irqrestore(&vrr_edid_lock, flags);
+ }
+ 
+-bool ps5_hdmi_vrr_possible(void)
++/* FLAVA3's follow mode (everything below up to sceHdmiSetVrrMode()), hdmi.vrr */
++static bool vrr_flava3(void)
+ {
+ 	return vrr && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3;
+ }
++
++/* VRR can be offered on this chip: FLAVA3 with hdmi.vrr, VERDE with hdmi.verde_vrr (the sink decides after that) */
++bool ps5_hdmi_vrr_possible(void)
++{
++	return vrr_flava3() || (hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_vrr));
++}
+ EXPORT_SYMBOL(ps5_hdmi_vrr_possible);
+ 
+ bool ps5_hdmi_ic_is_flava3(void)
+@@ -1284,7 +1454,64 @@ bool ps5_hdmi_ic_is_flava3(void)
+ EXPORT_SYMBOL(ps5_hdmi_ic_is_flava3);
+ 
+ 
+-/* the TV's VRR range: HDMI Forum VSDB or SCDB (VRRmin/VRRmax), else the AMD FreeSync VSDB */
++/*
++ * VERDE with hdmi.verde_vrr: the official range rule (dm_ps5_parse_vrr_range() and the PS5 freesync code in
++ * amdgpu_dm_update_freesync_caps()). Only the AMD VSDB counts: its supported bit, a minimum, a maximum above it
++ * and above min + 10. An HDMI Forum-only range is not used for the bridge and the minimum is not clamped.
++ * Does not touch vrr_min_hz (the FLAVA3 FreeSync SPD).
++ */
++static int verde_vrr_range(int *min_hz, int *max_hz, const char **src)
++{
++	unsigned int amd_min = 0, amd_max = 0;
++	int ext, n, off, len, end, elen;
++	unsigned long flags;
++	u8 *e;
++
++	e = kmalloc(sizeof(vrr_edid), GFP_KERNEL);
++	if (!e)
++		return -ENOMEM;
++	spin_lock_irqsave(&vrr_edid_lock, flags);
++	elen = vrr_edid_len;
++	memcpy(e, vrr_edid, elen);
++	spin_unlock_irqrestore(&vrr_edid_lock, flags);
++
++	if (elen < 128) {
++		kfree(e);
++		return -ENODATA;
++	}
++
++	n = e[0x7e];
++	for (ext = 1; ext <= n && (ext + 1) * 128 <= elen; ext++) {
++		const u8 *b = &e[ext * 128];
++
++		end = b[2];
++		if (b[0] != 0x02 || end < 4 || end > 127)
++			continue;
++		for (off = 4; off < end; off += 1 + len) {
++			const u8 *db = b + off;
++
++			len = db[0] & 0x1f;
++			if (off + 1 + len > end)
++				break;
++			if (db[0] >> 5 == 3 && len >= 7 &&
++			    db[1] == 0x1a && !db[2] && !db[3] &&
++			    (db[5] & 0x01) && db[6] && db[7] > db[6]) {
++				amd_min = db[6];
++				amd_max = db[7];
++			}
++		}
++	}
++	kfree(e);
++
++	if (!amd_min || amd_max <= amd_min + 10)
++		return -ENODATA;
++	*min_hz = amd_min;
++	*max_hz = amd_max;
++	*src = "FreeSync range";
++	return 0;
++}
++
++/* the TV's VRR range: HDMI Forum VSDB or SCDB (VRRmin/VRRmax), else the AMD FreeSync VSDB (VERDE: see above) */
+ int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src)
+ {
+ 	int amd_min = 0, amd_max = 0, hf_min = 0, hf_max = 0;
+@@ -1292,6 +1519,9 @@ int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src)
+ 	unsigned long flags;
+ 	u8 *e;
+ 
++	if (ps5_hdmi_verde_vrr())
++		return verde_vrr_range(min_hz, max_hz, src);
++
+ 	e = kmalloc(sizeof(vrr_edid), GFP_KERNEL);
+ 	if (!e)
+ 		return -ENOMEM;
+@@ -1349,6 +1579,92 @@ int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src)
+ }
+ EXPORT_SYMBOL(ps5_hdmi_vrr_range);
+ 
++/*
++ * VERDE VRR modes, as the official vrr_mode_ok(): the standard 1080p/2160p ones (VICs 16, 63, 97, 117, 118)
++ * and the two 1440p timings the bridge follows, for which amdgpu_dm_freesync.c adds Sony's 1440p fields
++ * (sb[11], sb[13]) to the timing SDP.
++ */
++static bool vrr_mode_ok(const struct drm_display_mode *mode)
++{
++	u8 vic;
++
++	if (!mode || mode->flags & (DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLSCAN |
++				    DRM_MODE_FLAG_3D_MASK) ||
++	    mode->vscan > 1)
++		return false;
++	vic = drm_match_cea_mode(mode);
++	if (vic == 16 || vic == 63 || vic == 97 || vic == 117 || vic == 118)
++		return true;
++	/* the two 1440p timings the bridge follows, with Sony's 1440p SDP fields (amdgpu_dm_freesync.c), as official */
++	if (mode->hdisplay != 2560 || mode->hsync_start != 2608 ||
++	    mode->hsync_end != 2640 || mode->htotal != 2720 ||
++	    mode->vdisplay != 1440 || mode->vsync_start != 1443 ||
++	    mode->vsync_end != 1448 ||
++	    mode->flags != (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC))
++		return false;
++	return (mode->vtotal == 1481 && (mode->clock == 241500 || mode->clock == 241700)) ||
++	       (mode->vtotal == 1525 && (mode->clock == 497500 || mode->clock == 497750));
++}
++
++/* VERDE with hdmi.verde_vrr */
++bool ps5_hdmi_verde_vrr(void)
++{
++	return hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_vrr);
++}
++EXPORT_SYMBOL(ps5_hdmi_verde_vrr);
++
++/* A VRR setup failed for the display whose EDID is the current one. */
++static bool verde_vrr_failed_now(void)
++{
++	return READ_ONCE(verde_vrr_bad) && READ_ONCE(verde_vrr_bad_crc) == READ_ONCE(frl_edid_crc);
++}
++
++/*
++ * Why VRR is not offered for this display even though the chip can: 0 nothing, 1 no HDMI VRR in the EDID (the
++ * official sink_hf_vrr rule), 2 a VRR setup failed for it. FLAVA3 and VERDE without verde_vrr: always 0.
++ */
++int ps5_hdmi_vrr_block(void)
++{
++	if (!ps5_hdmi_verde_vrr())
++		return 0;
++	if (!READ_ONCE(sink_hf_vrr))
++		return 1;
++	return verde_vrr_failed_now() ? 2 : 0;
++}
++EXPORT_SYMBOL(ps5_hdmi_vrr_block);
++
++/* This mode can go out with VRR on: VERDE with verde_vrr, a sink with HDMI VRR, a mode the bridge follows, inside the range. */
++bool ps5_hdmi_verde_vrr_allowed(const struct drm_display_mode *mode)
++{
++	const char *src;
++	int lo, hi, refresh;
++
++	if (!ps5_hdmi_verde_vrr() || ps5_hdmi_vrr_block() || !vrr_mode_ok(mode) ||
++	    ps5_hdmi_vrr_range(&lo, &hi, &src))
++		return false;
++	refresh = drm_mode_vrefresh(mode);
++	return refresh >= lo && refresh <= hi;
++}
++EXPORT_SYMBOL(ps5_hdmi_verde_vrr_allowed);
++
++/* A VRR setup failed for the display with this EDID crc: fixed refresh for it until the EDID changes. */
++static void verde_vrr_fail(u32 crc, const char *why)
++{
++	WRITE_ONCE(verde_vrr_bad_crc, crc);
++	WRITE_ONCE(verde_vrr_bad, true);
++	pr_warn("verde: VRR failed (%s): this display stays at fixed refresh until its EDID changes\n", why);
++}
++
++/* amdgpu stops offering VRR and sets the same mode up again (the stream is still variable until it does). */
++static bool verde_vrr_kick(void)
++{
++	void (*cb)(void) = READ_ONCE(verde_vrr_fallback_cb);
++
++	if (cb)
++		cb();
++	return cb != NULL;
++}
++
+ /* The chip only follows with stock's full PHY tail and the VSync block at stock's position. */
+ static bool vrr_stock_setup(void)
+ {
+@@ -1356,7 +1672,7 @@ static bool vrr_stock_setup(void)
+ 	int lo, hi;
+ 
+ 	/* not in FRL modes: 4K120 VRR runs on Sony's FRL setup without them */
+-	return ps5_hdmi_vrr_possible() && !setup_frl && !ps5_hdmi_vrr_range(&lo, &hi, &src);
++	return vrr_flava3() && !setup_frl && !ps5_hdmi_vrr_range(&lo, &hi, &src);
+ }
+ 
+ /* one I2C program to the chip, without the shared i2c_ctx (runs from a work item) */
+@@ -1453,7 +1769,9 @@ void sceHdmiSetVrrMode(bool on)
+ {
+ 	atomic_inc(&vrr_follow_gen);
+ 	vrr_requested = on;
+-	WRITE_ONCE(vrr_follow, on && ps5_hdmi_vrr_possible());
++	WRITE_ONCE(vrr_follow, on && vrr_flava3());
++	/* VERDE has no follow block: the next video setup programs it */
++	WRITE_ONCE(verde_vrr_want, on && hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_vrr));
+ 	if (!vrr_follow) {
+ 		cancel_delayed_work(&vrr_follow_work);
+ 		WRITE_ONCE(vrr_follow_pending, false);	/* the coming setup unmutes as usual */
+@@ -1604,12 +1922,25 @@ static void sceHdmiSetAudioConfigFlava3(int channels)
+ 	setAudioConfigAdditional(channels);
+ }
+ 
+-static void initVerde(void)
++/* Status bits 4 and 6 of 0x00f3 each ask for a reset, as the PS5 OS does it. */
++static void initVerdeStatus(u8 status)
+ {
+ 	i2c_init(0);
+ 	i2c_mask(0x105, 0x00, 0x03);
+ 	i2c_mask(0x104, 0x00, 0x02);
+ 	i2c_cmd_2_1(0x400, 0x00);
++	if (status & 0x10) {
++		i2c_cmd_2_1(0xf1, 0x10);
++		i2c_waitset(0xf2, 0x10);
++		i2c_waitset(0x16, 0x08);
++		i2c_cmd_2_1(0x16, 0x08);
++	}
++	if (status & 0x40) {
++		i2c_cmd_2_1(0xf1, 0x40);
++		i2c_waitset(0xf2, 0x40);
++		i2c_waitset(0x16, 0x08);
++		i2c_cmd_2_1(0x16, 0x08);
++	}
+ 	i2c_cmd_2_1(0x3261, 0x02);
+ 	i2c_begin_block();
+ 	i2c_write(0x11, 0x03);
+@@ -1622,6 +1953,12 @@ static void initVerde(void)
+ 	i2c_exec();
+ }
+ 
++/* status 0: no reset requests, the writes initVerde() always made */
++static void initVerde(void)
++{
++	initVerdeStatus(0);
++}
++
+ static void linkConfigVerde(const struct drm_display_mode *mode)
+ {
+ 	i2c_init(0);
+@@ -1636,19 +1973,21 @@ static void linkConfigVerde(const struct drm_display_mode *mode)
+ 	i2c_exec();
+ }
+ 
+-static void configDpLinkTrainingVerde(void)
++/* VRR sets bit 7 of 0x8003 for the DP input. */
++static int configDpLinkTrainingVerde(bool vrr)
+ {
+ 	i2c_init(0);
+ 	i2c_cmd_2_1(0x9002, 0x01);
++	if (vrr)
++		i2c_write_data(0x8000, (u8[]){0x00, 0x01, 0x07, 0x80}, 4);
+ 	i2c_waitset(0x4001, 0x02);
+ 	i2c_cmd_2_1(0x11, 0x01);
+-	i2c_exec();
++	return i2c_exec();
+ }
+ 
+-static void setTmdsConfigVerde(void)
++/* the audio clock block of the TMDS setup and of the FRL output sequence, queued into the running message */
++static void queueVerdeAudio(void)
+ {
+-	i2c_init(0);
+-	i2c_cmd_2_1(0x9200, 0x00);
+ 	i2c_begin_block();
+ 	i2c_write(0x9800, 0x00);
+ 	i2c_write(0x33b3, 0x1a);
+@@ -1660,33 +1999,230 @@ static void setTmdsConfigVerde(void)
+ 	i2c_waitclear(0x9830, 0x80);
+ 	i2c_cmd_2_1(0x9830, 0x81);
+ 	i2c_waitclear(0x9830, 0x80);
++}
++
++static int setTmdsConfigVerde(bool vrr)
++{
++	i2c_init(0);
++	i2c_cmd_2_1(0x9200, vrr);
++	queueVerdeAudio();
+ 	i2c_waitclear(0x108, 0x10);
+ 	i2c_mask(0x108, 0x11, 0x17);
+ 	i2c_waitset(0x13, 0x40);
+ 	i2c_cmd_2_1(0x13, 0x40);
+ 	i2c_cmd_3_5(0x4001, 0x03);
+ 	i2c_cmd_2_1(0x11, 0x01);
+-	i2c_exec();
++	return i2c_exec();
+ }
+ 
+-/* Verde AVI InfoFrame (0x3058): RGB, the mode's VIC, ITC and content type game, as on FLAVA3, so TVs pick their game mode */
+-static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
+-{
+-	u8 avi[18] = { 0x02, 0x0d, 0x00, 0x00, 0x28, 0x88, drm_match_cea_mode(mode), 0x70 };
+-	int i, sum = 0x82;
++/*
++ * verde_infoframes state: what amdgpu asked for since the last video setup, and what was written.
++ * valid is false when that setup is plain RGB with verde_infoframes off: nothing is rewritten then.
++ */
++static DEFINE_MUTEX(verde_if_lock);
++static struct {
++	bool valid;
++	u8 vic;
++	u8 format;
++	u8 range;
++	bool game;
++	bool bt2020;
++	bool hdr;
++	struct hdmi_drm_infoframe frame;
++	u8 avi[18];
++	bool drm_sent;
++	u8 drm[HDMI_INFOFRAME_SIZE(DRM)];
++} verde_if;
+ 
+-	for (i = 0; i < ARRAY_SIZE(avi); i++)
++/*
++ * The AVI InfoFrame at 0x3058 without its type byte: version, length, checksum, PB1-PB13 and two zero
++ * bytes, as in the PS5 OS captures. range is hdmi.rgb_range (1 full, 2 limited, else TV decides): Q in
++ * PB3 for RGB as on FLAVA3, YQ in PB5. game adds IT content (PB3) and content type game (PB5).
++ */
++static void verde_avi(u8 avi[18], u8 vic, u8 format, bool bt2020, u8 range, bool game)
++{
++	bool rgb = format == PS5_HDMI_RGB;
++	u8 sum = HDMI_INFOFRAME_TYPE_AVI;
++	unsigned int i;
++
++	memset(avi, 0, 18);
++	avi[0] = 0x02;
++	avi[1] = HDMI_AVI_INFOFRAME_SIZE;
++	avi[3] = format == PS5_HDMI_422 ? 0x20 : format == PS5_HDMI_444 ? 0x40 : 0x00;
++	avi[4] = bt2020 ? 0xe8 : 0x28;
++	avi[5] = (bt2020 ? 0x60 : 0x00) | (game ? 0x80 : 0x00) |
++		 (rgb ? (range == 1 ? 0x08 : range == 2 ? 0x04 : 0x00) : 0x00);
++	avi[6] = vic;
++	avi[7] = (range == 1 ? 0x40 : 0x00) | (game ? 0x30 : 0x00);
++	for (i = 0; i < 3 + HDMI_AVI_INFOFRAME_SIZE; i++)
+ 		sum += avi[i];
+ 	avi[2] = -sum;
++}
++
++/* Packet enables at 0x3000: ALLM (HF-VSIF), DRM and 8 bpc (deep clears the 8 bpc flag). */
++static void verde_packets(u8 out[10], bool allm, bool drm, bool deep)
++{
++	static const u8 base[10] = { 0x56, 0xaa, 0x00, 0x24, 0x00, 0xa8, 0x00, 0x00, 0x08, 0x80 };
++
++	memcpy(out, base, sizeof(base));
++	if (allm) {
++		out[1] = (out[1] & ~0x30) | 0x10;
++		out[6] |= 0x20;
++	}
++	if (drm) {
++		out[1] = (out[1] & ~0xc0) | 0x40;
++		out[6] |= 0x80;
++	}
++	if (deep)
++		out[9] = 0x00;
++}
++
++/* 0x3033 byte 3 is the RGB/4:4:4 depth, byte 4 is set over FRL. */
++static void verde_depth(u8 out[9], unsigned int bpc, u8 format, bool frl)
++{
++	memset(out, 0, 9);
++	if (format == PS5_HDMI_422 || bpc <= 8)
++		return;
++	out[3] = bpc >= 12 ? 0x06 : 0x05;
++	out[4] = frl;
++}
++
++/*
++ * Rewrite the AVI and DRM InfoFrames on a running output when they change,
++ * in the order the PS5 OS uses for its VERDE audio InfoFrame update: blocks,
++ * the enable bits in 0x3000, the trigger 0x300a and the done flag in 0x0013.
++ */
++static void verde_if_update(void)
++{
++	const struct hdmi_drm_infoframe *frame = NULL;
++	struct hdmi_drm_infoframe sdr;
++	u8 drm[HDMI_INFOFRAME_SIZE(DRM)];
++	bool send_drm;
++	u8 avi[18];
++	int ret;
++
++	lockdep_assert_held(&verde_if_lock);
++	if (!verde_if.valid)
++		return;
++	/* Sinks keep the last DRM InfoFrame: send EOTF 0 when leaving HDR. */
++	if (verde_if.hdr) {
++		frame = &verde_if.frame;
++	} else if (verde_if.drm_sent) {
++		hdmi_drm_infoframe_init(&sdr);
++		frame = &sdr;
++	}
++	send_drm = frame && hdmi_drm_infoframe_pack_only(frame, drm, sizeof(drm)) == sizeof(drm);
++	if (frame && !send_drm)
++		return;
++	verde_avi(avi, verde_if.vic, verde_if.format, verde_if.bt2020, verde_if.range, verde_if.game);
++	if (!memcmp(avi, verde_if.avi, sizeof(avi)) && send_drm == verde_if.drm_sent &&
++	    (!send_drm || !memcmp(drm, verde_if.drm, sizeof(drm))))
++		return;
++
++	i2c_init(2);
++	i2c_begin_block();
++	i2c_write_data(0x3058, avi, sizeof(avi));
++	if (send_drm)
++		i2c_write_data(0x3102, drm + 1, sizeof(drm) - 1);
++	i2c_end_block();
++	i2c_mask(0x3001, send_drm ? 0x40 : 0x80, 0xc0);
++	i2c_mask(0x3006, send_drm ? 0x80 : 0x00, 0xc0);
++	i2c_cmd_2_1(0x300a, 0x01);
++	i2c_waitset(0x13, 0x80);
++	i2c_cmd_2_1(0x13, 0x80);
++	ret = i2c_exec();
++
++	memcpy(verde_if.avi, avi, sizeof(avi));
++	verde_if.drm_sent = send_drm;
++	if (send_drm)
++		memcpy(verde_if.drm, drm, sizeof(drm));
++	pr_info("verde: InfoFrames vic %u, range %u, %s, DRM %s (%d)\n", verde_if.vic,
++		verde_if.range, verde_if.bt2020 ? "BT.2020" : "default colorimetry",
++		!send_drm ? "off" : verde_if.hdr ? "HDR" : "EOTF 0", ret);
++}
++
++/*
++ * Sequence 0x8a (verde_frl_packet_sequence()) runs in the bridge firmware after link training and writes the
++ * AVI without BT.2020 and the packet enables without DRM, over whatever sceHdmiSetHdrConfig() wrote before the
++ * link was up. Once the link is up, write the HDR announcement again: drop the cached AVI so verde_if_update()
++ * cannot match it. Nothing to do while neither HDR nor BT.2020 is set (what 0x8a wrote is then right).
++ */
++static void verde_frl_resend_infoframes(int seq)
++{
++	msleep(200);	/* let 0x8a finish after the notification */
++	guard(mutex)(&verde_if_lock);
++	if (atomic_read(&frl_check_seq) != seq || (!verde_if.hdr && !verde_if.bt2020))
++		return;
++	memset(verde_if.avi, 0, sizeof(verde_if.avi));
++	verde_if_update();
++}
++
++static const u8 verde_spd[28] = {
++	0x01, 0x19, 0x5f, 0x53, 0x43, 0x45, 0x49, 0x00, 0x00, 0x00, 0x00, 0x50, 0x53, 0x35,
++	[27] = 0x08,
++};
++
++/* VRR registers of the TMDS setup (frl false, refresh from the mode) and of the FRL packet sequence (frl true). */
++static void queueVerdeVrr(unsigned int refresh, bool frl)
++{
++	i2c_write(0x326a, 0x84);
++	if (frl)
++		i2c_write_data(0x3271, (u8[]){0x01, 0x00, 0x00, 0x00}, 4);
++	else
++		i2c_write_data(0x3271, (u8[]){0x01, 0x03, 0x00, refresh}, 4);
++}
++
++/* RGB deeper than 8 bpc goes out only with verde_deep_colour; 4:2:2 has its own depth (0x3033 stays zero). */
++static bool verde_deep(unsigned int bpc, u8 format)
++{
++	return READ_ONCE(verde_deep_colour) && format != PS5_HDMI_422 && bpc > 8;
++}
++
++/*
++ * Verde AVI InfoFrame (0x3058): the mode's VIC, ITC and content type game as on FLAVA3 so TVs pick their
++ * game mode (verde_avi_game), RGB unless the stream is 4:2:2 with verde_infoframes on. The depth (0x3033)
++ * and packet enables (0x3000) are the fixed 8 bpc ones unless verde_deep_colour asks for more bpc.
++ */
++static int setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode, unsigned int bpc, u8 format, bool vrr)
++{
++	u8 vic = drm_match_cea_mode(mode);
++	bool infoframes = READ_ONCE(verde_infoframes) || format != PS5_HDMI_RGB;
++	unsigned int rgb = READ_ONCE(rgb_range);
++	u8 range = rgb <= 2 ? rgb : 0;	/* as FLAVA3: anything else is default */
++	bool game = READ_ONCE(verde_avi_game);
++	bool deep = verde_deep(bpc, format);
++	u8 avi[18], packets[10], depth[9];
++
++	verde_avi(avi, vic, format, false, range, game);
++	verde_packets(packets, false, false, deep);
++	verde_depth(depth, deep ? bpc : 8, format, false);
++	mutex_lock(&verde_if_lock);
++	verde_if.valid = infoframes;
++	verde_if.vic = vic;
++	verde_if.format = format;
++	verde_if.range = range;
++	verde_if.game = game;
++	verde_if.bt2020 = false;
++	verde_if.hdr = false;
++	memcpy(verde_if.avi, avi, sizeof(avi));
++	verde_if.drm_sent = false;
++	mutex_unlock(&verde_if_lock);
++
+ 	i2c_init(0);
+ 	i2c_begin_block();
+ 	i2c_write_data(0x3058, avi, sizeof(avi));
+-	i2c_write_data(0x31d0, (u8[]){0x01, 0x19, 0x5f, 0x53, 0x43, 0x45, 0x49, 0x00, 0x00, 0x00, 0x00, 0x50, 0x53, 0x35, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08}, 28);
++	i2c_write_data(0x31d0, (u8 *)verde_spd, sizeof(verde_spd));
+ 	i2c_end_block();
+ 	i2c_begin_block();
+-	i2c_write_data(0x3033, (u8[]){0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, 9);
++	i2c_write_data(0x3033, depth, sizeof(depth));
+ 	i2c_write_data(0x307a, (u8[]){0x01, 0x0a, 0x70, 0x01, 0x00, 0x00, 0x00, 0x00}, 8);
+-	i2c_write_data(0x3000, (u8[]){0x56, 0xaa, 0x00, 0x24, 0x00, 0xa8, 0x00, 0x00, 0x08, 0x80}, 10);
++	if (vrr)
++		queueVerdeVrr(min(drm_mode_vrefresh(mode), 255), false);
++	i2c_write_data(0x3000, packets, sizeof(packets));
++	if (vrr) {
++		i2c_write(0x3261, 0x01);
++		i2c_write(0x3262, 0x02);
++	}
+ 	i2c_end_block();
+ 	i2c_cmd_2_1(0x300a, 0x01);
+ 	i2c_waitclear(0x300c, 0xf3);
+@@ -1700,15 +2236,224 @@ static void setHdmiBasicVideoConfigVerde(const struct drm_display_mode *mode)
+ 	i2c_mask(0x105, 0x01, 0x03);
+ 	i2c_delay(700);
+ 	i2c_cmd_5_3(0x01);
+-	i2c_exec();
++	return i2c_exec();
+ }
+ 
+-static void setHdmiVideoConfigVerde(const struct drm_display_mode *mode)
++/*
++ * FRL setup for VERDE, in the order the PS5 OS uses (ps5-linux-patches, frl-verde.inc). The sequences are
++ * registered with the firmware, which runs them once the link is trained.
++ */
++
++/* Turn the commands queued since i2c_init() into registered sequence @id. */
++static int verde_register_sequence(u8 id)
+ {
++	u8 seq[255];
++	size_t len = i2c_ctx.msg_cur - i2c_ctx.msg_buf;
++
++	if (len > sizeof(seq))
++		return -E2BIG;
++	seq[0] = id;
++	seq[1] = len;
++	seq[2] = i2c_ctx.msg_hdr->count;
++	seq[3] = 0;
++	memcpy(seq + 4, i2c_ctx.msg_buf + 4, len - 4);
++	i2c_ctx.msg_cur = i2c_ctx.msg_buf + sizeof(*i2c_ctx.msg_hdr);
++	i2c_ctx.msg_hdr->count = 0;
++	i2c_cmd_4_16(seq, len);
++	return i2c_exec();
++}
++
++/* Sequence 0x84: the HDMI side, run by the firmware after training. */
++static int verde_frl_output_sequence(bool vrr)
++{
++	i2c_init(0);
++	i2c_waitset(0x102, 0x01);
++	i2c_cmd_2_1(0x13, 0x10);
++	queueVerdeAudio();
++	i2c_cmd_2_1(0x9200, vrr);
++	i2c_cmd_2_1(0x109, 0x04);
++	i2c_waitclear(0x108, 0x10);
++	i2c_mask(0x108, 0x11, 0x17);
++	i2c_waitset(0x13, 0x40);
++	i2c_cmd_2_1(0x13, 0x40);
++	i2c_cmd_3_5(0x4001, 0x03);
++	i2c_cmd_2_1(0x11, 0x01);
++	return verde_register_sequence(0x84);
++}
++
++/*
++ * Sequence 0x8a: InfoFrames and packet enables, then unmute. No HDR or ALLM here: the HDR InfoFrame
++ * arrives after the video setup (sceHdmiSetHdrConfig()) and is written again once the link is up
++ * (verde_frl_resend_infoframes()); ALLM is not offered on VERDE. VRR (verde_vrr) is in the sequence.
++ */
++static int verde_frl_packet_sequence(u8 vic, u8 format, unsigned int bpc, u8 range, bool game, bool vrr)
++{
++	u8 avi[18], packets[10], depth[9];
++	bool rgb = format == PS5_HDMI_RGB;
++
++	verde_avi(avi, vic, format, false, range, game);
++	verde_packets(packets, false, false, rgb && bpc > 8);
++	verde_depth(depth, bpc, format, true);
++
++	i2c_init(0);
++	i2c_begin_block();
++	i2c_write_data(0x3058, avi, sizeof(avi));
++	i2c_write_data(0x31d0, (u8 *)verde_spd, sizeof(verde_spd));
++	i2c_end_block();
++	i2c_begin_block();
++	i2c_write_data(0x3033, depth, sizeof(depth));
++	i2c_write_data(0x307a, (u8[]){0x01, 0x0a, 0x70, 0x01, 0x00, 0x00, 0x00, 0x00}, 8);
++	if (vrr)
++		queueVerdeVrr(0, true);
++	i2c_write_data(0x3000, packets, sizeof(packets));
++	i2c_end_block();
++	i2c_cmd_2_1(0x300a, 0x01);
++	i2c_waitset(0x13, 0x80);
++	i2c_cmd_2_1(0x13, 0x80);
++	if (vrr) {
++		i2c_cmd_2_1(0x3261, 0x01);
++		i2c_cmd_2_1(0x3262, 0x02);
++		i2c_cmd_2_1(0x300a, 0x01);
++		i2c_waitset(0x13, 0x80);
++		i2c_cmd_2_1(0x13, 0x80);
++	}
++	i2c_mask(0x105, 0x01, 0x03);
++	return verde_register_sequence(0x8a);
++}
++
++/*
++ * One FRL video setup (2160p100/120 in 4:2:2, 2160p60 RGB deeper than 8 bpc). A failed write ends in the
++ * plain initVerde() state, the display is withheld for FRL and amdgpu falls back; the link itself is
++ * checked later by verde_frl_check_fn(). With vrr a failed write is a VRR failure instead: VRR stays off for
++ * the display, nothing is withheld and -EAGAIN asks for the same setup at fixed refresh.
++ */
++static int verde_frl_setup(const struct drm_display_mode *mode, unsigned int bpc, u8 format, bool vrr)
++{
++	u8 vic = drm_match_cea_mode(mode), status = 0, avi[18];
++	unsigned int rgb = READ_ONCE(rgb_range);
++	u8 range = rgb <= 2 ? rgb : 0;	/* as FLAVA3: anything else is default */
++	bool game = READ_ONCE(verde_avi_game);
++	int base = atomic_read(&verde_link_events);
++	u32 crc = READ_ONCE(frl_edid_crc);
++	void (*cb)(void);
++	int ret;
++
++	ret = hdmi_reg_read(0xf3, &status);
++	if (ret)
++		goto fail;
++	initVerdeStatus(status);
++	sceHdmiSetAudioMute(1);
+ 	linkConfigVerde(mode);
+-	configDpLinkTrainingVerde();
+-	setTmdsConfigVerde();
+-	setHdmiBasicVideoConfigVerde(mode);
++	ret = verde_frl_output_sequence(vrr);
++	if (ret)
++		goto fail;
++	ret = verde_frl_packet_sequence(vic, format, bpc, range, game, vrr);
++	if (ret)
++		goto fail;
++	ret = configDpLinkTrainingVerde(vrr);
++	if (ret)
++		goto fail;
++	i2c_init(0);
++	i2c_mask(0x104, 0x02, 0x02);
++	i2c_cmd_5_3(0x02);
++	ret = i2c_exec();
++	if (ret)
++		goto fail;
++
++	verde_avi(avi, vic, format, false, range, game);
++	mutex_lock(&verde_if_lock);
++	verde_if.valid = READ_ONCE(verde_infoframes) || format != PS5_HDMI_RGB;
++	verde_if.vic = vic;
++	verde_if.format = format;
++	verde_if.range = range;
++	verde_if.game = game;
++	verde_if.bt2020 = false;
++	verde_if.hdr = false;
++	memcpy(verde_if.avi, avi, sizeof(avi));
++	verde_if.drm_sent = false;
++	mutex_unlock(&verde_if_lock);
++	pr_info("hdmi: %dx%d@%d over VERDE FRL (VIC %u, format %u, %u-bit)%s\n", mode->hdisplay, mode->vdisplay,
++		drm_mode_vrefresh(mode), vic, format, bpc, vrr ? ", VRR" : "");
++	WRITE_ONCE(verde_link_base, base);
++	/* the link check tells a VRR failure from an FRL one */
++	WRITE_ONCE(verde_frl_vrr_crc, crc);
++	WRITE_ONCE(verde_frl_vrr, vrr);
++	mod_delayed_work(system_dfl_wq, &verde_frl_check_work, msecs_to_jiffies(1500));
++	return 0;
++
++fail:
++	if (vrr) {
++		initVerde();
++		verde_vrr_fail(crc, "FRL setup");
++		return -EAGAIN;
++	}
++	pr_err("hdmi: VERDE FRL setup failed (%d): not offered for this display any more, falling back\n", ret);
++	initVerde();
++	WRITE_ONCE(frl_failed, true);
++	cb = READ_ONCE(frl_fallback_cb);
++	if (cb)
++		cb();
++	return ret;
++}
++
++/*
++ * VRR for this setup: amdgpu asked for it (sceHdmiSetVrrMode()) and the mode and display can have it. A request that
++ * cannot be met is a VRR failure (the official source_vrr && !vrr): the display goes to fixed refresh, set up now,
++ * and amdgpu stops offering VRR. Without hdmi.verde_vrr nothing is asked and this is false without side effects.
++ */
++static bool verde_vrr_start(const struct drm_display_mode *mode, u32 crc)
++{
++	if (!READ_ONCE(verde_vrr_want))
++		return false;
++	if (ps5_hdmi_verde_vrr_allowed(mode))
++		return true;
++	verde_vrr_fail(crc, "the stream is variable, the mode or the display cannot follow");
++	verde_vrr_kick();
++	return false;
++}
++
++/* The TMDS setup in the order it has always had; the first error, if any. */
++static int verde_tmds_setup(const struct drm_display_mode *mode, unsigned int bpc, u8 format, bool vrr)
++{
++	int ret, ret2, ret3;
++
++	linkConfigVerde(mode);
++	ret = configDpLinkTrainingVerde(vrr);
++	ret2 = setTmdsConfigVerde(vrr);
++	ret3 = setHdmiBasicVideoConfigVerde(mode, bpc, format, vrr);
++	return ret ?: ret2 ?: ret3;
++}
++
++/*
++ * 4:2:2 only with verde_infoframes: the AVI then says what amdgpu sends. With it off the bridge gets
++ * the RGB setup it always got, whatever the stream is. The FRL setup (verde_frl) is a different one.
++ * A failed VRR setup is made again once at fixed refresh (the official retry), the bridge starting from
++ * initVerde() as for any setup.
++ */
++static void setHdmiVideoConfigVerde(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422)
++{
++	u8 vic = drm_match_cea_mode(mode);
++	u8 format = yuv422 && READ_ONCE(verde_infoframes) ? PS5_HDMI_422 : PS5_HDMI_RGB;
++	u32 crc = READ_ONCE(frl_edid_crc);
++	bool vrr;
++
++	verde_frl_check_cancel();
++	vrr = verde_vrr_start(mode, crc);
++	if (ps5_mode_frl(vic) || verde_frl_deep(vic, bpc, yuv422)) {
++		u8 frl_format = yuv422 ? PS5_HDMI_422 : PS5_HDMI_RGB;
++
++		if (verde_frl_setup(mode, bpc, frl_format, vrr) == -EAGAIN && vrr) {
++			verde_vrr_kick();
++			verde_frl_setup(mode, bpc, frl_format, false);
++		}
++		return;
++	}
++	if (verde_tmds_setup(mode, bpc, format, vrr) && vrr) {
++		initVerde();
++		verde_vrr_fail(crc, "TMDS setup");
++		verde_vrr_kick();
++		verde_tmds_setup(mode, bpc, format, false);
++	}
+ }
+ 
+ static void setAudioConfigForVerde(int channels)
+@@ -1773,7 +2518,7 @@ void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc
+ 	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3) {
+ 		setHdmiVideoConfigFlava3(mode, bpc, yuv422);
+ 	} else {
+-		setHdmiVideoConfigVerde(mode);
++		setHdmiVideoConfigVerde(mode, bpc, yuv422);
+ 	}
+ }
+ EXPORT_SYMBOL(sceHdmiSetVideoConfig);
+@@ -1782,7 +2527,14 @@ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020)
+ {
+ 	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3) {
+ 		setHdrConfigFlava3(frame, bt2020);
++		return;
+ 	}
++	guard(mutex)(&verde_if_lock);
++	verde_if.bt2020 = bt2020;
++	verde_if.hdr = frame && frame->eotf != HDMI_EOTF_TRADITIONAL_GAMMA_SDR;
++	if (verde_if.hdr)
++		verde_if.frame = *frame;
++	verde_if_update();
+ }
+ EXPORT_SYMBOL(sceHdmiSetHdrConfig);
+ 
+@@ -1796,6 +2548,8 @@ void sceHdmiDeviceSetVideoMute(int mute)
+ 	/* VRR: while the chip switches to follow mode, the follow block unmutes when done */
+ 	if (mute != 1 && READ_ONCE(vrr_follow_pending) && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
+ 		return;
++	if (mute == 1 && hdmi_ic_type != HDMI_IC_TYPE_FLAVA3)
++		verde_frl_check_cancel();
+ 	i2c_init(4);
+ 	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3) {
+ 		i2c_write(0x705f, (mute == 1) << 7);
+@@ -2082,10 +2836,72 @@ EXPORT_SYMBOL(ps5_hdmi_fixup_timing);
+ 
+ bool isHdmiHdrSupported(void)
+ {
+-	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3;
++	return hdmi_ic_type == HDMI_IC_TYPE_FLAVA3 ||
++	       (hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_infoframes));
+ }
+ EXPORT_SYMBOL(isHdmiHdrSupported);
+ 
++/* True on VERDE with verde_deep_colour: amdgpu may then build RGB streams deeper than 8 bpc. */
++bool ps5_hdmi_verde_deep_colour(void)
++{
++	return hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_deep_colour);
++}
++EXPORT_SYMBOL(ps5_hdmi_verde_deep_colour);
++
++/* True on VERDE with verde_frl: 2160p60 RGB may be deeper than 8 bpc, so the connector's max bpc range opens up. */
++bool ps5_hdmi_verde_frl(void)
++{
++	return hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_frl);
++}
++EXPORT_SYMBOL(ps5_hdmi_verde_frl);
++
++/* True where amdgpu applies ps5_hdmi_bpc_limit(): VERDE with verde_deep_colour or verde_frl. */
++bool ps5_hdmi_verde_bpc_limited(void)
++{
++	return hdmi_ic_type == HDMI_IC_TYPE_VERDE && (READ_ONCE(verde_deep_colour) || READ_ONCE(verde_frl));
++}
++EXPORT_SYMBOL(ps5_hdmi_verde_bpc_limited);
++
++/* 2160p60 on VERDE with FRL on and offered: RGB deeper than 8 bpc goes out over FRL, not past the sink's TMDS clock. */
++bool ps5_hdmi_verde_frl_deep(const struct drm_display_mode *mode)
++{
++	return hdmi_ic_type == HDMI_IC_TYPE_VERDE && READ_ONCE(verde_frl) &&
++	       drm_match_cea_mode(mode) == 97 && frl_offer_ok();
++}
++EXPORT_SYMBOL(ps5_hdmi_verde_frl_deep);
++
++/*
++ * Highest bpc amdgpu may try for @mode; FLAVA3 keeps the requested value. On VERDE the HDMI side runs at
++ * the sink's TMDS clock: 8/10/12 bpc RGB need clock, clock * 1.25 and clock * 1.5, capped at 600 MHz, at
++ * 340 MHz without SCDC scrambling (a missing max TMDS clock means 165 MHz). Without verde_deep_colour it is
++ * 8, except 2160p60 over FRL (verde_frl), which keeps the request up to 12.
++ */
++unsigned int ps5_hdmi_bpc_limit(const struct drm_display_mode *mode,
++				const struct drm_display_info *info, unsigned int requested)
++{
++	unsigned int bpc, khz;
++
++	if (hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)
++		return requested;
++	requested = requested ?: 16;
++	/* 2160p60 over FRL carries what the sink and the request allow, whatever its TMDS clock */
++	if (ps5_hdmi_verde_frl_deep(mode))
++		return min(requested, 12U);
++	/* 2160p100/120 over FRL: the DP link decides (12 bpc RGB does not fit, 10 bpc 4:2:2 does) */
++	if (ps5_mode_frl(drm_match_cea_mode(mode)) && frl_offer_ok())
++		return min(requested, 12U);
++	if (!READ_ONCE(verde_deep_colour))
++		return min(requested, 8U);
++	khz = min(info->max_tmds_clock ?: 165000, 600000);
++	if (!info->hdmi.scdc.supported || !info->hdmi.scdc.scrambling.supported)
++		khz = min(khz, 340000U);
++	for (bpc = 12; bpc > 8; bpc -= 2)
++		if (bpc <= requested && (u64)mode->clock * bpc <= (u64)khz * 8)
++			return bpc;
++	return 8;
++}
++EXPORT_SYMBOL(ps5_hdmi_bpc_limit);
++
+ static DEFINE_MUTEX(hdmi_edid_lock);
+ static const struct drm_edid *real_edid;
+ static struct drm_connector *hdmi_connector;
+@@ -2133,7 +2949,7 @@ static void fix_edid(u8 *edid)
+ 	edid[0x7f] = -sum & 0xff;
+ }
+ 
+-/* VERDE has no HDR setup: without the HDR Static Metadata block nothing switches to an HDR output the TV never learns of. */
++/* VERDE without verde_infoframes has no HDR setup: without the HDR Static Metadata block nothing switches to an HDR output the TV never learns of. */
+ static void verde_drop_hdr(u8 *e, int len)
+ {
+ 	int ext = len >= EDID_LENGTH ? e[0x7e] : 0, x, i, j;
+@@ -2378,7 +3194,8 @@ void hdmi_notification_handler(struct icc_msg *msg)
+ 				u8 byte0 = msg->data[4];
+ 
+ 				fix_edid(&msg->data[4]);
+-				if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3)
++				/* read per announcement: toggling verde_infoframes live takes effect when the TV announces again */
++				if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3 && !READ_ONCE(verde_infoframes))
+ 					verde_drop_hdr(&msg->data[4], length);
+ 				frl_note_edid(byte0, &msg->data[4], length);
+ 			}
+@@ -2399,6 +3216,7 @@ void hdmi_notification_handler(struct icc_msg *msg)
+ 			}
+ 			drm_edid_free(old);
+ 			sink_scdc = edid_has_scdc(&msg->data[4], length);
++			WRITE_ONCE(sink_hf_vrr, edid_hf_vrr(&msg->data[4], length));
+ 			ps5_vrr_save_edid(msg);
+ 			pr_info("got real edid\n");
+ 			sceHdmiOutputMode();
+@@ -2431,6 +3249,8 @@ void hdmi_notification_handler(struct icc_msg *msg)
+ 		} else if (msg->data[1] == 0x03 ||
+ 			   (msg->data[1] == 0x04 && hdmi_ic_type == HDMI_IC_TYPE_FLAVA3)) {
+ 			/* link / picture up (Verde 0x03, FLAVA3 0x04): nothing to re-arm */
++			if (msg->data[1] == 0x03)
++				atomic_inc(&verde_link_events);	/* verde_frl_check_fn() */
+ 			if (cancel_delayed_work(&rearm_work))
+ 				pr_info("picture up (0x%02x), re-arm cancelled\n", msg->data[1]);
+ 		}
+diff --git a/include/linux/ps5.h b/include/linux/ps5.h
+index d3254ba..ec7375f 100755
+--- a/include/linux/ps5.h
++++ b/include/linux/ps5.h
+@@ -71,6 +71,13 @@ int icc_query(u8 *query, u8 *reply);
+ 
+ void hdmiSystemResume(void);
+ void sceHdmiInitVideoConfig(void);
++enum ps5_hdmi_format {
++	PS5_HDMI_RGB,
++	PS5_HDMI_444,
++	PS5_HDMI_422,
++	PS5_HDMI_420,
++};
++
+ void sceHdmiSetVideoConfig(const struct drm_display_mode *mode, unsigned int bpc, bool yuv422);
+ void sceHdmiSetHdrConfig(const struct hdmi_drm_infoframe *frame, bool bt2020);
+ void sceHdmiSetAudioConfig(int channels);
+@@ -81,6 +88,13 @@ int getHdmiConfiguration(void);
+ u32 getHdmiDpAudioN(u32 default_n);
+ bool isHdmiModeValid(const struct drm_display_mode *mode, int force_1080p);
+ bool isHdmiHdrSupported(void);
++bool ps5_hdmi_verde_deep_colour(void);
++bool ps5_hdmi_verde_frl(void);
++bool ps5_hdmi_verde_bpc_limited(void);
++struct drm_display_info;
++bool ps5_hdmi_verde_frl_deep(const struct drm_display_mode *mode);
++unsigned int ps5_hdmi_bpc_limit(const struct drm_display_mode *mode,
++				const struct drm_display_info *info, unsigned int requested);
+ void ps5_hdmi_fixup_timing(struct drm_display_mode *mode);
+ struct drm_connector;
+ int ps5_hdmi_add_modes(struct drm_connector *connector);
+@@ -116,6 +130,11 @@ int ps5_hdmi_vrr_range(int *min_hz, int *max_hz, const char **src);
+ void sceHdmiSetVrrMode(bool on);
+ bool sceHdmiGetVrrMode(void);
+ void hdmi_set_frl_fallback(void (*cb)(void));
++/* VERDE VRR (hdmi.verde_vrr): amdgpu sets the callback that withdraws VRR and sets the same mode up again */
++void hdmi_set_vrr_fallback(void (*cb)(void));
++bool ps5_hdmi_verde_vrr(void);
++int ps5_hdmi_vrr_block(void);
++bool ps5_hdmi_verde_vrr_allowed(const struct drm_display_mode *mode);
+ bool ps5_usbc_dp_matches_link(unsigned int aux_index, unsigned int hpd_index,
+ 			      bool bios_usbc);
+ bool ps5_usbc_dp_enabled(void);
