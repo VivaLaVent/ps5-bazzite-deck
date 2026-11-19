@@ -1105,7 +1105,7 @@ index 84ceac8..bfeefb6 100755
 +	u8 vic = drm_match_cea_mode(mode);
 +	bool infoframes = READ_ONCE(verde_infoframes) || format != PS5_HDMI_RGB;
 +	unsigned int rgb = READ_ONCE(rgb_range);
-+	u8 range = rgb <= 2 ? rgb : 0;	/* as FLAVA3: anything else is default */
++	u8 range = !infoframes ? 1 : rgb <= 2 ? rgb : 0;	/* full as always without verde_infoframes; with it, as FLAVA3 */
 +	bool game = READ_ONCE(verde_avi_game);
 +	bool deep = verde_deep(bpc, format);
 +	u8 avi[18], packets[10], depth[9];

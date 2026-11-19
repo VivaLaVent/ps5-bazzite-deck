@@ -2,6 +2,9 @@
 
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
+## [Unreleased]
+- VERDE: HDR at 10/12 bpc, the RGB range and 2160p100/120 over FRL, as switches that are all off by default (`hdmi.verde_infoframes`, `verde_deep_colour`, `verde_frl`; `verde_vrr` experimental), from the official #81 on our display stack; tested on a Slim CFI-2115 with an LG C6 (consultoria-deta, #74). With the switches off VERDE gets the writes it always got; `hdmi.rgb_range` takes effect on VERDE only with `verde_infoframes`
+
 ## [v2.16.2] – 2026-11-19
 Pre-release.
 - Bluetooth: the Linux-only address is the default on the PS5 Pro only; the original PS5 shares the PS5's pairing like the Slim (it works there: Delta, Kurosaki). `ps5-bt-address on|off` still chooses
