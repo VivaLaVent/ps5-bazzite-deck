@@ -2,6 +2,12 @@
 
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
+## [v3.0.1] – 2026-11-21
+Pre-release.
+- FLAVA3: every manual timing goes to the HDMI bridge as +H -V, as 1440p already did: modes with +H +V sync (75 Hz monitors, VESA modes such as 800x600 and 1280x1024) stayed black (`patches/ps5-hdmi-manual-sync.patch`; found by PS5-CachyOS)
+- Loader: soniciso1's ps5-linux-loader at 18e3757 (the official loader merged, with MastaG's fix: an unreadable registry slot drops only that slot's pairings, not all of them; the official 10.xx fix). Our pairing export and Pro 13.00 offset are upstream now, so `loader/patches` keeps four patches
+- The release page describes the loader's `.inputs` file
+
 ## [v3.0] – 2026-11-19
 Stable. Everything since v2.13.
 - DirectMesh is the Vulkan driver of the whole session on the original PS5 and Slim, gamescope included (user environment generator `60-ps5-directmesh`; `ps5-directmesh on|off|status`, `--system` per program); confirmed by VivaLaVent's testing

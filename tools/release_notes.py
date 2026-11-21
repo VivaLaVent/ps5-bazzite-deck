@@ -38,6 +38,7 @@ def files_section(tag, assets):
         (f"bazzite-bootc-loader-{tag}.elf", "the PS5 Linux loader for this release: soniciso1's ps5-linux-loader, which also hands Linux "
                                             "the PS5 Pro GPU firmware, the Wi-Fi firmware and the console's Bluetooth pairings"),
         (f"bazzite-bootc-loader-{tag}.elf.sha256", "loader checksum"),
+        (f"bazzite-bootc-loader-{tag}.elf.inputs", "what the loader was built from; an unchanged loader is reused by the next release"),
         (f"ps5-bazzite-deck-{tag}-update.tar.xz", "the last in-place update for Legacy installs, which are no longer supported"),
         (f"ps5-bazzite-deck-{tag}-update.tar.xz.sha256", "checksum"),
     ] + [(a, "PS5 Linux kernel RPM (used by the bootc image build)") for a in sorted(assets) if a.endswith(".rpm")]

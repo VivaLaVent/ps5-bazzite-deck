@@ -1,0 +1,35 @@
+PS5: HDMI: every manual timing goes to the FLAVA3 bridge as +H -V
+
+The bridge's manual setup (index 0x05) shows nothing for timings with +H +V sync: 75 Hz monitors and
+VESA modes such as 800x600 and 1280x1024 stayed black. ps5_hdmi_fixup_timing() already sent 1440p as
++H -V; now every non-preset timing on FLAVA3 is sent that way too, as long as it carries nothing but
+sync flags. The bridge's own setups (presets) and VERDE are unchanged.
+
+Found by PS5-CachyOS (abrocoma), who tested 1920x1080 @ 75 Hz and VESA modes on two monitors; this is
+our own implementation in our display stack. Compiles without warnings; not run on a console here.
+---
+diff --git a/drivers/ps5/hdmi.c b/drivers/ps5/hdmi.c
+index 0559961fe..77eb285a6 100755
+--- a/drivers/ps5/hdmi.c
++++ b/drivers/ps5/hdmi.c
+@@ -2827,8 +2827,18 @@ void ps5_hdmi_fixup_timing(struct drm_display_mode *m)
+ 	static u32 last_flags;
+ 	bool h, v, pol = false;
+ 
+-	if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3 ||
+-	    m->hdisplay != 2560 || m->vdisplay != 1440)
++	if (hdmi_ic_type != HDMI_IC_TYPE_FLAVA3)
++		return;
++	/* The bridge's manual setup takes +H -V only: timings sent with +H +V (75 Hz monitors, VESA
++	 * modes such as 800x600 and 1280x1024) stay black. Found by PS5-CachyOS. */
++	if ((m->hdisplay != 2560 || m->vdisplay != 1440) && !hdmi_mode_is_preset(m)) {
++		if ((m->flags & (DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC)) &&
++		    (m->flags & ~(DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NHSYNC |
++				  DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NVSYNC)) == 0)
++			m->flags = DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NVSYNC;
++		return;
++	}
++	if (m->hdisplay != 2560 || m->vdisplay != 1440)
+ 		return;
+ 
+ 	h = v = false;
