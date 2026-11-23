@@ -27,20 +27,25 @@ check "system: user-1000.slice floor" "$(v user.slice/user-1000.slice)" "$M"
 check "system: user@1000.service floor" "$(v $U)" "$M"
 check "system: dmem on in user.slice for user-1000.slice" "$(on user.slice)" "on"
 check "system: dmem on in user-1000.slice for user@1000.service" "$(on user.slice/user-1000.slice)" "on"
-check "system: dmem on in user@1000.service for the user's cgroups" "$(on $U)" "on"
+check "system: leaves dmem in the user manager to the session (its files would be root's)" "$(on $U)" "off"
 check "system: leaves the session's floor alone" "$(v "$SESS")" "0"
 chmod a-w "$T/cg/user.slice/dmem.min" "$T/cg/user.slice/user-1000.slice/dmem.min" "$T/cg/$U/dmem.min" "$T/cg/user.slice/cgroup.subtree_control" "$T/cg/user.slice/user-1000.slice/cgroup.subtree_control"
 PS5_CGROUP_ROOT=$T/cg PS5_SELF_CGROUP="/$SESS" sh "$S" self
+check "session: dmem on in the user manager" "$(on $U)" "on"
 check "session: dmem on in app.slice" "$(on $U/app.slice)" "on"
 check "session: dmem on in the session's slice (Max's finding)" "$(on "$SL")" "on"
 check "session: app.slice floor" "$(v $U/app.slice)" "$M"
 check "session: the slice's floor" "$(v "$SL")" "$M"
 check "session: its own cgroup's floor" "$(v "$SESS")" "$M"
 check "session: the root-owned levels untouched" "$(v $U)" "$M"
+mk; chmod a-w "$T/cg/$U/app.slice/dmem.min"
+PS5_CGROUP_ROOT=$T/cg PS5_SELF_CGROUP="/$SESS" sh "$S" self
+check "app.slice's floor root-owned (v3.0.3): skipped" "$(v $U/app.slice)" "0"
+check "app.slice's floor root-owned: the session's slice still gets its floor" "$(v "$SL")" "$M"
+check "app.slice's floor root-owned: the session itself still gets its floor" "$(v "$SESS")" "$M"
 mk; rm "$T/cg/$SL/dmem.min"
 PS5_CGROUP_ROOT=$T/cg PS5_SELF_CGROUP="/$SESS" sh "$S" self
-check "a level without dmem.min stops the walk there" "$(v "$SESS")" "0"
-check "the levels above it still get their floor" "$(v $U/app.slice)" "$M"
+check "a level without dmem.min: the others still get their floor" "$(v "$SESS")/$(v $U/app.slice)" "$M/$M"
 mk; for d in user.slice user.slice/user-1000.slice; do echo "cpu memory" > "$T/cg/$d/cgroup.controllers"; done
 PS5_CGROUP_ROOT=$T/cg sh "$S" 1000
 check "controller not available: not switched on" "$(on user.slice/user-1000.slice)" "off"

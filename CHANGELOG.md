@@ -2,6 +2,10 @@
 
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
+## [v3.0.4] – 2026-11-23
+Pre-release.
+- Game Mode VRAM floor: the session's own part reached nothing in v3.0.3 (`ps5-report`: `session 0 MiB`). The kernel gives the files it creates when a controller is switched on to whoever switched it on, and v3.0.3's system part switched dmem on inside the user manager as root, so `app.slice/dmem.min` was root's; the session walk stopped there. The system part now leaves that to the session, so those files are the user's, and the walk skips a level it can't write instead of stopping (the kernel passes protection on through a level whose own floor is 0). Found and traced by a tester with `sh -x`
+
 ## [v3.0.3] – 2026-11-23
 Pre-release.
 - Game Mode VRAM floor: it never reached the Game Mode session in v3.0.2 (Max). A cgroup only gets `dmem.min` once its parent switches the dmem controller on in `cgroup.subtree_control`, and nothing did that along the chain: user-1000.slice and user@1000.service were still at 0 after boot (their files appeared after `ps5-vram-floor` had run), and the session's slice had dmem available but not on, so the session had no floor. `ps5-vram-floor` now switches dmem on at each level from the top down before setting the floor; tests for both findings

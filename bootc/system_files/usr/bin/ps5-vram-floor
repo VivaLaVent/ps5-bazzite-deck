@@ -4,6 +4,10 @@
 # from user.slice down to the Game Mode session keeps room for it. Found and tested by Delta and Max.
 # A cgroup only has dmem.min once its parent has the dmem controller on in cgroup.subtree_control, and nothing
 # switches it on along this chain (Max), so each level is switched on from the top down before its floor is set.
+# The kernel gives the files it creates then to whoever switched the controller on, so inside the user manager the
+# session does that itself: when root did it, the user's own dmem.min files were root's and couldn't be set (v3.0.3).
+# A level the session can't write is skipped: the kernel passes a parent's protection on to the children using the
+# memory even where a level's own floor is 0, so the session's own floor still counts.
 #   ps5-vram-floor UID    the system's part: user.slice, user-UID.slice, user@UID.service (as root, at user@ start)
 #   ps5-vram-floor self   the session's part: from the user manager down to the session's own cgroup
 # Size in MiB: /etc/ps5-bazzite-deck/vram-floor (default 512; 0 switches the protection off).
@@ -29,10 +33,9 @@ case "$1" in
             case "${d%/*}" in */user@*.service) break ;; esac
             d=${d%/*}
         done
-        for d in $chain; do floor "$d" || break; done ;;
+        for d in $chain; do floor "$d"; done ;;
     ''|*[!0-9]*) echo "usage: ps5-vram-floor UID | self"; exit 1 ;;
     *)  U=$R/user.slice/user-$1.slice/user@$1.service
-        for d in "$R/user.slice" "$R/user.slice/user-$1.slice" "$U"; do floor "$d"; done
-        dmem_on "$U" ;;
+        for d in "$R/user.slice" "$R/user.slice/user-$1.slice" "$U"; do floor "$d"; done ;;
 esac
 exit 0
