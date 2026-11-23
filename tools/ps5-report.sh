@@ -172,6 +172,10 @@ k | grep -o -m2 -e 'VRAM: [0-9]*M.*' -e 'GTT: [0-9]*M.*' | sed 's/^/  /'
 journalctl -b -u ps5-first-boot --no-pager -o cat 2>/dev/null | tail -3 | sed 's/^/  /'
 command -v ps5-perf >/dev/null && ps5-perf status | sed 's/^/  /'
 command -v ps5-directmesh >/dev/null && echo "  $(ps5-directmesh status)"
+vfl() { cat "$@" 2>/dev/null | awk '$1 == "drm/0000:20:00.0/vram" { print $2; exit }'; }
+F=$(vfl /sys/fs/cgroup/user.slice/dmem.min); G=$(vfl /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice/app-gamescope*/gamescope-session-plus@*.service/dmem.min)
+mib() { if [ -n "$1" ]; then echo "$(($1 / 1048576)) MiB"; else echo "$2"; fi; }
+echo "  VRAM floor for Game Mode: system $(mib "$F" "not set"), session $(mib "$G" "not running")"
 
 if [ -e /run/ostree-booted ]; then
   echo; echo "=== bootc"

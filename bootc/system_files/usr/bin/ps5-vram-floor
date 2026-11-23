@@ -1,0 +1,27 @@
+#!/bin/sh
+# Keeps VRAM for Game Mode's compositor. gamescope's scanout buffer must stay in VRAM; when a game filled VRAM it
+# was pushed out and gamescope failed ("Failed to pin framebuffer"), dropping out of Game Mode. Device-memory cgroup
+# protection (dmem.min) on every cgroup from user.slice down to the Game Mode session keeps it in VRAM.
+# Found and tested by Delta and Max.
+#   ps5-vram-floor UID    the system's part of the chain (run as root when the user manager starts)
+#   ps5-vram-floor self   the session's own part, from its cgroup up to the user manager
+# Size in MiB: /etc/ps5-bazzite-deck/vram-floor (default 512; 0 switches the protection off).
+R=${PS5_CGROUP_ROOT:-/sys/fs/cgroup}
+MIB=$(cat /etc/ps5-bazzite-deck/vram-floor 2>/dev/null || echo 512)
+case "$MIB" in ''|*[!0-9]*) MIB=512 ;; esac
+set_min() { [ -w "$1/dmem.min" ] && echo "drm/0000:20:00.0/vram $((MIB * 1024 * 1024))" > "$1/dmem.min" 2>/dev/null; }
+case "$1" in
+    self)
+        c=${PS5_SELF_CGROUP:-$(sed -n 's/^0:://p' /proc/self/cgroup)}
+        d=$R$c
+        while [ -n "$c" ] && [ "$d" != "$R" ]; do
+            set_min "$d" || break
+            case "${d##*/}" in user@*.service) break ;; esac
+            d=${d%/*}
+        done ;;
+    ''|*[!0-9]*) echo "usage: ps5-vram-floor UID | self"; exit 1 ;;
+    *)  for d in "$R/user.slice" "$R/user.slice/user-$1.slice" "$R/user.slice/user-$1.slice/user@$1.service"; do
+            set_min "$d"
+        done ;;
+esac
+exit 0

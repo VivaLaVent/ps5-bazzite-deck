@@ -1,9 +1,18 @@
 # PS5 Bazzite Deck. gamescope-session-plus sources this after Bazzite's own session file and before it starts gamescope.
+
+# VRAM floor for this session (ps5-vram-floor): gamescope's scanout stays in VRAM when a game fills it
+/usr/bin/ps5-vram-floor self
+# DirectMesh is for Steam and the games, not for gamescope itself: as the compositor's driver it drew a coloured block
+# on screen in Game Mode (#78). gamescope starts without it; post_gamescope_start, which runs once gamescope is up and
+# before Steam starts, gives it back to everything started after that.
+PS5_DIRECTMESH=
+case "${VK_DRIVER_FILES:-}" in */directmesh/*) PS5_DIRECTMESH=$VK_DRIVER_FILES; unset VK_DRIVER_FILES ;; esac
 # When gamescope dies and Steam doesn't exit (seen after GPU faults), the session never ends: the screen stays on the
 # console and the mangoapp loop spins. If the session is still there 10 s later, end its programs so it starts again.
 eval "$(declare -f post_gamescope_start | sed '1s/^post_gamescope_start/ps5_session_post_gamescope_start/')"
 declare -F ps5_session_post_gamescope_start >/dev/null || ps5_session_post_gamescope_start() { :; }
 post_gamescope_start() {
+	[ -z "$PS5_DIRECTMESH" ] || export VK_DRIVER_FILES=$PS5_DIRECTMESH
 	ps5_session_post_gamescope_start
 	[ -n "${gamescope_pid:-}" ] || return 0
 	(

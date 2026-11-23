@@ -7,13 +7,13 @@
 # 32-bit programs keep the system driver. On a PS5 Pro, whose GPU DirectMesh doesn't cover, nothing changes.
 ICD=/usr/share/directmesh/icd.d/radeon_icd.x86_64.json
 OFF=/etc/ps5-bazzite-deck/directmesh-off
-usable() { [ -f "$ICD" ] && grep -qsiE '^0x13(fb|db)$' /sys/bus/pci/devices/0000:20:00.0/device; }
+usable() { [ -f "$ICD" ] && grep -qsiE '^0x13(fb|fc|db)$' /sys/bus/pci/devices/0000:20:00.0/device; }
 case "$1" in
     on)     sudo rm -f "$OFF" && echo "DirectMesh on for the whole session: restart to apply"; exit ;;
     off)    sudo mkdir -p "${OFF%/*}" && sudo touch "$OFF" && echo "DirectMesh off, the system driver everywhere: restart to apply"; exit ;;
     status) if ! usable; then echo "DirectMesh: not used (not an original PS5 or Slim, or not in this image)"
             elif [ -e "$OFF" ]; then echo "DirectMesh: off (ps5-directmesh on)"
-            else echo "DirectMesh: on for the whole session (ps5-directmesh off)"; fi; exit ;;
+            else echo "DirectMesh: on for Steam, games and desktop programs (ps5-directmesh off)"; fi; exit ;;
     --system) shift; unset VK_DRIVER_FILES; [ $# -gt 0 ] || exit 0; exec "$@" ;;
 esac
 [ $# -gt 0 ] || { echo "usage: ps5-directmesh on|off|status, or as a launch option: ps5-directmesh [--system] %command%"; exit 1; }

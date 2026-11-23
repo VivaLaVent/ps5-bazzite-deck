@@ -2,6 +2,13 @@
 
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
+## [v3.0.2] – 2026-11-23
+Pre-release.
+- Game Mode: gamescope itself no longer runs on DirectMesh, which made it draw a coloured block on screen on the original PS5 (#78, gone with `ps5-directmesh off`). The session hook takes `VK_DRIVER_FILES` out before gamescope starts and `post_gamescope_start` gives it back, so Steam and the games keep DirectMesh
+- Game Mode keeps 512 MiB of VRAM for its compositor (device-memory cgroup protection, `dmem.min`, from user.slice down to the Game Mode session): gamescope's scanout buffer was pushed out of VRAM when a game filled it, so gamescope failed to pin it ("Failed to pin framebuffer") and dropped to the desktop. `ps5-vram-floor` (root part from a `user@.service` drop-in, session part from the Game Mode hook); size in `/etc/ps5-bazzite-deck/vram-floor`, 0 switches it off. Found and tested by Delta and Max (Returnal, Rift Apart, Miles Morales, Avowed, Hookshot 3/3 at 4 GiB VRAM or more)
+- Pins: image builder 03b59ab to 8a04f65 and Wi-Fi driver 3d81cba to 6e87c85, where upstream applies the TDLS patch itself; our copy (`patches/mwifiex/ps5-iw620-no-tdls.patch`) is removed and our two remaining driver patches are applied after upstream's last one. The resulting driver source is identical
+- DirectMesh also on original PS5 consoles reporting GPU 1002:13fc (a later revision, already named in the kernel's display code): its PCI list, the session generator and `ps5-directmesh` only knew 13fb and 13db, so these consoles stayed on the standard driver and `ps5-directmesh status` called them "not an original PS5 or Slim"
+
 ## [v3.0.1] – 2026-11-21
 Pre-release.
 - FLAVA3: every manual timing goes to the HDMI bridge as +H -V, as 1440p already did: modes with +H +V sync (75 Hz monitors, VESA modes such as 800x600 and 1280x1024) stayed black (`patches/ps5-hdmi-manual-sync.patch`; found by PS5-CachyOS)

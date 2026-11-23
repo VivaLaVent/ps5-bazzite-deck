@@ -7,10 +7,10 @@ PATCHES=$(cd "${PATCHES:-$SRC/patches}" && pwd)
 
 REPO="${REPO:-$HOME/ps5-build-7.3}"
 OLD="${OLD:-$HOME/ps5-linux-image}"
-BUILDER_COMMIT=03b59ab
+BUILDER_COMMIT=8a04f65
 PATCHES_BRANCH=shitshow
 KERNEL_TAG=v7.3.5
-MWIFIEX_COMMIT=3d81cba
+MWIFIEX_COMMIT=6e87c85
 
 [ -d "$REPO" ] && { echo "$REPO already exists. Remove it (rm -rf $REPO) or change REPO at the top of this script."; exit 1; }
 for t in git docker; do command -v $t >/dev/null || { echo "missing tool: $t"; exit 1; }; done
@@ -25,7 +25,7 @@ echo "==> 2. builder fixes"
 # 2a. Wi-Fi driver: ps5-linux-mwifiex at a fixed commit; the builder applies its patches and sets ext_scan=2
 B=docker/kernel-builder/build.sh
 sed -i 's/MWIFIEX_REF:-main/MWIFIEX_REF:-'"$MWIFIEX_COMMIT"'/; s/^git -C "$PS5_MW" checkout "$MWIFIEX_REF" 2>\/dev\/null || true$/git -C "$PS5_MW" checkout -q "$MWIFIEX_REF"/' "$B"
-grep -q "checkout -q \"\$MWIFIEX_REF\"" "$B" && grep -q "ps5-iw620-fresh-fw.patch" "$B" && grep -q " ext_scan=2 " "$B" && ! grep -q "CONFIG_OBJTOOL=" "$B" || { echo "wifi driver edit failed"; exit 1; }
+grep -q "checkout -q \"\$MWIFIEX_REF\"" "$B" && grep -q "ps5-iw620-no-tdls.patch" "$B" && grep -q " ext_scan=2 " "$B" && ! grep -q "CONFIG_OBJTOOL=" "$B" || { echo "wifi driver edit failed"; exit 1; }
 # 2c. pahole 1.31 instead of Debian trixie's 1.30, whose BTF Bazzite's LAVD scheduler (sched_ext) can't load
 D=docker/kernel-builder/Dockerfile
 sed -i 's/ dwarves / cmake git libdw-dev libelf-dev zlib1g-dev /' "$D"
@@ -42,7 +42,7 @@ grep -q "acmel/dwarves" "$D" && ! grep -q " dwarves " "$D" || { echo "pahole edi
 DP=("$PATCHES"/mwifiex/*.patch)
 for ((i = ${#DP[@]} - 1; i >= 0; i--)); do
   p=${DP[i]}; [ -e "$p" ] || continue
-  sed -i '/ps5-iw620-fresh-fw.patch"$/a git -C "$NXP_MW" apply "/ps5-linux-patches/'"$(basename "$p")"'"' "$B"
+  sed -i '/ps5-iw620-no-tdls.patch"$/a git -C "$NXP_MW" apply "/ps5-linux-patches/'"$(basename "$p")"'"' "$B"
   grep -q "/ps5-linux-patches/$(basename "$p")" "$B" || { echo "driver patch $(basename "$p") not wired in"; exit 1; }
 done
 grep -q -- '-v "$PATCHES_DIR":/ps5-linux-patches' build_image.sh || { echo "builder no longer mounts work/ps5-linux-patches"; exit 1; }

@@ -14,5 +14,5 @@ None are pending. What we sent before went upstream or no longer has a target:
 | SDR HDR metadata as SDR | in the official ps5-linux-patches #81 |
 | CPU clock: off on the Pro, rate limit; Pro Bluetooth | sent to rmux's repository (#8 to #10), lost when it was removed |
 
-`../mwifiex/ps5-iw620-no-tdls.patch` stays while our pins are before the merge; when they move past it, it goes, or
-`build.sh` applies it twice.
+From v3.0.2 the pins in `build.sh` (image builder 8a04f65, Wi-Fi driver 6e87c85) are past that merge, so our copy of
+the TDLS patch is gone: the builder applies upstream's. `../mwifiex` keeps the two bounded waits upstream doesn't have.

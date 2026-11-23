@@ -6,5 +6,5 @@ ICD=/usr/share/directmesh/icd.d/radeon_icd.x86_64.json
 [ -z "${VK_DRIVER_FILES:-}" ] || exit 0
 [ ! -e /etc/ps5-bazzite-deck/directmesh-off ] || exit 0
 [ -f "$ICD" ] || exit 0
-grep -qsiE '^0x13(fb|db)$' /sys/bus/pci/devices/0000:20:00.0/device || exit 0
+grep -qsiE '^0x13(fb|fc|db)$' /sys/bus/pci/devices/0000:20:00.0/device || exit 0
 echo "VK_DRIVER_FILES=$ICD:/usr/share/vulkan/icd.d/radeon_icd.i686.json"
