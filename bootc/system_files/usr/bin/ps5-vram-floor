@@ -1,27 +1,38 @@
 #!/bin/sh
-# Keeps VRAM for Game Mode's compositor. gamescope's scanout buffer must stay in VRAM; when a game filled VRAM it
-# was pushed out and gamescope failed ("Failed to pin framebuffer"), dropping out of Game Mode. Device-memory cgroup
-# protection (dmem.min) on every cgroup from user.slice down to the Game Mode session keeps it in VRAM.
-# Found and tested by Delta and Max.
-#   ps5-vram-floor UID    the system's part of the chain (run as root when the user manager starts)
-#   ps5-vram-floor self   the session's own part, from its cgroup up to the user manager
+# Keeps VRAM for Game Mode. gamescope's scanout buffers must be in VRAM; when a game filled VRAM, pinning one failed
+# ("Failed to pin framebuffer") and Game Mode dropped out. Device-memory cgroup protection (dmem.min) on every cgroup
+# from user.slice down to the Game Mode session keeps room for it. Found and tested by Delta and Max.
+# A cgroup only has dmem.min once its parent has the dmem controller on in cgroup.subtree_control, and nothing
+# switches it on along this chain (Max), so each level is switched on from the top down before its floor is set.
+#   ps5-vram-floor UID    the system's part: user.slice, user-UID.slice, user@UID.service (as root, at user@ start)
+#   ps5-vram-floor self   the session's part: from the user manager down to the session's own cgroup
 # Size in MiB: /etc/ps5-bazzite-deck/vram-floor (default 512; 0 switches the protection off).
 R=${PS5_CGROUP_ROOT:-/sys/fs/cgroup}
 MIB=$(cat /etc/ps5-bazzite-deck/vram-floor 2>/dev/null || echo 512)
 case "$MIB" in ''|*[!0-9]*) MIB=512 ;; esac
-set_min() { [ -w "$1/dmem.min" ] && echo "drm/0000:20:00.0/vram $((MIB * 1024 * 1024))" > "$1/dmem.min" 2>/dev/null; }
+dmem_on() {
+    grep -qw dmem "$1/cgroup.subtree_control" 2>/dev/null && return 0
+    grep -qw dmem "$1/cgroup.controllers" 2>/dev/null || return 1
+    echo +dmem > "$1/cgroup.subtree_control" 2>/dev/null
+}
+floor() {
+    dmem_on "${1%/*}"
+    [ -w "$1/dmem.min" ] && echo "drm/0000:20:00.0/vram $((MIB * 1024 * 1024))" > "$1/dmem.min" 2>/dev/null
+}
 case "$1" in
     self)
         c=${PS5_SELF_CGROUP:-$(sed -n 's/^0:://p' /proc/self/cgroup)}
-        d=$R$c
-        while [ -n "$c" ] && [ "$d" != "$R" ]; do
-            set_min "$d" || break
-            case "${d##*/}" in user@*.service) break ;; esac
+        case "$c" in */user@*.service/*) ;; *) exit 0 ;; esac
+        d=$R$c; chain=
+        while :; do
+            chain="$d${chain:+ $chain}"
+            case "${d%/*}" in */user@*.service) break ;; esac
             d=${d%/*}
-        done ;;
+        done
+        for d in $chain; do floor "$d" || break; done ;;
     ''|*[!0-9]*) echo "usage: ps5-vram-floor UID | self"; exit 1 ;;
-    *)  for d in "$R/user.slice" "$R/user.slice/user-$1.slice" "$R/user.slice/user-$1.slice/user@$1.service"; do
-            set_min "$d"
-        done ;;
+    *)  U=$R/user.slice/user-$1.slice/user@$1.service
+        for d in "$R/user.slice" "$R/user.slice/user-$1.slice" "$U"; do floor "$d"; done
+        dmem_on "$U" ;;
 esac
 exit 0

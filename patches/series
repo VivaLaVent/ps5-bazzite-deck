@@ -9,3 +9,4 @@ ps5-gpu-reset-guard.patch   # official #81: no full GPU reset on PS5 (it fails a
 ps5-salina-xhci.patch   # official #83: a burst of events no longer kills the Salina xHCI (Bluetooth); poller message quiet
 ps5-verde-hdmi.patch   # VERDE: HDR at 10/12 bpc, RGB range and 4K over FRL, all opt-in; VRR experimental (official #81, VERDE part)
 ps5-hdmi-manual-sync.patch   # FLAVA3: every manual timing as +H -V (75 Hz monitors, VESA modes; found by PS5-CachyOS)
+ps5-scanout-reserve.patch      # amdgpu.ps5_scanout_reserve: VRAM only framebuffer pins may use (off by default; to test against "Failed to pin framebuffer")

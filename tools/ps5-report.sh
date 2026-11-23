@@ -176,6 +176,8 @@ vfl() { cat "$@" 2>/dev/null | awk '$1 == "drm/0000:20:00.0/vram" { print $2; ex
 F=$(vfl /sys/fs/cgroup/user.slice/dmem.min); G=$(vfl /sys/fs/cgroup/user.slice/user-*.slice/user@*.service/app.slice/app-gamescope*/gamescope-session-plus@*.service/dmem.min)
 mib() { if [ -n "$1" ]; then echo "$(($1 / 1048576)) MiB"; else echo "$2"; fi; }
 echo "  VRAM floor for Game Mode: system $(mib "$F" "not set"), session $(mib "$G" "not running")"
+R=$(cat /sys/module/amdgpu/parameters/ps5_scanout_reserve 2>/dev/null)
+if [ -n "$R" ]; then echo "  VRAM kept for the display (amdgpu.ps5_scanout_reserve): $R MiB"; else echo "  VRAM kept for the display: not in this kernel"; fi
 
 if [ -e /run/ostree-booted ]; then
   echo; echo "=== bootc"

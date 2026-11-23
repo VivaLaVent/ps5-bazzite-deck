@@ -2,6 +2,12 @@
 
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
+## [v3.0.3] – 2026-11-23
+Pre-release.
+- Game Mode VRAM floor: it never reached the Game Mode session in v3.0.2 (Max). A cgroup only gets `dmem.min` once its parent switches the dmem controller on in `cgroup.subtree_control`, and nothing did that along the chain: user-1000.slice and user@1000.service were still at 0 after boot (their files appeared after `ps5-vram-floor` had run), and the session's slice had dmem available but not on, so the session had no floor. `ps5-vram-floor` now switches dmem on at each level from the top down before setting the floor; tests for both findings
+- Kernel: `amdgpu.ps5_scanout_reserve=<MiB>`, off by default (`patches/ps5-scanout-reserve.patch`), to test against "Failed to pin framebuffer". VRAM that only a buffer being pinned for scanout may use, the way amdgpu already keeps 8 MiB for kernel buffers; other allocations are turned away from it and go to GTT, so a new framebuffer (the Steam overlay, the Quick Access Menu) finds room without evicting. Writable at runtime; 0 leaves the allocation logic as upstream's. `ps5-report` shows the value
+- Correction to v3.0.2: the Game Mode VRAM floor lets games start that failed with "Failed to pin framebuffer", but does not stop the failure after the overlay has been opened several times (Delta). Its notes and the wiki no longer call it a fix
+
 ## [v3.0.2] – 2026-11-23
 Pre-release.
 - Game Mode: gamescope itself no longer runs on DirectMesh, which made it draw a coloured block on screen on the original PS5 (#78, gone with `ps5-directmesh off`). The session hook takes `VK_DRIVER_FILES` out before gamescope starts and `post_gamescope_start` gives it back, so Steam and the games keep DirectMesh

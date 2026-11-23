@@ -1,0 +1,99 @@
+PS5: amdgpu: a VRAM reserve only framebuffer pins may use (amdgpu.ps5_scanout_reserve, off by default)
+
+The PS5's display path needs its framebuffers in VRAM: amdgpu.sg_display=1 stops the console from starting. When
+games fill VRAM, pinning a new framebuffer (a new gamescope swapchain: the Steam overlay, the Quick Access Menu)
+has to evict other buffers first, and when that fails DRM logs "Failed to pin framebuffer with error -12" and
+Game Mode drops out. Cgroup protection (dmem.min) lets games start but does not stop this (Delta).
+
+amdgpu already keeps 8 MiB of VRAM that only kernel buffers may use, by lowering the limit for everything else in
+amdgpu_vram_mgr_new(). This adds a second reserve of amdgpu.ps5_scanout_reserve MiB (at most half of VRAM) that
+only a buffer being placed by amdgpu_bo_pin() may use: the pin sets bo->ps5_pinning around its ttm_bo_validate().
+Other allocations are refused VRAM once they would reach into the reserve (the buffer's own size counts, so one
+large allocation cannot take it) and fall back to GTT as they do when VRAM is full. A pin then finds room without
+evicting.
+
+0 (the default) leaves the allocation logic exactly as upstream's. The parameter is writable at runtime
+(/sys/module/amdgpu/parameters/ps5_scanout_reserve) and applies to allocations made after the change.
+
+Compiles without warnings on Linux 7.3.5; not run on a console. Idea: Delta ("a pinned VRAM protected buffer").
+---
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_object.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_object.c
+index ee366d729..a8667843f 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_object.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_object.c
+@@ -999,7 +999,9 @@ int amdgpu_bo_pin(struct amdgpu_bo *bo, u32 domain)
+ 			bo->placements[i].flags |= TTM_PL_FLAG_CONTIGUOUS;
+ 	}
+ 
++	bo->ps5_pinning = true;
+ 	r = ttm_bo_validate(&bo->tbo, &bo->placement, &ctx);
++	bo->ps5_pinning = false;
+ 	if (unlikely(r)) {
+ 		dev_err(adev->dev, "%p pin failed\n", bo);
+ 		goto error;
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_object.h b/drivers/gpu/drm/amd/amdgpu/amdgpu_object.h
+index ff11a0903..100d7aa3a 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_object.h
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_object.h
+@@ -109,6 +109,8 @@ struct amdgpu_bo {
+ 	struct ttm_buffer_object	tbo;
+ 	struct ttm_bo_kmap_obj		kmap;
+ 	u64				flags;
++	/* PS5: set while amdgpu_bo_pin() places the buffer, which may then use the scanout reserve */
++	bool				ps5_pinning;
+ 	/* per VM structure for page tables and with virtual addresses */
+ 	struct amdgpu_vm_bo_base	*vm_bo;
+ 	/* Constant after initialization */
+diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu_vram_mgr.c b/drivers/gpu/drm/amd/amdgpu/amdgpu_vram_mgr.c
+index 249f07f30..850dbb25d 100644
+--- a/drivers/gpu/drm/amd/amdgpu/amdgpu_vram_mgr.c
++++ b/drivers/gpu/drm/amd/amdgpu/amdgpu_vram_mgr.c
+@@ -441,6 +441,11 @@ int amdgpu_vram_mgr_query_address_block_info(struct amdgpu_vram_mgr *mgr,
+  *
+  * Allocate VRAM for the given BO.
+  */
++static unsigned int ps5_scanout_reserve;
++module_param(ps5_scanout_reserve, uint, 0644);
++MODULE_PARM_DESC(ps5_scanout_reserve,
++		 "PS5: MiB of VRAM kept for buffers being pinned for scanout (default 0 = off)");
++
+ static int amdgpu_vram_mgr_new(struct ttm_resource_manager *man,
+ 			       struct ttm_buffer_object *tbo,
+ 			       const struct ttm_place *place,
+@@ -449,7 +454,7 @@ static int amdgpu_vram_mgr_new(struct ttm_resource_manager *man,
+ 	struct amdgpu_vram_mgr *mgr = to_vram_mgr(man);
+ 	struct amdgpu_device *adev = to_amdgpu_device(mgr);
+ 	struct amdgpu_bo *bo = ttm_to_amdgpu_bo(tbo);
+-	u64 vis_usage = 0, max_bytes, min_block_size;
++	u64 vis_usage = 0, max_bytes, min_block_size, ps5_reserve = 0;
+ 	struct amdgpu_vram_mgr_resource *vres;
+ 	u64 size, remaining_size, lpfn, fpfn;
+ 	unsigned int adjust_dcc_size = 0;
+@@ -467,6 +472,15 @@ static int amdgpu_vram_mgr_new(struct ttm_resource_manager *man,
+ 	max_bytes = adev->gmc.mc_vram_size;
+ 	if (tbo->type != ttm_bo_type_kernel)
+ 		max_bytes -= AMDGPU_VM_RESERVED_VRAM;
++	/*
++	 * PS5: the display needs its framebuffers in VRAM (amdgpu.sg_display=1 does not work on this
++	 * hardware). When games fill VRAM, pinning a new framebuffer has to evict first, and that fails
++	 * ("Failed to pin framebuffer with error -12"). Keep the last ps5_scanout_reserve MiB for buffers
++	 * that are being pinned; everything else is turned away from it and falls back to GTT.
++	 */
++	if (tbo->type != ttm_bo_type_kernel && !bo->ps5_pinning)
++		ps5_reserve = min_t(u64, (u64)READ_ONCE(ps5_scanout_reserve) << 20, max_bytes / 2);
++	max_bytes -= ps5_reserve;
+ 
+ 	if (bo->flags & AMDGPU_GEM_CREATE_VRAM_CONTIGUOUS) {
+ 		pages_per_block = ~0ul;
+@@ -487,8 +501,9 @@ static int amdgpu_vram_mgr_new(struct ttm_resource_manager *man,
+ 
+ 	ttm_resource_init(tbo, place, &vres->base);
+ 
+-	/* bail out quickly if there's likely not enough VRAM for this BO */
+-	if (ttm_resource_manager_usage(man) > max_bytes) {
++	/* bail out quickly if there's likely not enough VRAM for this BO; with the PS5 reserve the
++	 * buffer itself counts, or one large allocation could still take the reserve */
++	if (ttm_resource_manager_usage(man) + (ps5_reserve ? tbo->base.size : 0) > max_bytes) {
+ 		r = -ENOSPC;
+ 		goto error_fini;
+ 	}
