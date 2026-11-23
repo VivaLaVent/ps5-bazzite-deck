@@ -3,7 +3,7 @@
 Changes per release. Upstream versions are in each release's `VERSIONS.md`.
 
 ## [v3.0.4] – 2026-11-23
-Pre-release.
+Stable (promoted after the pre-release). Everything since v3.0 is in v3.0.1 to v3.0.4 below.
 - Game Mode VRAM floor: the session's own part reached nothing in v3.0.3 (`ps5-report`: `session 0 MiB`). The kernel gives the files it creates when a controller is switched on to whoever switched it on, and v3.0.3's system part switched dmem on inside the user manager as root, so `app.slice/dmem.min` was root's; the session walk stopped there. The system part now leaves that to the session, so those files are the user's, and the walk skips a level it can't write instead of stopping (the kernel passes protection on through a level whose own floor is 0). Found and traced by a tester with `sh -x`
 
 ## [v3.0.3] – 2026-11-23
